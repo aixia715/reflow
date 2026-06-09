@@ -19,7 +19,7 @@ def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
 
     健壮性：UTF-8 BOM 头、CRLF、带引号含逗号字段、位号首尾空格。
     """
-    # 去掉 UTF-8 BOM 头；csv 模块按 \n/\r\n 都能正确分行
+    # 去掉 UTF-8 BOM 头（U+FEFF）；csv 模块按 \n/\r\n 都能正确分行
     if text.startswith("﻿"):
         text = text[1:]
 
@@ -45,13 +45,13 @@ def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
                     continue  # 合并格内的空段（如尾随逗号）忽略
                 problems.append(CsvProblem("empty_reference", "", "位号为空"))
                 continue
-            if part == "":
-                problems.append(CsvProblem("empty_part", ref, "Part 为空"))
             if ref in seen:
                 problems.append(
                     CsvProblem("duplicate", ref, f"位号重复（已有 Part={seen[ref]}）")
                 )
                 continue
+            if part == "":
+                problems.append(CsvProblem("empty_part", ref, "Part 为空"))
             seen[ref] = part
             entries.append(CsvEntry(ref, part))
 

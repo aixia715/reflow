@@ -1,3 +1,5 @@
+import pytest
+
 from app.csv_import import parse_bom_csv, CsvEntry, CsvProblem
 
 
@@ -42,3 +44,18 @@ def test_empty_part_reported_but_entry_kept():
     entries, problems = parse_bom_csv(csv)
     assert entries == [CsvEntry("R9", "")]
     assert any(p.kind == "empty_part" and p.reference == "R9" for p in problems)
+
+
+def test_missing_required_columns_raises():
+    with pytest.raises(ValueError):
+        parse_bom_csv("Item,Quantity\n1,2\n")
+
+
+def test_duplicate_with_empty_part_does_not_emit_empty_part_problem():
+    # 首条 R1=10k 进入 entries；第二条 R1 是重复且 Part 为空，
+    # 应只报 duplicate，不应为这个被丢弃的重复行误报 empty_part。
+    csv = "Reference,Part\nR1,10k\nR1,\n"
+    entries, problems = parse_bom_csv(csv)
+    assert entries == [CsvEntry("R1", "10k")]
+    assert any(p.kind == "duplicate" and p.reference == "R1" for p in problems)
+    assert not any(p.kind == "empty_part" for p in problems)
