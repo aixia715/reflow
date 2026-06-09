@@ -82,3 +82,14 @@ def test_edit_history_node_returns_conflict_fragment(client):
     r = client.post(f"/board/{board_id}/node/{root}/edit",
                     data={"reference": "R1", "op": "modify", "part": "22k"})
     assert "冲突" in r.text or "采用修正值" in r.text
+
+
+def test_log_page_lists_edits(client):
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    r = client.get(f"/board/{board_id}/log")
+    assert r.status_code == 200
+    assert "R1" in r.text
+    assert "direct" in r.text or "直接" in r.text

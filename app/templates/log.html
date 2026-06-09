@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/board/{{ board_id }}">← 状态图</a></p>
+<h1>审计日志</h1>
+<table>
+  <tr><th>节点</th><th>位号</th><th>旧值</th><th>新值</th><th>操作</th><th>来源</th><th>时间</th><th>备注</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>#{{ r.node_id }}</td><td>{{ r.reference }}</td>
+    <td>{{ r.old_part or '—' }}</td><td>{{ r.new_part or '—' }}</td>
+    <td>{{ r.op }}</td>
+    <td>{{ '直接' if r.source == 'direct' else '上游传播' }}</td>
+    <td>{{ r.created_at }}</td><td>{{ r.note or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}
