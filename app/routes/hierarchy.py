@@ -11,7 +11,15 @@ router = APIRouter()
 @router.get("/")
 def home(request: Request):
     conn = get_conn()
-    versions = models.list_bom_versions(conn)
+    versions = []
+    for v in models.list_bom_versions(conn):
+        boards = models.list_boards(conn, v["board_name"], v["pcb_version"], v["bom_version"])
+        versions.append({
+            "board_name": v["board_name"],
+            "pcb_version": v["pcb_version"],
+            "bom_version": v["bom_version"],
+            "boards": boards,
+        })
     return templates.TemplateResponse(request, "home.html", {"versions": versions})
 
 

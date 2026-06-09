@@ -13,6 +13,13 @@
       <input name="board_uid" placeholder="单板ID" required>
       <button>+ 新建单板</button>
     </form>
+    {% if v.boards %}
+    <ul>
+      {% for b in v.boards %}
+      <li><a href="/board/{{ b.id }}">单板 {{ b.board_uid }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </li>
 {% endfor %}
 </ul>
