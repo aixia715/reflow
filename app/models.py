@@ -123,6 +123,58 @@ def get_change(conn, node_id, reference) -> dict | None:
     return {"reference": r["reference"], "op": r["op"], "part": r["part"]} if r else None
 
 
+def list_boards(conn, board_name, pcb_version, bom_version) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM boards_hierarchy WHERE board_name=? AND pcb_version=? AND bom_version=?"
+        " ORDER BY board_uid",
+        (board_name, pcb_version, bom_version),
+    ).fetchall()
+
+
+def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part) -> None:
+    """修正根节点初始 BOM 的某位号（part=None 表示删除该位号）。"""
+    if part is None:
+        conn.execute(
+            "DELETE FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=? AND reference=?",
+            (board_name, pcb_version, bom_version, reference),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO initial_bom(board_name,pcb_version,bom_version,reference,part)"
+            " VALUES(?,?,?,?,?)"
+            " ON CONFLICT(board_name,pcb_version,bom_version,reference) DO UPDATE SET part=excluded.part",
+            (board_name, pcb_version, bom_version, reference, part),
+        )
+    conn.commit()
+
+
+def commit_workspace(conn, board_id, message) -> int:
+    """把工作区草稿翻成正式节点，新开空草稿，返回被提交节点 id。"""
+    draft = conn.execute(
+        "SELECT * FROM nodes WHERE board_id=? AND is_committed=0 ORDER BY id DESC LIMIT 1",
+        (board_id,),
+    ).fetchone()
+    now = _now()
+    conn.execute(
+        "UPDATE nodes SET is_committed=1, committed_at=?, message=? WHERE id=?",
+        (now, message, draft["id"]),
+    )
+    conn.execute(
+        "INSERT INTO nodes(board_id,parent_id,message,created_at,is_committed,committed_at)"
+        " VALUES(?,?,?,?,0,NULL)",
+        (board_id, draft["id"], "", now),
+    )
+    conn.commit()
+    return draft["id"]
+
+
+def workspace_node(conn, board_id) -> sqlite3.Row:
+    return conn.execute(
+        "SELECT * FROM nodes WHERE board_id=? AND is_committed=0 ORDER BY id DESC LIMIT 1",
+        (board_id,),
+    ).fetchone()
+
+
 def _ancestry(conn, node_id) -> list[sqlite3.Row]:
     """从根到 node_id（含）的节点行列表。"""
     chain: list[sqlite3.Row] = []

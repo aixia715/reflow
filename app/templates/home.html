@@ -1,2 +1,19 @@
 {% extends "base.html" %}
-{% block content %}<h1>Reflow</h1>{% endblock %}
+{% block content %}
+<h1>Reflow</h1>
+<p><a href="/bom-version/new">+ 新建 BOM 版本（上传 CSV）</a></p>
+<h2>BOM 版本</h2>
+<ul>
+{% for v in versions %}
+  <li>{{ v.board_name }} / {{ v.pcb_version }} / {{ v.bom_version }}
+    <form method="post" action="/board" style="display:inline">
+      <input type="hidden" name="board_name" value="{{ v.board_name }}">
+      <input type="hidden" name="pcb_version" value="{{ v.pcb_version }}">
+      <input type="hidden" name="bom_version" value="{{ v.bom_version }}">
+      <input name="board_uid" placeholder="单板ID" required>
+      <button>+ 新建单板</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}
