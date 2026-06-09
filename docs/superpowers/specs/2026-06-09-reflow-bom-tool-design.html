@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reflow · 单板 BOM 状态管理工具 — 设计文档</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --panel2:#1d2130; --ink:#e6e9ef; --muted:#9aa3b2;
+    --line:#2a2f3e; --accent:#5aa6ff; --accent2:#7c5cff;
+    --add:#3fb950; --mod:#d29922; --rem:#f85149;
+    --radius:14px; --mw:980px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.7 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,pre{font-family:"SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace}
+
+  /* layout */
+  .wrap{display:grid;grid-template-columns:240px 1fr;max-width:1320px;margin:0 auto;gap:0}
+  nav{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;
+    padding:28px 18px;border-right:1px solid var(--line);background:#0c0e14}
+  nav h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+  nav a{display:block;color:var(--muted);padding:6px 10px;border-radius:8px;font-size:14px;margin:2px 0}
+  nav a:hover{background:var(--panel2);color:var(--ink);text-decoration:none}
+  main{padding:48px 40px;max-width:calc(var(--mw) + 80px)}
+
+  /* hero */
+  .hero{background:linear-gradient(135deg,#1a1f33,#141826);border:1px solid var(--line);
+    border-radius:var(--radius);padding:34px 36px;margin-bottom:34px;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;
+    background:radial-gradient(circle,rgba(124,92,255,.35),transparent 70%);}
+  .hero h1{margin:0 0 8px;font-size:30px}
+  .hero .sub{color:var(--muted);max-width:620px;margin:0}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+    color:var(--accent);font-size:12px;padding:3px 10px;border-radius:999px;margin-bottom:14px}
+
+  section{margin:0 0 40px;scroll-margin-top:24px}
+  h2.sec{font-size:22px;border-left:4px solid var(--accent);padding-left:12px;margin:0 0 18px}
+  h3{font-size:17px;color:#cdd4e0;margin:24px 0 10px}
+  p{color:#d3d8e2}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px;margin:16px 0}
+
+  /* decision cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .dc{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .dc .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .dc .v{font-size:16px;font-weight:600;margin:6px 0;color:#fff}
+  .dc .why{font-size:13px;color:var(--muted)}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px;overflow:hidden;
+    border-radius:10px;border:1px solid var(--line)}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:#cdd4e0;font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td code{background:#0c0e14;padding:1px 6px;border-radius:5px;color:#aecbff;font-size:13px}
+
+  pre{background:#0a0c11;border:1px solid var(--line);border-radius:10px;padding:16px 18px;
+    overflow:auto;font-size:13px;line-height:1.6;color:#c7d0de}
+  pre .c{color:#6b7280}
+
+  .badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:6px;color:#fff}
+  .b-add{background:rgba(63,185,80,.18);color:var(--add);border:1px solid rgba(63,185,80,.4)}
+  .b-mod{background:rgba(210,153,34,.18);color:var(--mod);border:1px solid rgba(210,153,34,.4)}
+  .b-rem{background:rgba(248,81,73,.18);color:var(--rem);border:1px solid rgba(248,81,73,.4)}
+
+  .note{border-left:3px solid var(--accent2);background:rgba(124,92,255,.08);
+    padding:12px 16px;border-radius:0 10px 10px 0;color:#cbd1de;font-size:14.5px;margin:14px 0}
+
+  /* example diagram */
+  .chain{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin:18px 0}
+  .node{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;text-align:center;min-width:96px}
+  .node .nm{font-weight:700;color:#fff}
+  .node .val{font-size:13px;color:var(--muted);margin-top:3px}
+  .node.edit{border-color:var(--accent);box-shadow:0 0 0 2px rgba(90,166,255,.25)}
+  .node.conflict{border-color:var(--rem);box-shadow:0 0 0 2px rgba(248,81,73,.25)}
+  .arrow{color:var(--muted);padding:0 10px;font-size:18px}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .opt{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .opt h4{margin:0 0 8px;font-size:15px}
+  .opt.keep h4{color:var(--mod)} .opt.take h4{color:var(--add)}
+
+  ul.tight{margin:8px 0;padding-left:20px} ul.tight li{margin:5px 0;color:#d3d8e2}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+  footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:18px;margin-top:30px}
+  @media(max-width:860px){.wrap{grid-template-columns:1fr}nav{display:none}main{padding:28px 18px}.split{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h2>目录</h2>
+  <a href="#goal">1 · 目标与范围</a>
+  <a href="#decisions">2 · 关键决策</a>
+  <a href="#model">3 · 核心概念 & 版本模型</a>
+  <a href="#schema">4 · 数据模型</a>
+  <a href="#algo">5 · 传播 & 冲突算法 ★</a>
+  <a href="#pages">6 · 页面、路由与交互</a>
+  <a href="#csv">7 · CSV 导入</a>
+  <a href="#audit">8 · 审计日志</a>
+  <a href="#link">9 · 稳定链接</a>
+  <a href="#test">10 · 测试策略</a>
+  <a href="#struct">11 · 项目结构</a>
+  <a href="#mvp">12 · MVP 边界</a>
+</nav>
+
+<main>
+  <div class="hero">
+    <span class="pill">设计文档 · Spec · 2026-06-09</span>
+    <h1>Reflow — 单板 BOM 状态管理工具</h1>
+    <p class="sub">像 git 一样对硬件单板的 BOM 演进做<strong>线性版本管理</strong>。每个状态有稳定可分享的 URL，供外部笔记引用，保证「每次测试用的是哪个 BOM 状态」始终可追溯。工具名一语双关：硬件回流焊，也描述核心机制——编辑上游节点后，改动向后「重新流动」传播。</p>
+  </div>
+
+  <section id="goal">
+    <h2 class="sec">1 · 目标与范围</h2>
+    <div class="card">
+      <p>硬件调试中，记录每块单板每次测试时的 BOM 状态，并对其演进做线性版本管理（<strong>无分支、无合并</strong>）。<strong>单人使用</strong>，不考虑多用户与并发。数据库用 SQLite；因需稳定 URL，实现为 Web 应用。</p>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2 class="sec">2 · 关键决策</h2>
+    <p>在需求基础上锁定的五个实现决策：</p>
+    <div class="grid">
+      <div class="dc"><div class="k">技术栈</div><div class="v">FastAPI + HTMX</div><div class="why">服务端渲染 + 局部交互，几乎不写手写 JS</div></div>
+      <div class="dc"><div class="k">标识符 & URL</div><div class="v">Surrogate Key</div><div class="why"><code>/board/{boardId}/node/{nodeId}</code>，重命名永不破坏链接</div></div>
+      <div class="dc"><div class="k">工作区</div><div class="v">持久化草稿节点</div><div class="why">复用节点/changeset 模型，重启不丢改动</div></div>
+      <div class="dc"><div class="k">CSV 导入</div><div class="v">导入前校验报告</div><div class="why">初始 BOM 是地基，入口拦住脏数据</div></div>
+      <div class="dc"><div class="k">完整 BOM 计算</div><div class="v">读取时实时折叠</div><div class="why">无缓存一致性问题，是「自动传播」成立的根本</div></div>
+    </div>
+  </section>
+
+  <section id="model">
+    <h2 class="sec">3 · 核心概念 & 版本模型</h2>
+
+    <h3>3.1 数据层级</h3>
+    <p>单板通过四级定位：<code>单板名称</code> → <code>PCB版本</code> → <code>BOM版本</code> → <code>单板ID</code>。</p>
+    <ul class="tight">
+      <li><strong>初始 BOM 绑定在 BOM版本 层</strong>：同一 BOM版本 下所有单板共享同一份初始 BOM。</li>
+      <li><strong>调试历史（状态图）绑定在 单板ID 层</strong>：每块实物板从共同初始 BOM 出发，各自独立演进。</li>
+      <li>单板名称 与 PCB版本 <strong>不是独立实体表</strong>，只是层级行上的文本字段（隐式创建，见 6.2）。</li>
+    </ul>
+
+    <h3>3.2 BOM 条目</h3>
+    <p>只有两个有效字段：<code>Reference</code>（位号，原样字符串，不解析下划线/后缀）与 <code>Part</code>（器件型号）。</p>
+    <div class="note"><strong>不贴 (DNP) 的表示</strong>：某位号「不贴」就是它<strong>不出现在该状态的 BOM 中</strong>。没有单独贴装标记字段——「无此位号」即「不贴」。</div>
+
+    <h3>3.3 差量存储与「解析值」</h3>
+    <p>每块单板从初始 BOM（根节点）开始；每个<strong>节点 = 一次 commit = 一个 BOM 状态</strong>；节点<strong>只存相对父节点的修改集（changeset）</strong>。单个位号有三种 op：</p>
+    <div class="legend">
+      <span class="badge b-add">add 新增</span>
+      <span class="badge b-mod">modify 改 Part</span>
+      <span class="badge b-rem">remove 删除 = 不贴</span>
+    </div>
+    <div class="card">
+      <strong>某位号在某节点的「解析值」</strong>（折叠算法的核心定义）：沿父链从根往下，该位号的值 = <strong>离它最近的、显式操作过该位号的祖先节点（含自身）所决定的值</strong>：
+      <ul class="tight">
+        <li>最近一次显式 op 是 <span class="badge b-add">add</span>/<span class="badge b-mod">modify</span> → 解析为那个 <code>part</code></li>
+        <li>最近一次显式 op 是 <span class="badge b-rem">remove</span> → 解析为「不贴」</li>
+        <li>一路无任何节点显式操作过 → 继承初始 BOM 值；初始也没有 → 不贴</li>
+      </ul>
+      「显式操作过」= 该节点的 <code>node_changes</code> 里有这条 <code>reference</code>。<strong>这是冲突判定的唯一依据。</strong>
+    </div>
+  </section>
+
+  <section id="schema">
+    <h2 class="sec">4 · 数据模型（SQLite）</h2>
+<pre><span class="c">-- 四级层级，扁平一张表</span>
+boards_hierarchy
+  id PK · board_name · pcb_version · bom_version · board_uid
+
+<span class="c">-- 初始 BOM，绑定在 BOM版本 层</span>
+initial_bom
+  id PK · (board_name, pcb_version, bom_version) · reference · part
+  UNIQUE(board_name, pcb_version, bom_version, reference)
+
+<span class="c">-- 节点 / commit，含未提交草稿（is_committed=false）</span>
+nodes
+  id PK <span class="c">(surrogate, 进 URL)</span> · board_id FK · parent_id FK<span class="c">(nullable=根)</span>
+  message · created_at · is_committed · committed_at
+
+<span class="c">-- 节点的修改集</span>
+node_changes
+  id PK · node_id FK · reference · op<span class="c">(add|modify|remove)</span> · part<span class="c">(remove时NULL)</span>
+  UNIQUE(node_id, reference)  <span class="c">-- 一个节点对一个位号最多一条</span>
+
+<span class="c">-- append-only 审计日志，永不更新/删除</span>
+edit_log
+  id PK · node_id · reference · old_part · new_part · op
+  source<span class="c">(direct|propagated)</span> · created_at · note</pre>
+    <ul class="tight">
+      <li><strong>根节点</strong>：新建单板ID 时自动以 BOM版本 的 <code>initial_bom</code> 为起点；<code>parent_id=NULL</code>，<code>node_changes</code> 为空（初始 BOM 单独存，不进 changeset）。</li>
+      <li><strong>工作区</strong>：一个 <code>is_committed=false</code> 草稿节点挂在最新已提交节点之后；commit 时翻成正式节点并新开空草稿。</li>
+      <li><strong>UNIQUE(node_id, reference)</strong>：保证一个节点对一个位号只解析为一个值——冲突检测的判定依据。</li>
+    </ul>
+  </section>
+
+  <section id="algo">
+    <h2 class="sec">5 · 传播 & 冲突算法 ★（工具核心）</h2>
+    <p>因采用「读取时实时折叠」，传播分两类，处理完全不同。</p>
+
+    <h3>5.1 编辑历史节点 Sₖ 的某位号 R</h3>
+    <table>
+      <tr><th>步骤</th><th>动作</th></tr>
+      <tr><td>① Sₖ 自身</td><td>写入/更新/删除 <code>Sₖ.node_changes</code> 里 R，记一条 <code>edit_log(source=direct)</code></td></tr>
+      <tr><td>② 找下游第一个显式节点 Sⱼ</td><td>沿子链往后，找 <code>node_changes</code> 里有 R 的第一个 j&gt;k</td></tr>
+      <tr><td>　└ 没找到</td><td><span class="badge b-add">自动传播</span> 下游全是「继承」，折叠时自动跟着变，<strong>零操作、零冲突</strong></td></tr>
+      <tr><td>　└ 找到 Sⱼ</td><td><span class="badge b-rem">冲突</span> Sⱼ 及之后解析为自己的显式值，进入冲突确认</td></tr>
+    </table>
+    <div class="note">链是线性的，「下游第一个显式节点」最多只有一个，冲突判定干净，不存在多分支合并。</div>
+
+    <h3>5.2 冲突确认（每个冲突位号二选一）</h3>
+    <div class="split">
+      <div class="opt keep"><h4>① 保留下游值</h4>什么都不动。Sⱼ 的显式 op 还在；Sₖ 改 Sₖ，Sⱼ 及之后保持原值。<br><span style="color:var(--muted);font-size:13px">（那是一次真实的后续改动，与本次修正无关）</span></div>
+      <div class="opt take"><h4>② 采用修正值并向后传播</h4><strong>删除 Sⱼ.node_changes 里 R 这一条</strong>。删后 Sⱼ 及之后变回「继承」，折叠时自动解析为 Sₖ 新值；给 Sⱼ 记 <code>edit_log(source=propagated)</code>。</div>
+    </div>
+    <p style="margin-top:14px"><strong>三种 op 一视同仁</strong>——唯一标准是「下游 changeset 里有没有这条 reference」，与 op 类型无关。<strong>编辑根节点</strong>改的是 <code>initial_bom</code> 行，逻辑同上；数据访问层统一抽象「取某节点对某位号的显式值」，让根节点与普通节点走同一套代码。</p>
+
+    <h3>5.3 验收用例（对照需求 4.4）</h3>
+    <p>初始 <code>R1=10k</code>，<code>S2</code> 有 <code>R1=47k</code>，S1/S3 没碰 R1。用户在 <strong>S1</strong> 写入 <code>R1=22k</code>：</p>
+    <div class="chain">
+      <div class="node"><div class="nm">初始</div><div class="val">R1=10k</div></div>
+      <span class="arrow">→</span>
+      <div class="node edit"><div class="nm">S1 ✎</div><div class="val">R1=22k</div></div>
+      <span class="arrow">→</span>
+      <div class="node conflict"><div class="nm">S2</div><div class="val">R1=47k 显式</div></div>
+      <span class="arrow">→</span>
+      <div class="node"><div class="nm">S3</div><div class="val">继承 S2</div></div>
+    </div>
+    <div class="split">
+      <div class="opt keep"><h4>选「保留下游 47k」</h4>不动 S2。折叠结果：<br>S1=<b>22k</b> · S2=<b>47k</b> · S3 继承 S2=<b>47k</b></div>
+      <div class="opt take"><h4>选「采用修正值」</h4>删除 S2 的 R1。折叠结果：<br>S1 / S2 / S3 全部继承 = <b>22k</b>；S2 记 propagated</div>
+    </div>
+  </section>
+
+  <section id="pages">
+    <h2 class="sec">6 · 页面、路由与交互</h2>
+    <p>服务端渲染 HTML（Jinja2），局部交互用 HTMX 片段替换，几乎不写手写 JS。</p>
+
+    <h3>6.1 路由表</h3>
+    <table>
+      <tr><th>方法 & 路径</th><th>用途</th></tr>
+      <tr><td><code>GET /</code></td><td>层级浏览：四级级联选择</td></tr>
+      <tr><td><code>GET /bom-version/new</code> · <code>POST /bom-version</code></td><td>新建 BOM版本：上传 CSV（含隐式创建单板名称/PCB版本）</td></tr>
+      <tr><td><code>POST /bom-version/import-preview</code></td><td>CSV 校验报告（HTMX 局部返回）</td></tr>
+      <tr><td><code>POST /board</code></td><td>新建单板ID，自动建根节点 + 空工作区草稿</td></tr>
+      <tr><td><code>GET /board/{boardId}</code></td><td>状态图页面（git graph 风格）</td></tr>
+      <tr><td><code>GET /board/{boardId}/node/{nodeId}</code></td><td>节点详情/编辑页（<strong>稳定 URL</strong>）</td></tr>
+      <tr><td><code>POST .../node/{nodeId}/edit</code></td><td>编辑某位号，触发传播+冲突检测</td></tr>
+      <tr><td><code>POST .../node/{nodeId}/resolve</code></td><td>提交冲突二选一结果</td></tr>
+      <tr><td><code>GET /board/{boardId}/workspace</code></td><td>工作区视图（未提交草稿节点）</td></tr>
+      <tr><td><code>POST .../workspace/edit</code></td><td>在工作区增/改/删位号</td></tr>
+      <tr><td><code>POST /board/{boardId}/commit</code></td><td>把工作区草稿提交成正式节点</td></tr>
+      <tr><td><code>GET /board/{boardId}/log</code></td><td>审计日志查询页</td></tr>
+    </table>
+
+    <h3>6.2 各页面要点</h3>
+    <div class="card">
+      <p><strong>① 层级导航 / 新建</strong> — 新建 BOM版本 在一个表单完成三级：单板名称（下拉或「+新建」）、PCB版本（联动下拉或「+新建」）、BOM版本（输入），上传 CSV → 校验报告 → 确认入库；三元组不重复。<strong>无单独的「新建单板名称/PCB版本」入口。</strong>新建单板ID 在已存在 BOM版本 下一键创建，自动继承初始 BOM 为根节点。</p>
+      <p><strong>② CSV 导入（预览 → 确认）</strong> — 先 <code>import-preview</code> 解析+校验，预览表展示拆分结果（<code>"R67,R24"|1kR</code> → R67=1kR, R24=1kR），确认后入库。</p>
+      <p><strong>③ 状态图页面</strong> — 线性节点序列（无分支），每节点显示说明+时间戳，末端工作区草稿虚线区分。纯 HTML/CSS 画竖直 git-graph，不引入图形库。</p>
+      <p><strong>④ 节点详情 / 编辑页</strong> — 顶部完整 BOM 表（实时折叠）；<strong>diff 高亮</strong>相对父节点标 <span class="badge b-add">新增</span><span class="badge b-mod">修改</span><span class="badge b-rem">删除</span>；行内编辑 → 跑第 5 节算法 → 无冲突局部刷新 / 有冲突返回确认片段。文案体现「修正记录，非新改动」。</p>
+      <p><strong>⑤ 冲突确认界面</strong> — 列出所有冲突位号，每行：位号、下游当前值 vs 修正值，二选一单选，一次性提交。</p>
+      <p><strong>⑥ 工作区 & commit</strong> — 复用节点详情渲染（本质是草稿节点），diff 相对最新已提交节点；commit 填说明文字 → 草稿翻正 + 新开空草稿。</p>
+      <p><strong>⑦ 审计日志页</strong> — 按单板/节点过滤，表格展示节点、位号、旧→新值、op、来源、时间戳、备注。只读。</p>
+    </div>
+  </section>
+
+  <section id="csv">
+    <h2 class="sec">7 · CSV 导入规则</h2>
+    <ul class="tight">
+      <li><strong>只取 Reference 和 Part 两列</strong>，其余忽略。</li>
+      <li>合并位号格（如 <code>"R30,R25,R31,R26"</code>）<strong>拆成一位号一条</strong>，共用同一 Part。</li>
+      <li>健壮性：UTF-8 BOM 头、CRLF 行尾、含逗号的带引号字段、位号首尾空格。</li>
+      <li>位号带下划线/后缀（<code>C86_PD1</code>）按字符串原样处理。</li>
+      <li><strong>校验报告</strong>列出：同一位号多次出现、Part 为空、位号为空；用户确认/修正后再入库。</li>
+    </ul>
+  </section>
+
+  <section id="audit">
+    <h2 class="sec">8 · 审计日志（append-only）</h2>
+    <ul class="tight">
+      <li><strong>每次编辑追加一行，永不覆盖</strong>（一个节点改 10 次 = 10 条记录）。</li>
+      <li>字段：节点、位号、Part 旧值→新值、时间戳、<strong>来源</strong>（direct / propagated）、可选原因备注。</li>
+      <li>「来源」解释「为什么这个节点在某次测试后变了」。</li>
+      <li><strong>暂不做「按时间回看」界面</strong>；数据结构保证将来可回放任意时间点状态。</li>
+    </ul>
+  </section>
+
+  <section id="link">
+    <h2 class="sec">9 · 稳定链接</h2>
+    <p>每个节点有稳定可分享 URL <code>/board/{boardId}/node/{nodeId}</code>，外部笔记粘贴即可打开对应状态完整 BOM。<code>nodeId</code> 是 surrogate key，<strong>编辑内容不改 URL</strong>。</p>
+  </section>
+
+  <section id="test">
+    <h2 class="sec">10 · 测试策略（TDD）</h2>
+    <p>核心逻辑与 Web 层分层测试，重点压在纯逻辑上。</p>
+    <table>
+      <tr><th>层</th><th>覆盖重点</th></tr>
+      <tr><td>① 折叠引擎 <span style="color:var(--accent2)">★最重</span></td><td>解析值：继承 / add·modify·remove / remove=不贴 / 初始缺失位号</td></tr>
+      <tr><td>② 传播 & 冲突 <span style="color:var(--accent2)">★核心</span></td><td>5.3 例子两分支 + 零冲突自动传播 + 多冲突位号 + 编辑根节点 + 三种 op</td></tr>
+      <tr><td>③ CSV 解析</td><td>BOM 头 / CRLF / 带引号逗号拆分 / 首尾空格 / 空值与重复进校验报告</td></tr>
+      <tr><td>④ 审计日志</td><td>追加不覆盖（改 10 次=10 行）/ direct vs propagated 标记正确</td></tr>
+      <tr><td>⑤ Web/路由（TestClient）</td><td>建版本 / 建板自动建根 / commit 翻转 / 稳定 URL / 冲突返回片段</td></tr>
+    </table>
+  </section>
+
+  <section id="struct">
+    <h2 class="sec">11 · 项目结构</h2>
+<pre>reflow/
+  app/
+    main.py            <span class="c">FastAPI 装配、路由注册</span>
+    db.py              <span class="c">SQLite 连接、schema 初始化</span>
+    models.py          <span class="c">数据访问层 CRUD</span>
+    bom_engine.py      <span class="c">★折叠引擎（纯逻辑）</span>
+    propagation.py     <span class="c">★传播 & 冲突检测 + 落库（纯逻辑）</span>
+    csv_import.py      <span class="c">★CSV 解析、拆分、校验（纯逻辑）</span>
+    audit.py           <span class="c">审计日志写入封装</span>
+    routes/  hierarchy.py · board.py · log.py
+    templates/         <span class="c">Jinja2 + HTMX 片段</span>
+    static/            <span class="c">CSS（git-graph 竖线、diff 高亮）</span>
+  tests/  test_bom_engine · test_propagation<span class="c">(含 5.3)</span> · test_csv_import · test_audit · test_routes
+  pyproject.toml       <span class="c">fastapi, uvicorn, jinja2, python-multipart, pytest, httpx</span></pre>
+    <div class="note">带 ★ 的三个文件是纯逻辑、零 Web 依赖，可独立测试与推理，是测试投入重点。Web 路由薄，只做「收请求 → 调逻辑 → 渲染片段」。</div>
+  </section>
+
+  <section id="mvp">
+    <h2 class="sec">12 · MVP 边界</h2>
+    <div class="split">
+      <div class="opt take"><h4>本期要做</h4>
+        <ul class="tight" style="margin:0">
+          <li>CSV 导入建初始 BOM</li>
+          <li>单板层级与新建</li>
+          <li>单板状态图</li>
+          <li>节点查看 + diff 高亮</li>
+          <li>工作区与 commit</li>
+          <li>历史节点编辑 + 传播 + 冲突确认</li>
+          <li>append-only 审计日志</li>
+          <li>稳定链接</li>
+        </ul>
+      </div>
+      <div class="opt keep"><h4>暂不做（预留扩展）</h4>
+        <ul class="tight" style="margin:0">
+          <li>飞线等「位号以外」修改类型</li>
+          <li>「按时间回看 / 状态回放」界面</li>
+          <li>多用户、并发、权限</li>
+          <li>工具内的测试记录功能</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Reflow 设计文档 · 生成于 2026-06-09 · 由 <code>docs/Reflow-需求文档.md</code> 经 brainstorming 提炼<br>
+    配套 Markdown 版：<code>2026-06-09-reflow-bom-tool-design.md</code>
+  </footer>
+</main>
+</div>
+</body>
+</html>
