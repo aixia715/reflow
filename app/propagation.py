@@ -12,26 +12,23 @@ class Conflict(NamedTuple):
     corrected_value: str | None
 
 
-def _append_committed_node(conn, board_id, parent_id, message) -> int:
-    """测试/内部辅助：在 parent 之后追加一个已提交节点，返回其 id。"""
-    now = models._now()
-    return conn.execute(
-        "INSERT INTO nodes(board_id,parent_id,message,created_at,is_committed,committed_at)"
-        " VALUES(?,?,?,?,1,?)",
-        (board_id, parent_id, message, now, now),
-    ).lastrowid
-
-
 def _children_in_order(conn, board_id, start_node_id) -> list[sqlite3.Row]:
-    """返回 start_node_id 之后（不含）沿子链的节点行，按链顺序。"""
-    nodes = models.list_nodes(conn, board_id)        # 按 id 升序 = 链顺序
+    """返回 start_node_id 之后（不含）沿子链的节点行，按链顺序。
+
+    沿 parent_id 链向后游走，而非依赖 id 顺序——这样无论节点的创建/提交
+    顺序如何，结果都严格等于链顺序（线性链中每个节点至多一个子节点），
+    且自然包含挂在末端的工作区草稿。
+    """
+    child_of = {
+        n["parent_id"]: n
+        for n in models.list_nodes(conn, board_id)
+        if n["parent_id"] is not None
+    }
     after = []
-    seen_start = False
-    for n in nodes:
-        if seen_start:
-            after.append(n)
-        if n["id"] == start_node_id:
-            seen_start = True
+    cur = child_of.get(start_node_id)
+    while cur is not None:
+        after.append(cur)
+        cur = child_of.get(cur["id"])
     return after
 
 
@@ -46,6 +43,9 @@ def _detect_downstream_conflicts(conn, node, reference, corrected_part) -> list[
     for child in _children_in_order(conn, node["board_id"], node["id"]):
         if models.get_change(conn, child["id"], reference) is not None:
             downstream_value = _resolved_value(conn, child["id"], reference)
+            # 下游显式值已等于修正值 → 整条下游本就解析为修正值，无需确认
+            if downstream_value == corrected_part:
+                return []
             return [Conflict(child["id"], reference, downstream_value, corrected_part)]
     return []
 
@@ -58,9 +58,9 @@ def apply_node_edit(conn, node_id, reference, op, part) -> list[Conflict]:
     new_value = None if op == "remove" else part
     audit.record_edit(conn, node_id, reference, old_value, new_value, op, "direct")
 
+    # 刚写入的 changeset 是链末显式值，被编辑节点对该位号的解析值即 new_value
     node = models.get_node(conn, node_id)
-    corrected = _resolved_value(conn, node_id, reference)
-    return _detect_downstream_conflicts(conn, node, reference, corrected)
+    return _detect_downstream_conflicts(conn, node, reference, new_value)
 
 
 def resolve_conflict(conn, conflict: Conflict, choice: str) -> None:
