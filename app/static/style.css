@@ -1,0 +1,4 @@
+body{font-family:system-ui,"PingFang SC",sans-serif;margin:0;color:#1c2230}
+header{padding:12px 20px;border-bottom:1px solid #e2e6ee;background:#f7f9fc}
+main{padding:24px;max-width:960px;margin:0 auto}
+.add{background:#e6ffed}.modify{background:#fff8e1}.remove{background:#ffeef0;text-decoration:line-through}
