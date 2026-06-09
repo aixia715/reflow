@@ -2,3 +2,11 @@ body{font-family:system-ui,"PingFang SC",sans-serif;margin:0;color:#1c2230}
 header{padding:12px 20px;border-bottom:1px solid #e2e6ee;background:#f7f9fc}
 main{padding:24px;max-width:960px;margin:0 auto}
 .add{background:#e6ffed}.modify{background:#fff8e1}.remove{background:#ffeef0;text-decoration:line-through}
+.graph{list-style:none;padding-left:0}
+.graph li{position:relative;padding:8px 0 8px 22px;border-left:2px solid #c7cedb;margin-left:8px}
+.graph li.draft{border-left-style:dashed}
+.graph .dot{position:absolute;left:-7px;top:14px;width:12px;height:12px;border-radius:50%;background:#5aa6ff;border:2px solid #fff}
+.graph li.draft .dot{background:#fff;border-color:#9aa3b2}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #e2e6ee;padding:6px 10px;text-align:left}
+.conflict-box{border:1px solid #f85149;border-radius:8px;padding:12px;background:#fff7f7}

@@ -1,0 +1,12 @@
+<table>
+  <tr><th>Reference</th><th>Part</th><th>diff</th></tr>
+  {% for ref, part in bom %}
+  <tr class="{{ diff.get(ref, '') }}">
+    <td>{{ ref }}</td><td>{{ part }}</td>
+    <td>{% if ref in diff %}{{ {'add':'新增','modify':'修改','remove':'删除'}[diff[ref]] }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+  {% for ref, op in diff.items() if op == 'remove' %}
+  <tr class="remove"><td>{{ ref }}</td><td>—</td><td>删除(不贴)</td></tr>
+  {% endfor %}
+</table>

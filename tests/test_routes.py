@@ -38,3 +38,47 @@ def test_create_board_then_state_graph(client):
                     data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
                           "board_uid": "3"}, follow_redirects=False)
     assert r.status_code in (200, 303)
+
+
+def _setup_board(client):
+    client.post("/bom-version",
+                data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
+                      "csv_text": "Reference,Part\nR1,10k\n"})
+    r = client.post("/board",
+                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
+                          "board_uid": "3"}, follow_redirects=False)
+    return r.headers["location"]            # /board/{id}
+
+
+def test_node_detail_shows_full_bom(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    r = client.get(loc)
+    assert r.status_code == 200
+    rg = client.get(f"/board/{board_id}")
+    assert "R1" in rg.text or "node" in rg.text
+
+
+def test_commit_workspace_creates_node(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "C9", "op": "add", "part": "100nF"})
+    r = client.post(f"/board/{board_id}/commit", data={"message": "加 C9"},
+                    follow_redirects=False)
+    assert r.status_code in (200, 303)
+
+
+def test_edit_history_node_returns_conflict_fragment(client):
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    client.post(f"/board/{board_id}/commit", data={"message": "S1"})
+    from app import models
+    from app.main import get_conn
+    conn = get_conn()
+    root = models.list_nodes(conn, board_id)[0]["id"]
+    r = client.post(f"/board/{board_id}/node/{root}/edit",
+                    data={"reference": "R1", "op": "modify", "part": "22k"})
+    assert "冲突" in r.text or "采用修正值" in r.text

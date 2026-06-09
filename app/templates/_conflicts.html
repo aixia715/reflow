@@ -1,0 +1,17 @@
+<div class="conflict-box">
+<h3>检测到冲突，请逐位号确认</h3>
+<form method="post" action="/board/{{ board_id }}/node/{{ node_id }}/resolve">
+  {% for c in conflicts %}
+  <fieldset>
+    <legend>位号 {{ c.reference }}</legend>
+    <input type="hidden" name="downstream_node_id" value="{{ c.downstream_node_id }}">
+    <input type="hidden" name="reference" value="{{ c.reference }}">
+    <label><input type="radio" name="choice" value="keep" checked>
+      保留下游值（{{ c.downstream_value or '不贴' }}）</label>
+    <label><input type="radio" name="choice" value="take">
+      采用修正值（{{ c.corrected_value or '不贴' }}）并向后传播</label>
+  </fieldset>
+  {% endfor %}
+  <button>提交确认</button>
+</form>
+</div>
