@@ -118,6 +118,7 @@ def test_edit_rejects_add_existing(client):
     ws = _workspace_id(client, board_id)
     r = client.post(f"/board/{board_id}/node/{ws}/edit",
                     data={"reference": "R1", "op": "add", "part": "1k"})
+    assert r.headers.get("HX-Retarget") == "#form-error"
     assert "已存在" in r.text
 
 
