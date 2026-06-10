@@ -15,39 +15,13 @@ def test_home_page_loads(client):
     assert "Reflow" in r.text
 
 
-def test_import_preview_then_create_bom_version(client):
-    csv = 'Reference,Part\n"R1,R2",10k\nR1,22k\n'
-    r = client.post("/bom-version/import-preview",
-                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA"},
-                    files={"file": ("bom.csv", csv, "text/csv")})
-    assert r.status_code == 200
-    assert "重复" in r.text or "duplicate" in r.text
-
-    r2 = client.post("/bom-version",
-                     data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
-                           "csv_text": csv})
-    assert r2.status_code in (200, 303)
-
-
-def test_create_board_then_state_graph(client):
-    csv = "Reference,Part\nR1,10k\n"
-    client.post("/bom-version",
-                data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
-                      "csv_text": csv})
-    r = client.post("/board",
-                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
-                          "board_uid": "3"}, follow_redirects=False)
-    assert r.status_code in (200, 303)
-
-
 def _setup_board(client):
-    client.post("/bom-version",
-                data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
-                      "csv_text": "Reference,Part\nR1,10k\n"})
-    r = client.post("/board",
-                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA",
-                          "board_uid": "3"}, follow_redirects=False)
-    return r.headers["location"]            # /board/{id}
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
+                    follow_redirects=False)
+    return r.headers["location"].split("?")[0]      # /board/{id}
 
 
 def test_node_detail_shows_full_bom(client):
@@ -238,3 +212,68 @@ def test_home_groups_by_board_name(client):
 def test_home_empty_state(client):
     r = client.get("/")
     assert "还没有" in r.text
+
+
+def test_create_board_with_new_version(client):
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/board/")
+
+
+def test_create_second_board_on_existing_version_without_csv(client):
+    _setup_board(client)
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "4"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_preview_existing_version_needs_no_csv(client):
+    _setup_board(client)
+    r = client.post("/board/new/preview",
+                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA"})
+    assert "已有版本" in r.text
+    assert "disabled" not in r.text
+
+
+def test_preview_blocks_on_csv_problems(client):
+    csv = 'Reference,Part\n"R1,R2",10k\nR1,22k\n'
+    r = client.post("/board/new/preview",
+                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA"},
+                    files={"file": ("bom.csv", csv, "text/csv")})
+    assert "校验问题" in r.text
+    assert "disabled" in r.text
+
+
+def test_preview_new_version_without_csv_warns(client):
+    r = client.post("/board/new/preview",
+                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA"})
+    assert "请选择" in r.text
+    assert "disabled" in r.text
+
+
+def test_create_rejects_csv_with_problems(client):
+    csv = 'Reference,Part\n"R1,R2",10k\nR1,22k\n'
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    files={"file": ("bom.csv", csv, "text/csv")})
+    assert r.status_code == 400
+
+
+def test_create_rejects_new_version_without_csv(client):
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"})
+    assert r.status_code == 400
+
+
+def test_board_new_page_loads(client):
+    r = client.get("/board/new")
+    assert r.status_code == 200
+    assert "新建单板" in r.text

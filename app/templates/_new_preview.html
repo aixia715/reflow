@@ -1,0 +1,23 @@
+{% if status == 'fill' %}
+<div class="muted">填写上面三项后自动检查</div>
+{% elif status == 'exists' %}
+<div class="flash flash-info">✓ 已有版本（{{ ref_count }} 个位号），新单板将直接使用其初始 BOM</div>
+{% elif status == 'need_csv' %}
+<div class="flash flash-warn">⚠ 新 BOM 版本，请选择初始 BOM CSV 文件</div>
+{% elif status == 'bad_csv' %}
+<div class="flash flash-error">✕ {{ message }}</div>
+{% elif status == 'csv' %}
+  {% if problems %}
+  <div class="flash flash-error">✕ 发现 {{ problems|length }} 个校验问题，修正 CSV 后重新选择文件</div>
+  <ul class="problem-list">
+    {% for p in problems %}<li><code>{{ p.reference }}</code> {{ p.detail }}</li>{% endfor %}
+  </ul>
+  {% else %}
+  <div class="flash flash-info">✓ 校验通过：{{ ref_count }} 个位号，提交时将创建新 BOM 版本</div>
+  {% endif %}
+{% endif %}
+{% if status != 'fill' %}
+<button class="btn btn-primary" {% if not ready %}disabled{% endif %}>
+  {% if status == 'exists' %}创建单板{% else %}创建 BOM 版本并新建单板{% endif %}
+</button>
+{% endif %}

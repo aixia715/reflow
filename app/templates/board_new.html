@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}新建单板 — Reflow{% endblock %}
+{% block crumbs %}<a href="/">首页</a> / 新建单板{% endblock %}
+{% block content %}
+<div class="page-head"><h1>新建单板</h1></div>
+<p class="muted">选已有项直接复用；输入新值则隐式创建对应层级。BOM 版本是新的时才需要上传 CSV。</p>
+<form class="panel form-stack" method="post" action="/board/new" enctype="multipart/form-data"
+      hx-post="/board/new/preview" hx-target="#preview" hx-trigger="change"
+      hx-encoding="multipart/form-data">
+  <label>单板名称
+    <input class="input" name="board_name" list="names" required autocomplete="off"></label>
+  <datalist id="names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+  <label>PCB 版本
+    <input class="input" name="pcb_version" list="pcbs" required autocomplete="off"></label>
+  <datalist id="pcbs">{% for p in pcbs %}<option value="{{ p }}">{% endfor %}</datalist>
+  <label>BOM 版本
+    <input class="input" name="bom_version" list="boms" required autocomplete="off"></label>
+  <datalist id="boms">{% for b in boms %}<option value="{{ b }}">{% endfor %}</datalist>
+  <label>初始 BOM CSV（仅新 BOM 版本需要）
+    <input name="file" type="file" accept=".csv"></label>
+  <label>单板 ID
+    <input class="input" name="board_uid" required></label>
+  <div id="preview"><div class="muted">填写上面三项后自动检查</div></div>
+</form>
+{% endblock %}
