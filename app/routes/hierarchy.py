@@ -11,16 +11,23 @@ router = APIRouter()
 @router.get("/")
 def home(request: Request):
     conn = get_conn()
-    versions = []
+    groups: dict[str, list[dict]] = {}
     for v in models.list_bom_versions(conn):
-        boards = models.list_boards(conn, v["board_name"], v["pcb_version"], v["bom_version"])
-        versions.append({
-            "board_name": v["board_name"],
-            "pcb_version": v["pcb_version"],
-            "bom_version": v["bom_version"],
-            "boards": boards,
+        boards = []
+        for b in models.list_boards(conn, v["board_name"], v["pcb_version"], v["bom_version"]):
+            ws = models.workspace_node(conn, b["id"])
+            boards.append({
+                "id": b["id"], "board_uid": b["board_uid"],
+                "node_count": len(models.list_nodes(conn, b["id"])),
+                "pending": len(models.get_changeset(conn, ws["id"])) if ws else 0,
+            })
+        ref_count = len(models.get_initial_bom(
+            conn, v["board_name"], v["pcb_version"], v["bom_version"]))
+        groups.setdefault(v["board_name"], []).append({
+            "pcb_version": v["pcb_version"], "bom_version": v["bom_version"],
+            "ref_count": ref_count, "boards": boards,
         })
-    return templates.TemplateResponse(request, "home.html", {"versions": versions})
+    return templates.TemplateResponse(request, "home.html", {"groups": groups})
 
 
 @router.get("/bom-version/new")

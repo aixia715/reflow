@@ -1,26 +1,33 @@
 {% extends "base.html" %}
+{% block title %}Reflow — 单板 BOM 状态管理{% endblock %}
+{% block ctxlinks %}<a class="btn btn-primary" href="/board/new">＋ 新建单板</a>{% endblock %}
 {% block content %}
-<h1>Reflow</h1>
-<p><a href="/bom-version/new">+ 新建 BOM 版本（上传 CSV）</a></p>
-<h2>BOM 版本</h2>
-<ul>
+{% if not groups %}
+<div class="empty">
+  <h1>还没有任何单板</h1>
+  <p class="muted">点右上角「＋ 新建单板」上传初始 BOM CSV 开始。</p>
+</div>
+{% endif %}
+{% for name, versions in groups.items() %}
+<div class="group-title">📋 {{ name }}</div>
 {% for v in versions %}
-  <li>{{ v.board_name }} / {{ v.pcb_version }} / {{ v.bom_version }}
-    <form method="post" action="/board" style="display:inline">
-      <input type="hidden" name="board_name" value="{{ v.board_name }}">
-      <input type="hidden" name="pcb_version" value="{{ v.pcb_version }}">
-      <input type="hidden" name="bom_version" value="{{ v.bom_version }}">
-      <input name="board_uid" placeholder="单板ID" required>
-      <button>+ 新建单板</button>
-    </form>
-    {% if v.boards %}
-    <ul>
-      {% for b in v.boards %}
-      <li><a href="/board/{{ b.id }}">单板 {{ b.board_uid }}</a></li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </li>
+<div class="panel version">
+  <div class="version-head">
+    <span class="badge">PCB {{ v.pcb_version }}</span>
+    <b>{{ v.bom_version }}</b>
+    <span class="muted">{{ v.ref_count }} 个位号 · {{ v.boards|length }} 块单板</span>
+  </div>
+  {% if v.boards %}
+  <div class="chips">
+    {% for b in v.boards %}
+    <a class="chip {{ 'pending' if b.pending else '' }}" href="/board/{{ b.id }}">
+      板 {{ b.board_uid }}
+      <span class="muted">· {{ b.node_count }} 个节点{% if b.pending %} · {{ b.pending }} 条未提交{% endif %}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
 {% endfor %}
-</ul>
+{% endfor %}
 {% endblock %}

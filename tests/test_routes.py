@@ -225,3 +225,16 @@ def test_committed_node_shows_history_warning(client):
     r = client.get(f"/board/{board_id}/node/{ws}")
     assert "修正历史记录" in r.text
     assert "撤销" not in r.text            # 已提交节点无撤销入口
+
+
+def test_home_groups_by_board_name(client):
+    loc = _setup_board(client)
+    r = client.get("/")
+    assert "新建单板" in r.text           # 唯一新建入口
+    assert "板 3" in r.text               # 单板芯片
+    assert "1 个位号" in r.text           # 版本卡片统计
+
+
+def test_home_empty_state(client):
+    r = client.get("/")
+    assert "还没有" in r.text
