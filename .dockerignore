@@ -1,0 +1,11 @@
+.git
+.venv
+.claude
+.superpowers
+.pytest_cache
+__pycache__
+*.sqlite
+reflow.egg-info
+docs
+tests
+todo.md
