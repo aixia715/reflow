@@ -164,3 +164,16 @@ def test_undo_unknown_node_404(client):
     board_id = loc.rsplit("/", 1)[-1]
     r = client.post(f"/board/{board_id}/node/9999/undo", data={"reference": "R1"})
     assert r.status_code == 404
+
+
+def test_unknown_board_returns_chinese_404(client):
+    r = client.get("/board/9999")
+    assert r.status_code == 404
+    assert "未找到" in r.text
+
+
+def test_unknown_node_returns_chinese_404(client):
+    loc = _setup_board(client)
+    r = client.get(f"{loc}/node/9999")
+    assert r.status_code == 404
+    assert "未找到" in r.text

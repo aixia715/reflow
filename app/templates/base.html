@@ -2,12 +2,35 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Reflow{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </head>
 <body>
-  <header><a href="/"><strong>Reflow</strong></a> · 单板 BOM 状态管理</header>
-  <main>{% block content %}{% endblock %}</main>
+<header class="topnav">
+  <a class="brand" href="/">⟲ Reflow</a>
+  <nav class="crumbs">{% block crumbs %}{% endblock %}</nav>
+  <nav class="ctx">{% block ctxlinks %}{% endblock %}</nav>
+</header>
+<main>{% block content %}{% endblock %}</main>
+<div id="modal"></div>
+<div id="toast-zone">
+  {% if request.query_params.get('flash') %}
+  <div class="toast">{{ request.query_params.get('flash') }}</div>
+  {% endif %}
+</div>
+<script>
+  function showToast(msg){
+    const z = document.getElementById('toast-zone');
+    const t = document.createElement('div');
+    t.className = 'toast'; t.textContent = msg;
+    z.appendChild(t); setTimeout(() => t.remove(), 3500);
+  }
+  document.body.addEventListener('showToast', e => showToast(e.detail.value));
+  document.querySelectorAll('#toast-zone .toast')
+    .forEach(t => setTimeout(() => t.remove(), 3500));
+</script>
 </body>
 </html>

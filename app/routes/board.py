@@ -28,6 +28,8 @@ def _validate(conn, node_id, reference, op, part) -> str | None:
 def state_graph(request: Request, board_id: int):
     conn = get_conn()
     board = models.get_board(conn, board_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
     nodes = models.list_nodes(conn, board_id)
     return templates.TemplateResponse(
         request, "state_graph.html",
@@ -38,6 +40,8 @@ def state_graph(request: Request, board_id: int):
 def node_detail(request: Request, board_id: int, node_id: int):
     conn = get_conn()
     node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
     full, diff = _node_diff(conn, node)
     return templates.TemplateResponse(
         request, "node_detail.html",

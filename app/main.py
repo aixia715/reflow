@@ -18,6 +18,16 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Reflow")
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    from starlette.responses import PlainTextResponse
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception(request, exc):
+        if exc.status_code == 404:
+            return templates.TemplateResponse(
+                request, "404.html", {}, status_code=404)
+        return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
+
     from app.routes import hierarchy, board, log
     app.include_router(hierarchy.router)
     app.include_router(board.router)
