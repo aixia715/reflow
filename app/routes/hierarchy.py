@@ -92,6 +92,8 @@ async def board_create(
     conn = get_conn()
     board_name, pcb_version, bom_version, board_uid = _strip(
         board_name, pcb_version, bom_version, board_uid)
+    if not board_uid:
+        raise HTTPException(status_code=400, detail="单板 ID 不能为空")
     if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
         if file is None or not file.filename:
             raise HTTPException(status_code=400, detail="新 BOM 版本必须上传初始 BOM CSV")

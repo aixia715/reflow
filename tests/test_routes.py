@@ -295,3 +295,11 @@ def test_log_page_ignores_invalid_node_param(client):
     board_id = loc.rsplit("/", 1)[-1]
     r = client.get(f"/board/{board_id}/log?node=abc")
     assert r.status_code == 200
+
+
+def test_create_rejects_blank_board_uid(client):
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "   "},
+                    files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")})
+    assert r.status_code == 400
