@@ -50,3 +50,18 @@ def test_changeset_upsert_and_chain_for_node(conn):
 
     models.delete_change(conn, ws_id, "R1")
     assert models.get_changeset(conn, ws_id) == []
+
+
+def test_node_summaries(tmp_path):
+    from app.db import connect, init_db
+    from app.csv_import import CsvEntry
+    from app import models
+    conn = connect(str(tmp_path / "t.sqlite")); init_db(conn)
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid = models.create_board(conn, "B", "v1", "bomA", "1")
+    ws = models.workspace_node(conn, bid)
+    models.set_change(conn, ws["id"], "R1", "modify", "22k")
+    s = models.node_summaries(conn, bid)
+    root = models.list_nodes(conn, bid)[0]
+    assert s[root["id"]] == []
+    assert s[ws["id"]] == [{"reference": "R1", "op": "modify"}]

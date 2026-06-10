@@ -115,6 +115,22 @@ def get_changeset(conn, node_id) -> list[dict]:
     return [{"reference": r["reference"], "op": r["op"], "part": r["part"]} for r in rows]
 
 
+def node_summaries(conn, board_id) -> dict[int, list[dict]]:
+    """每个节点的 changeset 摘要 {node_id: [{'reference','op'}, ...]}（节点内按写入顺序）。"""
+    rows = conn.execute(
+        "SELECT n.id AS node_id, c.reference, c.op FROM nodes n"
+        " LEFT JOIN node_changes c ON c.node_id = n.id"
+        " WHERE n.board_id = ? ORDER BY n.id, c.id",
+        (board_id,),
+    ).fetchall()
+    out: dict[int, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["node_id"], [])
+        if r["reference"] is not None:
+            out[r["node_id"]].append({"reference": r["reference"], "op": r["op"]})
+    return out
+
+
 def get_change(conn, node_id, reference) -> dict | None:
     r = conn.execute(
         "SELECT reference, op, part FROM node_changes WHERE node_id=? AND reference=?",

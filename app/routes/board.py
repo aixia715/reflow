@@ -69,10 +69,14 @@ def state_graph(request: Request, board_id: int):
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
-    nodes = models.list_nodes(conn, board_id)
+    nodes = list(reversed(models.list_nodes(conn, board_id)))   # 最新在上
+    initial_count = len(models.get_initial_bom(
+        conn, board["board_name"], board["pcb_version"], board["bom_version"]))
     return templates.TemplateResponse(
         request, "state_graph.html",
-        {"board": board, "board_id": board_id, "nodes": nodes})
+        {"board": board, "board_id": board_id, "nodes": nodes,
+         "summaries": models.node_summaries(conn, board_id),
+         "initial_count": initial_count})
 
 
 @router.get("/board/{board_id}/node/{node_id}")

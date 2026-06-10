@@ -206,6 +206,17 @@ def test_node_detail_shows_changes_panel_and_badges(client):
     assert "47k" in r.text and "10k" in r.text   # 新值 + 划线旧值
 
 
+def test_state_graph_shows_summary(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    r = client.get(f"/board/{board_id}")
+    assert "工作区草稿" in r.text
+    assert "R1" in r.text and "修改" in r.text
+    assert "初始状态" in r.text
+
+
 def test_committed_node_shows_history_warning(client):
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]

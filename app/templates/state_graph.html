@@ -1,15 +1,36 @@
 {% extends "base.html" %}
+{% block title %}板 {{ board.board_uid }} · 状态图 — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}
+{% endblock %}
+{% block ctxlinks %}<a href="/board/{{ board_id }}/log">审计日志</a>{% endblock %}
 {% block content %}
-<h1>{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 单板 {{ board.board_uid }}</h1>
-<p><a href="/board/{{ board_id }}/log">审计日志</a></p>
-<ul class="graph">
+<div class="page-head"><h1>状态演进</h1></div>
+<div class="timeline">
 {% for n in nodes %}
-  <li class="{{ 'draft' if not n.is_committed else '' }}">
-    <span class="dot"></span>
-    <a href="/board/{{ board_id }}/node/{{ n.id }}">
-      {{ n.message or ('工作区草稿' if not n.is_committed else '(无说明)') }}</a>
-    <small>{{ n.created_at }}{{ ' · 工作区' if not n.is_committed else '' }}</small>
-  </li>
+{% set s = summaries[n.id] %}
+<a class="tl-item {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}"
+   href="/board/{{ board_id }}/node/{{ n.id }}">
+  <span class="dot"></span>
+  <div class="tl-card">
+    <b>{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}</b>
+    {% if n.parent_id is none %}
+    <span class="badge badge-purple">初始 BOM · {{ initial_count }} 位号</span>
+    {% elif not n.is_committed %}
+    <span class="badge badge-blue">{{ s|length }} 条未提交</span>
+    {% else %}
+    <span class="badge">{{ s|length }} 条修改</span>
+    {% endif %}
+    <div class="muted">
+      {%- for c in s[:4] -%}
+        {{ c.reference }} {{ {'add': '新增', 'modify': '修改', 'remove': '不贴'}[c.op] }}{% if not loop.last %} · {% endif %}
+      {%- endfor -%}
+      {%- if s|length > 4 %} …{% endif -%}
+      {%- if s %} · {% endif %}{{ n.committed_at or n.created_at }}
+    </div>
+  </div>
+</a>
 {% endfor %}
-</ul>
+</div>
 {% endblock %}
