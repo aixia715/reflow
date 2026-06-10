@@ -129,3 +129,38 @@ def test_workspace_edit_rejects_invalid(client):
                     data={"reference": "R99", "op": "modify", "part": "1k"})
     assert r.status_code == 400
     assert "不存在" in r.text
+
+
+def test_undo_draft_change(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/undo", data={"reference": "R1"})
+    assert r.status_code == 200
+    from app import models
+    from app.main import get_conn
+    assert models.get_change(get_conn(), ws, "R1") is None
+
+
+def test_undo_rejected_on_committed_node(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    committed = _workspace_id(client, board_id)
+    client.post(f"/board/{board_id}/commit", data={"message": "S1"})
+    r = client.post(f"/board/{board_id}/node/{committed}/undo",
+                    data={"reference": "R1"})
+    assert "不能撤销" in r.text
+    from app import models
+    from app.main import get_conn
+    assert models.get_change(get_conn(), committed, "R1") is not None
+
+
+def test_undo_unknown_node_404(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    r = client.post(f"/board/{board_id}/node/9999/undo", data={"reference": "R1"})
+    assert r.status_code == 404

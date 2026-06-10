@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse
 
@@ -76,6 +77,28 @@ def edit_node(request: Request, board_id: int, node_id: int,
     return templates.TemplateResponse(
         request, "_bom_table.html",
         {"board_id": board_id, "node": node, "bom": sorted(full.items()), "diff": diff})
+
+
+@router.post("/board/{board_id}/node/{node_id}/undo")
+def undo_change(request: Request, board_id: int, node_id: int,
+                reference: str = Form(...)):
+    """撤销草稿节点对某位号的修改（从 changeset 删除，恢复继承）。仅限未提交节点。"""
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    if node["is_committed"]:
+        return templates.TemplateResponse(
+            request, "_form_error.html",
+            {"message": "已提交节点不能撤销，请使用「修正历史记录」"},
+            headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
+    models.delete_change(conn, node_id, reference)
+    node = models.get_node(conn, node_id)
+    full, diff = _node_diff(conn, node)
+    return templates.TemplateResponse(
+        request, "_bom_table.html",
+        {"board_id": board_id, "node": node, "bom": sorted(full.items()), "diff": diff},
+        headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已撤销 {reference} 的修改"})})
 
 
 @router.post("/board/{board_id}/node/{node_id}/resolve")
