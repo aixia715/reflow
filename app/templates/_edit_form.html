@@ -1,7 +1,7 @@
 <form class="edit-form"
       hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit"
       hx-target="#bom" hx-swap="innerHTML"
-      @htmx:after-request="if ($event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; }">
+      @htmx:after-request.camel="if ($event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; }">
   <input class="input" name="reference" x-model="ref" list="refs"
          placeholder="位号（自动补全）" required autocomplete="off">
   <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>

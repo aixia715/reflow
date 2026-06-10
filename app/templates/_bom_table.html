@@ -24,12 +24,12 @@
       {% if r.state == 'mine' and not node.is_committed %}
       <button class="btn-link danger"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
-              hx-vals='{"reference": "{{ r.reference }}"}'
+              hx-vals='{{ {"reference": r.reference} | tojson }}'
               hx-target="#bom" hx-swap="innerHTML">↩ 撤销</button>
       {% else %}
       <span class="hover-only">
-        <button type="button" class="btn-link" @click="fill('{{ r.reference }}', 'modify', '{{ r.part }}')">修改</button>
-        <button type="button" class="btn-link danger" @click="fill('{{ r.reference }}', 'remove', '')">不贴</button>
+        <button type="button" class="btn-link" @click='fill({{ r.reference | tojson }}, "modify", {{ r.part | tojson }})'>修改</button>
+        <button type="button" class="btn-link danger" @click='fill({{ r.reference | tojson }}, "remove", "")'>不贴</button>
       </span>
       {% endif %}
     </td>
@@ -52,10 +52,10 @@
       {% if r.state == 'mine' and not node.is_committed %}
       <button class="btn-link danger"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
-              hx-vals='{"reference": "{{ r.reference }}"}'
+              hx-vals='{{ {"reference": r.reference} | tojson }}'
               hx-target="#bom" hx-swap="innerHTML">↩ 撤销</button>
       {% else %}
-      <button type="button" class="btn-link hover-only" @click="fill('{{ r.reference }}', 'add', '')">恢复贴装</button>
+      <button type="button" class="btn-link hover-only" @click='fill({{ r.reference | tojson }}, "add", "")'>恢复贴装</button>
       {% endif %}
     </td>
   </tr>
