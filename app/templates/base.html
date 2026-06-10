@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Reflow{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+  <header><a href="/"><strong>Reflow</strong></a> · 单板 BOM 状态管理</header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

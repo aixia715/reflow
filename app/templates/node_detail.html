@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/board/{{ board_id }}">← 状态图</a></p>
+<h1>节点 #{{ node.id }} — {{ node.message or '工作区草稿' }}</h1>
+<p>稳定链接：<code>/board/{{ board_id }}/node/{{ node.id }}</code></p>
+<div id="bom">{% include "_bom_table.html" %}</div>
+
+<h3>修正此节点记录</h3>
+<form hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit" hx-target="#bom">
+  <input name="reference" placeholder="位号" required>
+  <select name="op">
+    <option value="modify">修改</option>
+    <option value="add">新增</option>
+    <option value="remove">删除(不贴)</option>
+  </select>
+  <input name="part" placeholder="Part">
+  <button>应用修正</button>
+</form>
+
+{% if not node.is_committed %}
+<form method="post" action="/board/{{ board_id }}/commit">
+  <input name="message" placeholder="commit 说明" required>
+  <button>提交为新节点</button>
+</form>
+{% endif %}
+{% endblock %}

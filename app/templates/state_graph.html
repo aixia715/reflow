@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 单板 {{ board.board_uid }}</h1>
+<p><a href="/board/{{ board_id }}/log">审计日志</a></p>
+<ul class="graph">
+{% for n in nodes %}
+  <li class="{{ 'draft' if not n.is_committed else '' }}">
+    <span class="dot"></span>
+    <a href="/board/{{ board_id }}/node/{{ n.id }}">
+      {{ n.message or ('工作区草稿' if not n.is_committed else '(无说明)') }}</a>
+    <small>{{ n.created_at }}{{ ' · 工作区' if not n.is_committed else '' }}</small>
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}
