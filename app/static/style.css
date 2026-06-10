@@ -116,6 +116,7 @@ details.panel summary{cursor:pointer;font-weight:600}
 .modal{background:#fff;border-radius:8px;max-width:480px;width:92%;
   box-shadow:0 8px 24px rgba(0,0,0,.3)}
 .modal-head{padding:10px 16px;border-bottom:1px solid var(--border);font-weight:600}
+/* .conflict 由后续的冲突弹窗模板（_conflict_modal.html）使用 */
 .modal .conflict{border:none;margin:0;padding:10px 16px}
 .modal .conflict label{display:block;border:1px solid var(--border);border-radius:var(--radius);
   padding:8px 10px;margin-top:6px;cursor:pointer}

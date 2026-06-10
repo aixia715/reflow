@@ -177,3 +177,18 @@ def test_unknown_node_returns_chinese_404(client):
     r = client.get(f"{loc}/node/9999")
     assert r.status_code == 404
     assert "未找到" in r.text
+
+
+def test_resolve_unknown_node_404(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    r = client.post(f"/board/{board_id}/node/9999/resolve",
+                    data={"downstream_node_id": "1", "reference": "R1",
+                          "choice": "keep"})
+    assert r.status_code == 404
+
+
+def test_workspace_edit_unknown_board_404(client):
+    r = client.post("/board/9999/workspace/edit",
+                    data={"reference": "R1", "op": "modify", "part": "1k"})
+    assert r.status_code == 404

@@ -111,6 +111,9 @@ def resolve(request: Request, board_id: int, node_id: int,
             reference: list[str] = Form(...),
             choice: list[str] = Form(...)):
     conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
     for ds, ref, ch in zip(downstream_node_id, reference, choice):
         ds_val = propagation._resolved_value(conn, ds, ref)
         corrected = propagation._resolved_value(conn, node_id, ref)
@@ -124,6 +127,8 @@ def workspace_edit(board_id: int, reference: str = Form(...),
                    op: str = Form(...), part: str = Form(None)):
     conn = get_conn()
     ws = models.workspace_node(conn, board_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
     reference = reference.strip()
     err = _validate(conn, ws["id"], reference, op, part)
     if err:
