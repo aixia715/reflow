@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi.responses import RedirectResponse, PlainTextResponse
 
 from app.main import templates, get_conn
 from app import models, propagation, audit
 from app.bom_engine import fold_bom
+from app.validation import validate_edit
 
 router = APIRouter()
 
@@ -14,6 +15,12 @@ def _node_diff(conn, node):
     full = fold_bom(initial, chain)
     diff = {c["reference"]: c["op"] for c in models.get_changeset(conn, node["id"])}
     return full, diff
+
+
+def _validate(conn, node_id, reference, op, part) -> str | None:
+    """对被编辑节点折叠后的 BOM 做位号编辑校验。"""
+    initial, chain = models.get_chain(conn, node_id)
+    return validate_edit(fold_bom(initial, chain), reference, op, part)
 
 
 @router.get("/board/{board_id}")
@@ -41,6 +48,14 @@ def edit_node(request: Request, board_id: int, node_id: int,
               reference: str = Form(...), op: str = Form(...), part: str = Form(None)):
     conn = get_conn()
     node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    reference = reference.strip()
+    err = _validate(conn, node_id, reference, op, part)
+    if err:
+        return templates.TemplateResponse(
+            request, "_form_error.html", {"message": err},
+            headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
     part_val = None if op == "remove" else part
     if node["parent_id"] is None:
         board = models.get_board(conn, board_id)
@@ -82,6 +97,10 @@ def workspace_edit(board_id: int, reference: str = Form(...),
                    op: str = Form(...), part: str = Form(None)):
     conn = get_conn()
     ws = models.workspace_node(conn, board_id)
+    reference = reference.strip()
+    err = _validate(conn, ws["id"], reference, op, part)
+    if err:
+        return PlainTextResponse(err, status_code=400)
     part_val = None if op == "remove" else part
     propagation.apply_node_edit(conn, ws["id"], reference, op, part_val)
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)

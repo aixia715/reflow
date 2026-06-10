@@ -93,3 +93,38 @@ def test_log_page_lists_edits(client):
     assert r.status_code == 200
     assert "R1" in r.text
     assert "direct" in r.text or "直接" in r.text
+
+
+def _workspace_id(client, board_id):
+    from app import models
+    from app.main import get_conn
+    return models.workspace_node(get_conn(), int(board_id))["id"]
+
+
+def test_edit_rejects_unknown_reference(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
+                    data={"reference": "R99", "op": "modify", "part": "1k"})
+    assert r.status_code == 200
+    assert r.headers.get("HX-Retarget") == "#form-error"
+    assert "不存在" in r.text
+
+
+def test_edit_rejects_add_existing(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
+                    data={"reference": "R1", "op": "add", "part": "1k"})
+    assert "已存在" in r.text
+
+
+def test_workspace_edit_rejects_invalid(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    r = client.post(f"/board/{board_id}/workspace/edit",
+                    data={"reference": "R99", "op": "modify", "part": "1k"})
+    assert r.status_code == 400
+    assert "不存在" in r.text
