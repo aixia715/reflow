@@ -12,7 +12,10 @@ def board_log(request: Request, board_id: int,
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
-    node_id = int(node) if node.strip() else None
+    try:
+        node_id = int(node) if node.strip() else None
+    except ValueError:
+        node_id = None   # 非数字的 node 参数当作不过滤
     rows = models.list_board_log(conn, board_id,
                                  reference=reference.strip() or None, node_id=node_id)
     return templates.TemplateResponse(

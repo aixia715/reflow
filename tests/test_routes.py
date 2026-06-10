@@ -288,3 +288,10 @@ def test_log_page_filter_by_reference(client):
     assert "R1" not in r.text.split("</form>")[-1]   # 表格区不含 R1
     r2 = client.get(f"/board/{board_id}/log?reference=R1")
     assert "47k" in r2.text
+
+
+def test_log_page_ignores_invalid_node_param(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    r = client.get(f"/board/{board_id}/log?node=abc")
+    assert r.status_code == 200
