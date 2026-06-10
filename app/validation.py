@@ -7,6 +7,9 @@ def validate_edit(
     """校验对折叠后 BOM 的一次位号编辑。
 
     full_bom: 被编辑节点折叠后的完整 BOM（根节点即初始 BOM）。
+    reference: 位号；允许未裁剪，函数内部会 strip。
+    op: 'add' | 'modify' | 'remove'。
+    part: 新 Part 值；只判断非空、不裁剪（存储前的清理由调用方负责）；remove 时忽略。
     合法返回 None，否则返回中文错误消息。
     """
     reference = (reference or "").strip()
