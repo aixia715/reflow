@@ -103,6 +103,9 @@ async def board_create(
         if problems:
             raise HTTPException(status_code=400, detail="CSV 存在校验问题，无法创建")
         models.create_bom_version(conn, board_name, pcb_version, bom_version, entries)
+    if models.board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid):
+        raise HTTPException(status_code=400,
+                            detail=f"单板 ID “{board_uid}” 在该 BOM 版本下已存在")
     board_id = models.create_board(conn, board_name, pcb_version, bom_version, board_uid)
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已创建 板 {board_uid}",
                             status_code=303)

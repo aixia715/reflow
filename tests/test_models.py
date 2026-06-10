@@ -32,6 +32,14 @@ def test_create_board_makes_root_and_empty_workspace(conn):
     assert nodes[1]["parent_id"] == nodes[0]["id"]
 
 
+def test_board_uid_exists(conn):
+    models.create_board(conn, "B", "v1", "bomA", "3")
+    assert models.board_uid_exists(conn, "B", "v1", "bomA", "3") is True
+    assert models.board_uid_exists(conn, "B", "v1", "bomA", "4") is False
+    # 不同 BOM 版本下同名 ID 不算冲突
+    assert models.board_uid_exists(conn, "B", "v1", "bomB", "3") is False
+
+
 def test_changeset_upsert_and_chain_for_node(conn):
     from app.csv_import import CsvEntry
     models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])

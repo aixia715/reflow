@@ -147,6 +147,16 @@ def list_boards(conn, board_name, pcb_version, bom_version) -> list[sqlite3.Row]
     ).fetchall()
 
 
+def board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid) -> bool:
+    """同一 BOM 版本内是否已存在该 board_uid（用于新建单板去重）。"""
+    return conn.execute(
+        "SELECT 1 FROM boards_hierarchy"
+        " WHERE board_name=? AND pcb_version=? AND bom_version=? AND board_uid=?"
+        " LIMIT 1",
+        (board_name, pcb_version, bom_version, board_uid),
+    ).fetchone() is not None
+
+
 def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part) -> None:
     """修正根节点初始 BOM 的某位号（part=None 表示删除该位号）。"""
     if part is None:

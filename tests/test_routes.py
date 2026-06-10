@@ -303,3 +303,22 @@ def test_create_rejects_blank_board_uid(client):
                           "bom_version": "bomA", "board_uid": "   "},
                     files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")})
     assert r.status_code == 400
+
+
+def test_create_rejects_duplicate_board_uid(client):
+    _setup_board(client)   # 已建 B/v1/bomA 下 board_uid=3
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    follow_redirects=False)
+    assert r.status_code == 400
+
+
+def test_create_allows_same_uid_in_different_bom_version(client):
+    _setup_board(client)   # B/v1/bomA 下 board_uid=3
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomB", "board_uid": "3"},
+                    files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
+                    follow_redirects=False)
+    assert r.status_code == 303
