@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Reflow{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script>document.documentElement.setAttribute('data-theme',
+    localStorage.getItem('theme') || 'light');</script>
   <script src="/static/vendor/htmx.min.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>
 </head>
@@ -13,6 +15,12 @@
   <a class="brand" href="/">⟲ Reflow</a>
   <nav class="crumbs">{% block crumbs %}{% endblock %}</nav>
   <nav class="ctx">{% block ctxlinks %}{% endblock %}</nav>
+  <button class="theme-toggle" title="切换白天/夜间模式"
+    x-data="{t: document.documentElement.getAttribute('data-theme')}"
+    @click="t = t === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            localStorage.setItem('theme', t)"
+    x-text="t === 'dark' ? '☀️' : '🌙'"></button>
 </header>
 <main>{% block content %}{% endblock %}</main>
 <div id="modal"></div>
