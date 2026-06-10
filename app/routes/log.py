@@ -6,16 +6,17 @@ router = APIRouter()
 
 
 @router.get("/board/{board_id}/log")
-def board_log(request: Request, board_id: int):
+def board_log(request: Request, board_id: int,
+              reference: str = "", node: str = ""):
     conn = get_conn()
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
-    node_ids = [n["id"] for n in models.list_nodes(conn, board_id)]
-    placeholders = ",".join("?" * len(node_ids))
-    rows = conn.execute(
-        f"SELECT * FROM edit_log WHERE node_id IN ({placeholders}) ORDER BY id",
-        node_ids,
-    ).fetchall() if node_ids else []
+    node_id = int(node) if node.strip() else None
+    rows = models.list_board_log(conn, board_id,
+                                 reference=reference.strip() or None, node_id=node_id)
     return templates.TemplateResponse(
-        request, "log.html", {"board_id": board_id, "rows": rows})
+        request, "log.html",
+        {"board": board, "board_id": board_id, "rows": rows,
+         "nodes": models.list_nodes(conn, board_id),
+         "reference": reference, "node": node})

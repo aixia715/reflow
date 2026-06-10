@@ -52,6 +52,25 @@ def test_changeset_upsert_and_chain_for_node(conn):
     assert models.get_changeset(conn, ws_id) == []
 
 
+def test_list_board_log_filters_and_orders(tmp_path):
+    from app.db import connect, init_db
+    from app.csv_import import CsvEntry
+    from app import models, audit
+    conn = connect(str(tmp_path / "t.sqlite")); init_db(conn)
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid = models.create_board(conn, "B", "v1", "bomA", "1")
+    ws = models.workspace_node(conn, bid)
+    audit.record_edit(conn, ws["id"], "R1", "10k", "22k", "modify", "direct")
+    audit.record_edit(conn, ws["id"], "C1", None, "1uF", "add", "direct")
+    rows = models.list_board_log(conn, bid)
+    assert [r["reference"] for r in rows] == ["C1", "R1"]          # 倒序
+    assert rows[0]["node_message"] is not None                      # join 到节点
+    only_r1 = models.list_board_log(conn, bid, reference="R1")
+    assert [r["reference"] for r in only_r1] == ["R1"]
+    only_node = models.list_board_log(conn, bid, node_id=ws["id"])
+    assert len(only_node) == 2
+
+
 def test_node_summaries(tmp_path):
     from app.db import connect, init_db
     from app.csv_import import CsvEntry

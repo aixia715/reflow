@@ -1,17 +1,46 @@
 {% extends "base.html" %}
+{% block title %}板 {{ board.board_uid }} · 审计日志 — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a>
+/ 审计日志
+{% endblock %}
+{% block ctxlinks %}<a href="/board/{{ board_id }}">状态图</a>{% endblock %}
 {% block content %}
-<p><a href="/board/{{ board_id }}">← 状态图</a></p>
-<h1>审计日志</h1>
-<table>
-  <tr><th>节点</th><th>位号</th><th>旧值</th><th>新值</th><th>操作</th><th>来源</th><th>时间</th><th>备注</th></tr>
+<div class="page-head"><h1>审计日志</h1></div>
+<form class="toolbar" method="get" action="/board/{{ board_id }}/log">
+  <input class="input" name="reference" value="{{ reference }}" placeholder="按位号筛选，如 R5">
+  <select class="input" name="node" style="width:auto">
+    <option value="">全部节点</option>
+    {% for n in nodes %}
+    <option value="{{ n.id }}" {% if node == n.id|string %}selected{% endif %}>
+      {% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}
+    </option>
+    {% endfor %}
+  </select>
+  <button class="btn">筛选</button>
+</form>
+<table class="bom">
+  <thead><tr><th>时间</th><th>节点</th><th>位号</th><th>变更</th><th>来源</th><th>备注</th></tr></thead>
+  <tbody>
   {% for r in rows %}
   <tr>
-    <td>#{{ r.node_id }}</td><td>{{ r.reference }}</td>
-    <td>{{ r.old_part or '—' }}</td><td>{{ r.new_part or '—' }}</td>
-    <td>{{ r.op }}</td>
-    <td>{{ '直接' if r.source == 'direct' else '上游传播' }}</td>
-    <td>{{ r.created_at }}</td><td>{{ r.note or '' }}</td>
+    <td class="muted">{{ r.created_at }}</td>
+    <td><a href="/board/{{ board_id }}/node/{{ r.node_id }}">
+      {% if not r.node_committed %}工作区草稿{% else %}#{{ r.node_id }} {{ r.node_message or '(无说明)' }}{% endif %}</a></td>
+    <td><code>{{ r.reference }}</code></td>
+    <td>
+      {% if r.old_part %}<span class="strike">{{ r.old_part }}</span> → {% endif %}
+      {% if r.new_part %}<b>{{ r.new_part }}</b>{% else %}<b>不贴</b>{% endif %}
+    </td>
+    <td>
+      {% if r.source == 'direct' %}<span class="badge badge-blue">直接修改</span>
+      {% else %}<span class="badge badge-purple">上游传播</span>{% endif %}
+    </td>
+    <td class="muted">{{ r.note or '' }}</td>
   </tr>
   {% endfor %}
+  {% if not rows %}<tr><td colspan="6" class="muted">没有匹配的记录</td></tr>{% endif %}
+  </tbody>
 </table>
 {% endblock %}

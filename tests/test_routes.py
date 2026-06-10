@@ -277,3 +277,14 @@ def test_board_new_page_loads(client):
     r = client.get("/board/new")
     assert r.status_code == 200
     assert "新建单板" in r.text
+
+
+def test_log_page_filter_by_reference(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    r = client.get(f"/board/{board_id}/log?reference=R9")
+    assert "R1" not in r.text.split("</form>")[-1]   # 表格区不含 R1
+    r2 = client.get(f"/board/{board_id}/log?reference=R1")
+    assert "47k" in r2.text

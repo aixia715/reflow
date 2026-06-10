@@ -191,6 +191,21 @@ def workspace_node(conn, board_id) -> sqlite3.Row:
     ).fetchone()
 
 
+def list_board_log(conn, board_id, reference=None, node_id=None) -> list[sqlite3.Row]:
+    """单板全链审计日志（带节点说明），可按位号模糊/节点过滤，最新在前。"""
+    sql = ("SELECT l.*, n.message AS node_message, n.is_committed AS node_committed"
+           " FROM edit_log l JOIN nodes n ON n.id = l.node_id WHERE n.board_id = ?")
+    args: list = [board_id]
+    if reference:
+        sql += " AND l.reference LIKE ?"
+        args.append(f"%{reference}%")
+    if node_id:
+        sql += " AND l.node_id = ?"
+        args.append(node_id)
+    sql += " ORDER BY l.id DESC"
+    return conn.execute(sql, args).fetchall()
+
+
 def _ancestry(conn, node_id) -> list[sqlite3.Row]:
     """从根到 node_id（含）的节点行列表。"""
     chain: list[sqlite3.Row] = []
