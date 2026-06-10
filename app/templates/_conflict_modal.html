@@ -1,0 +1,26 @@
+<div class="modal-overlay">
+  <div class="modal">
+    <div class="modal-head">下游节点改过同一位号，请确认</div>
+    <form method="post" action="/board/{{ board_id }}/node/{{ node_id }}/resolve">
+      {% for c in conflicts %}
+      <fieldset class="conflict">
+        <legend><code>{{ c.reference }}</code> 在下游节点 #{{ c.downstream_node_id }} 被显式修改过</legend>
+        <input type="hidden" name="downstream_node_id" value="{{ c.downstream_node_id }}">
+        <input type="hidden" name="reference" value="{{ c.reference }}">
+        <label><input type="radio" name="choice" value="keep" checked>
+          保留下游值（{{ c.downstream_value or '不贴' }}），下游不变</label>
+        <label><input type="radio" name="choice" value="take">
+          采用修正值（{{ c.corrected_value or '不贴' }}）并向后传播</label>
+      </fieldset>
+      {% endfor %}
+      <div class="modal-foot">
+        <button type="button" class="btn"
+                onclick="document.getElementById('modal').innerHTML=''">取消（保留下游值）</button>
+        <button class="btn btn-primary">确认</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div id="bom" hx-swap-oob="innerHTML">{% include "_bom_table.html" %}</div>
+<div id="changes-panel" class="panel" hx-swap-oob="true">{% include "_changes_panel.html" %}</div>
+<div id="form-error" hx-swap-oob="true"></div>

@@ -1,27 +1,72 @@
 {% extends "base.html" %}
+{% block title %}{% if node.is_committed %}{{ node.message or '节点 #' ~ node.id }}{% else %}工作区{% endif %} · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a>
+{% endblock %}
+{% block ctxlinks %}
+<a href="/board/{{ board_id }}">状态图</a>
+<a href="/board/{{ board_id }}/log">审计日志</a>
+{% endblock %}
 {% block content %}
-<p><a href="/board/{{ board_id }}">← 状态图</a></p>
-<h1>节点 #{{ node.id }} — {{ node.message or '工作区草稿' }}</h1>
-<p>稳定链接：<code>/board/{{ board_id }}/node/{{ node.id }}</code></p>
-<div id="bom">{% include "_bom_table.html" %}</div>
+<div class="page-head">
+  <h1>{% if not node.is_committed %}工作区草稿{% elif node.parent_id is none %}初始状态{% else %}#{{ node.id }} {{ node.message or '(无说明)' }}{% endif %}</h1>
+  {% if node.is_committed %}
+  <span class="badge">已提交 · {{ node.committed_at }}</span>
+  {% else %}
+  <span class="badge badge-blue">未提交 · {{ changes|length }} 条修改</span>
+  {% endif %}
+  <span class="muted stable-link">稳定链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code></span>
+</div>
 
-<h3>修正此节点记录</h3>
-<form hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit" hx-target="#bom">
-  <input name="reference" placeholder="位号" required>
-  <select name="op">
-    <option value="modify">修改</option>
-    <option value="add">新增</option>
-    <option value="remove">删除(不贴)</option>
-  </select>
-  <input name="part" placeholder="Part">
-  <button>应用修正</button>
-  <div id="form-error"></div>
-</form>
-
-{% if not node.is_committed %}
-<form method="post" action="/board/{{ board_id }}/commit">
-  <input name="message" placeholder="commit 说明" required>
-  <button>提交为新节点</button>
-</form>
+{% if node.is_committed %}
+<div class="flash flash-warn">⚠ 这是已提交的历史节点。在此编辑＝<b>修正历史记录</b>，会自动向下游传播；若下游改过同一位号将需要你逐个确认。</div>
 {% endif %}
+
+<div class="two-col" x-data="bomPage()" @fill-form.window="setFrom($event.detail)">
+  <div>
+    <div id="bom">{% include "_bom_table.html" %}</div>
+  </div>
+  <aside>
+    {% if node.is_committed %}
+    <details class="panel">
+      <summary>修正历史记录…</summary>
+      {% include "_edit_form.html" %}
+    </details>
+    {% else %}
+    <div class="panel">
+      <div class="panel-title">添加修改</div>
+      {% include "_edit_form.html" %}
+    </div>
+    {% endif %}
+    <div id="changes-panel" class="panel">{% include "_changes_panel.html" %}</div>
+    {% if not node.is_committed %}
+    <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit">
+      <input class="input" name="message" placeholder="commit 说明" required>
+      <button class="btn btn-outline">提交为新节点</button>
+    </form>
+    {% endif %}
+  </aside>
+</div>
+
+<script>
+function bomPage(){
+  return {
+    q: '', tab: 'all',
+    ref: '', op: 'modify', part: '',
+    rowVisible(el){
+      const d = el.dataset;
+      if (this.tab === 'mine' && d.state !== 'mine') return false;
+      if (this.tab === 'removed' && d.removed !== '1') return false;
+      const q = this.q.trim().toLowerCase();
+      return !q || d.ref.toLowerCase().includes(q)
+                || (d.part || '').toLowerCase().includes(q);
+    },
+    fill(ref, op, part){
+      window.dispatchEvent(new CustomEvent('fill-form', {detail: {ref, op, part}}));
+    },
+    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; },
+  };
+}
+</script>
 {% endblock %}

@@ -1,0 +1,16 @@
+<form class="edit-form"
+      hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit"
+      hx-target="#bom" hx-swap="innerHTML"
+      @htmx:after-request="if ($event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; }">
+  <input class="input" name="reference" x-model="ref" list="refs"
+         placeholder="位号（自动补全）" required autocomplete="off">
+  <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
+  <div class="seg">
+    <label :class="{on: op==='modify'}"><input type="radio" name="op" value="modify" x-model="op">修改</label>
+    <label :class="{on: op==='add'}"><input type="radio" name="op" value="add" x-model="op">新增</label>
+    <label :class="{on: op==='remove'}"><input type="radio" name="op" value="remove" x-model="op">不贴</label>
+  </div>
+  <input class="input" name="part" x-model="part" placeholder="新 Part 值" :disabled="op==='remove'">
+  <button class="btn btn-primary">应用修正</button>
+  <div id="form-error"></div>
+</form>

@@ -1,0 +1,15 @@
+<div class="panel-title">本节点修改（{{ changes|length }}）</div>
+{% if not changes %}<p class="muted">还没有修改</p>{% endif %}
+{% for c in changes %}
+<div class="change-row">
+  <span><code>{{ c.reference }}</code>
+    {% if c.op == 'remove' %}不贴{% elif c.op == 'add' %}新增 → {{ c.part }}{% else %}修改 → {{ c.part }}{% endif %}
+  </span>
+  {% if not node.is_committed %}
+  <button class="btn-link danger" title="撤销"
+          hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
+          hx-vals='{"reference": "{{ c.reference }}"}'
+          hx-target="#bom" hx-swap="innerHTML">↩</button>
+  {% endif %}
+</div>
+{% endfor %}

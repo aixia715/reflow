@@ -192,3 +192,25 @@ def test_workspace_edit_unknown_board_404(client):
     r = client.post("/board/9999/workspace/edit",
                     data={"reference": "R1", "op": "modify", "part": "1k"})
     assert r.status_code == 404
+
+
+def test_node_detail_shows_changes_panel_and_badges(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    ws = _workspace_id(client, board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert "本节点修改" in r.text
+    assert "撤销" in r.text
+    assert "47k" in r.text and "10k" in r.text   # 新值 + 划线旧值
+
+
+def test_committed_node_shows_history_warning(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    client.post(f"/board/{board_id}/commit", data={"message": "S1"})
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert "修正历史记录" in r.text
+    assert "撤销" not in r.text            # 已提交节点无撤销入口

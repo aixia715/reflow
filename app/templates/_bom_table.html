@@ -1,12 +1,64 @@
-<table>
-  <tr><th>Reference</th><th>Part</th><th>diff</th></tr>
-  {% for ref, part in bom %}
-  <tr class="{{ diff.get(ref, '') }}">
-    <td>{{ ref }}</td><td>{{ part }}</td>
-    <td>{% if ref in diff %}{{ {'add':'新增','modify':'修改','remove':'删除'}[diff[ref]] }}{% endif %}</td>
+<div class="toolbar">
+  <input class="input" placeholder="筛选位号 / Part…" x-model="q">
+  <div class="seg">
+    <button type="button" :class="{on: tab==='all'}" @click="tab='all'">全部 {{ total }}</button>
+    <button type="button" :class="{on: tab==='mine'}" @click="tab='mine'">本节点修改 {{ mine_count }}</button>
+    <button type="button" :class="{on: tab==='removed'}" @click="tab='removed'">不贴 {{ removed_count }}</button>
+  </div>
+</div>
+<table class="bom">
+  <thead><tr><th>位号</th><th>Part</th><th>状态</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr data-ref="{{ r.reference }}" data-part="{{ r.part }}" data-state="{{ r.state or '' }}"
+      data-removed="0" x-show="rowVisible($el)"
+      class="{% if r.state == 'mine' %}row-{{ r.op }}{% endif %}">
+    <td><code>{{ r.reference }}</code></td>
+    <td>{{ r.part }}{% if r.state == 'mine' and r.op == 'modify' and r.old %}<span class="old-val">{{ r.old }}</span>{% endif %}</td>
+    <td>
+      {% if r.state == 'mine' %}
+      <span class="badge {{ 'badge-green' if r.op == 'add' else 'badge-yellow' }}">本节点 · {{ {'add':'新增','modify':'修改'}[r.op] }}</span>
+      {% endif %}
+    </td>
+    <td class="row-actions">
+      {% if r.state == 'mine' and not node.is_committed %}
+      <button class="btn-link danger"
+              hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
+              hx-vals='{"reference": "{{ r.reference }}"}'
+              hx-target="#bom" hx-swap="innerHTML">↩ 撤销</button>
+      {% else %}
+      <span class="hover-only">
+        <button type="button" class="btn-link" @click="fill('{{ r.reference }}', 'modify', '{{ r.part }}')">修改</button>
+        <button type="button" class="btn-link danger" @click="fill('{{ r.reference }}', 'remove', '')">不贴</button>
+      </span>
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
-  {% for ref, op in diff.items() if op == 'remove' %}
-  <tr class="remove"><td>{{ ref }}</td><td>—</td><td>删除(不贴)</td></tr>
+  {% for r in removed %}
+  <tr data-ref="{{ r.reference }}" data-part="{{ r.part or '' }}" data-state="{{ r.state }}"
+      data-removed="1" x-show="rowVisible($el)"
+      class="{% if r.state == 'mine' %}row-remove{% endif %}">
+    <td><code>{{ r.reference }}</code></td>
+    <td><span class="strike">{{ r.part or '—' }}</span></td>
+    <td>
+      {% if r.state == 'mine' %}
+      <span class="badge badge-red">本节点 · 不贴</span>
+      {% else %}
+      <span class="badge">上游 · 不贴</span>
+      {% endif %}
+    </td>
+    <td class="row-actions">
+      {% if r.state == 'mine' and not node.is_committed %}
+      <button class="btn-link danger"
+              hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
+              hx-vals='{"reference": "{{ r.reference }}"}'
+              hx-target="#bom" hx-swap="innerHTML">↩ 撤销</button>
+      {% else %}
+      <button type="button" class="btn-link hover-only" @click="fill('{{ r.reference }}', 'add', '')">恢复贴装</button>
+      {% endif %}
+    </td>
+  </tr>
   {% endfor %}
+  </tbody>
 </table>

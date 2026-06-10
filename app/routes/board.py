@@ -10,12 +10,51 @@ from app.validation import validate_edit
 router = APIRouter()
 
 
-def _node_diff(conn, node):
-    """返回 (完整BOM dict, {reference: 'add'|'modify'|'remove'}) 相对父节点的 diff。"""
+def _node_context(conn, board_id: int, node) -> dict:
+    """节点页/片段的完整渲染上下文：行数据（含旧值）、不贴行、修改面板、统计。"""
+    board = models.get_board(conn, board_id)
     initial, chain = models.get_chain(conn, node["id"])
     full = fold_bom(initial, chain)
-    diff = {c["reference"]: c["op"] for c in models.get_changeset(conn, node["id"])}
-    return full, diff
+    parent_full = fold_bom(initial, chain[:-1])
+    changes = {c["reference"]: c for c in models.get_changeset(conn, node["id"])}
+
+    rows = []
+    for ref, part in sorted(full.items()):
+        ch = changes.get(ref)
+        rows.append({
+            "reference": ref, "part": part,
+            "state": "mine" if ch else None,
+            "op": ch["op"] if ch else None,
+            "old": parent_full.get(ref),
+        })
+
+    # 「不贴」行 = 出现过（初始或链上 add/modify）但不在折叠结果里的位号
+    known = set(initial)
+    for cs in chain:
+        for c in cs:
+            if c["op"] in ("add", "modify"):
+                known.add(c["reference"])
+
+    def _last_value(ref):
+        v = initial.get(ref)
+        for cs in chain:
+            for c in cs:
+                if c["reference"] == ref and c["op"] != "remove":
+                    v = c["part"]
+        return v
+
+    removed = [
+        {"reference": ref, "part": _last_value(ref),
+         "state": "mine" if ref in changes else "upstream"}
+        for ref in sorted(known - set(full))
+    ]
+    return {
+        "board": board, "board_id": board_id, "node": node,
+        "rows": rows, "removed": removed,
+        "changes": list(changes.values()),
+        "all_refs": sorted(known),
+        "total": len(full), "mine_count": len(changes), "removed_count": len(removed),
+    }
 
 
 def _validate(conn, node_id, reference, op, part) -> str | None:
@@ -42,10 +81,8 @@ def node_detail(request: Request, board_id: int, node_id: int):
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
-    full, diff = _node_diff(conn, node)
     return templates.TemplateResponse(
-        request, "node_detail.html",
-        {"board_id": board_id, "node": node, "bom": sorted(full.items()), "diff": diff})
+        request, "node_detail.html", _node_context(conn, board_id, node))
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit")
@@ -72,15 +109,18 @@ def edit_node(request: Request, board_id: int, node_id: int,
     else:
         conflicts = propagation.apply_node_edit(conn, node_id, reference, op, part_val)
 
-    if conflicts:
-        return templates.TemplateResponse(
-            request, "_conflicts.html",
-            {"board_id": board_id, "node_id": node_id, "conflicts": conflicts})
     node = models.get_node(conn, node_id)
-    full, diff = _node_diff(conn, node)
+    ctx = _node_context(conn, board_id, node)
+    if conflicts:
+        ctx.update({"conflicts": conflicts, "node_id": node_id})
+        return templates.TemplateResponse(
+            request, "_conflict_modal.html", ctx,
+            headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
+    label = {"add": "已新增", "modify": "已修改", "remove": "已设为不贴"}[op]
+    msg = f"✓ {label}：{reference}" + (f" → {part_val}" if part_val else "")
     return templates.TemplateResponse(
-        request, "_bom_table.html",
-        {"board_id": board_id, "node": node, "bom": sorted(full.items()), "diff": diff})
+        request, "_node_update.html", ctx,
+        headers={"HX-Trigger": json.dumps({"showToast": msg})})
 
 
 @router.post("/board/{board_id}/node/{node_id}/undo")
@@ -96,12 +136,10 @@ def undo_change(request: Request, board_id: int, node_id: int,
             request, "_form_error.html",
             {"message": "已提交节点不能撤销，请使用「修正历史记录」"},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
+    reference = reference.strip()
     models.delete_change(conn, node_id, reference)
-    node = models.get_node(conn, node_id)
-    full, diff = _node_diff(conn, node)
     return templates.TemplateResponse(
-        request, "_bom_table.html",
-        {"board_id": board_id, "node": node, "bom": sorted(full.items()), "diff": diff},
+        request, "_node_update.html", _node_context(conn, board_id, node),
         headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已撤销 {reference} 的修改"})})
 
 
@@ -119,7 +157,7 @@ def resolve(request: Request, board_id: int, node_id: int,
         corrected = propagation._resolved_value(conn, node_id, ref)
         propagation.resolve_conflict(
             conn, propagation.Conflict(ds, ref, ds_val, corrected), ch)
-    return RedirectResponse(f"/board/{board_id}/node/{node_id}", status_code=303)
+    return RedirectResponse(f"/board/{board_id}/node/{node_id}?flash=✓ 冲突已确认", status_code=303)
 
 
 @router.post("/board/{board_id}/workspace/edit")
@@ -142,4 +180,4 @@ def workspace_edit(board_id: int, reference: str = Form(...),
 def commit(board_id: int, message: str = Form(...)):
     conn = get_conn()
     models.commit_workspace(conn, board_id, message)
-    return RedirectResponse(f"/board/{board_id}", status_code=303)
+    return RedirectResponse(f"/board/{board_id}?flash=✓ 已提交：{message}", status_code=303)
