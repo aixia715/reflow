@@ -6,8 +6,11 @@ from fastapi.templating import Jinja2Templates
 
 from app.db import connect, init_db
 
+from app.badge_config import pcb_badge_class
+
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["urlencode"] = lambda v: quote(str(v), safe="")
+templates.env.filters["pcb_badge_class"] = pcb_badge_class
 
 
 def get_conn():
