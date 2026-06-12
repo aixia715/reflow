@@ -9,21 +9,36 @@
 </div>
 {% endif %}
 {% for name, versions in groups.items() %}
-<div class="group-title">📋 {{ name }}</div>
+<div class="group-title">
+  📋 {{ name }}
+  <button class="del-icon" title="删除整组"
+          hx-delete="/board-group"
+          hx-vals='{"board_name": {{ name | tojson }}}'
+          hx-confirm="确认删除「{{ name }}」的全部数据？此操作将删除其下所有 BOM 版本和单板记录，不可恢复。">🗑</button>
+</div>
 {% for v in versions %}
 <div class="panel version">
   <div class="version-head">
     <span class="badge">PCB {{ v.pcb_version }}</span>
     <b>{{ v.bom_version }}</b>
     <span class="muted">{{ v.ref_count }} 个位号 · {{ v.boards|length }} 块单板</span>
+    <button class="del-icon ml-auto" title="删除 BOM 版本"
+            hx-delete="/bom-version"
+            hx-vals='{"board_name": {{ name | tojson }}, "pcb_version": {{ v.pcb_version | tojson }}, "bom_version": {{ v.bom_version | tojson }}}'
+            hx-confirm="确认删除 BOM 版本「{{ v.bom_version }}」？将同时删除其下 {{ v.boards|length }} 块单板的全部记录，不可恢复。">🗑</button>
   </div>
   {% if v.boards %}
   <div class="chips">
     {% for b in v.boards %}
-    <a class="chip {{ 'pending' if b.pending else '' }}" href="/board/{{ b.id }}">
-      板 {{ b.board_uid }}
-      <span class="muted">· {{ b.node_count }} 个节点{% if b.pending %} · {{ b.pending }} 条未提交{% endif %}</span>
-    </a>
+    <span class="chip-wrap">
+      <a class="chip {{ 'pending' if b.pending else '' }}" href="/board/{{ b.id }}">
+        板 {{ b.board_uid }}
+        <span class="muted">· {{ b.node_count }} 个节点{% if b.pending %} · {{ b.pending }} 条未提交{% endif %}</span>
+      </a>
+      <button class="del-icon chip-del" title="删除单板"
+              hx-delete="/board/{{ b.id }}"
+              hx-confirm="确认删除单板「{{ b.board_uid }}」？此操作将同时删除该单板所有节点记录，不可恢复。">×</button>
+    </span>
     {% endfor %}
   </div>
   {% endif %}

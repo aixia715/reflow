@@ -322,3 +322,40 @@ def test_create_allows_same_uid_in_different_bom_version(client):
                     files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
                     follow_redirects=False)
     assert r.status_code == 303
+
+
+def test_delete_board(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    r = client.delete(f"/board/{board_id}")
+    assert r.status_code == 200
+    assert r.headers.get("hx-redirect") == "/"
+    assert client.get(f"/board/{board_id}").status_code == 404
+
+
+def test_delete_board_404_if_missing(client):
+    r = client.delete("/board/99999")
+    assert r.status_code == 404
+
+
+def test_delete_bom_version(client):
+    _setup_board(client)
+    r = client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA")
+    assert r.status_code == 200
+    assert r.headers.get("hx-redirect") == "/"
+    assert client.get("/").status_code == 200
+    assert "bomA" not in client.get("/").text
+
+
+def test_delete_bom_version_404_if_missing(client):
+    r = client.delete("/bom-version?board_name=X&pcb_version=v1&bom_version=bomX")
+    assert r.status_code == 404
+
+
+def test_delete_board_group(client):
+    _setup_board(client)
+    r = client.delete("/board-group?board_name=B")
+    assert r.status_code == 200
+    assert r.headers.get("hx-redirect") == "/"
+    home = client.get("/").text
+    assert "bomA" not in home

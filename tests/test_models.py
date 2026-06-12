@@ -92,3 +92,50 @@ def test_node_summaries(tmp_path):
     root = models.list_nodes(conn, bid)[0]
     assert s[root["id"]] == []
     assert s[ws["id"]] == [{"reference": "R1", "op": "modify"}]
+
+
+def test_delete_board_cascades(conn):
+    from app.csv_import import CsvEntry
+    from app import audit
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid = models.create_board(conn, "B", "v1", "bomA", "1")
+    ws = models.workspace_node(conn, bid)
+    models.set_change(conn, ws["id"], "R1", "modify", "22k")
+    audit.record_edit(conn, ws["id"], "R1", "10k", "22k", "modify", "direct")
+
+    models.delete_board(conn, bid)
+
+    assert models.get_board(conn, bid) is None
+    assert conn.execute("SELECT COUNT(*) FROM nodes WHERE board_id=?", (bid,)).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM node_changes").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM edit_log").fetchone()[0] == 0
+    # 初始 BOM 不受影响
+    assert models.get_initial_bom(conn, "B", "v1", "bomA") == {"R1": "10k"}
+
+
+def test_delete_bom_version_cascades(conn):
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid1 = models.create_board(conn, "B", "v1", "bomA", "1")
+    bid2 = models.create_board(conn, "B", "v1", "bomA", "2")
+
+    models.delete_bom_version(conn, "B", "v1", "bomA")
+
+    assert models.get_board(conn, bid1) is None
+    assert models.get_board(conn, bid2) is None
+    assert models.get_initial_bom(conn, "B", "v1", "bomA") == {}
+    assert models.list_bom_versions(conn) == []
+
+
+def test_delete_board_name_cascades(conn):
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    models.create_bom_version(conn, "B", "v1", "bomB", [CsvEntry("C1", "100nF")])
+    models.create_board(conn, "B", "v1", "bomA", "1")
+    models.create_board(conn, "B", "v1", "bomB", "2")
+
+    models.delete_board_name(conn, "B")
+
+    assert models.list_bom_versions(conn) == []
+    assert conn.execute("SELECT COUNT(*) FROM boards_hierarchy").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM initial_bom").fetchone()[0] == 0

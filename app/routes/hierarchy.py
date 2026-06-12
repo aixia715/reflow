@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException, Query
+from fastapi.responses import RedirectResponse, Response
 
 from app.main import templates, get_conn
 from app import models
@@ -109,3 +109,38 @@ async def board_create(
     board_id = models.create_board(conn, board_name, pcb_version, bom_version, board_uid)
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已创建 板 {board_uid}",
                             status_code=303)
+
+
+def _hx_redirect(url: str) -> Response:
+    resp = Response(status_code=200)
+    resp.headers["HX-Redirect"] = url
+    return resp
+
+
+@router.delete("/board/{board_id}")
+def board_delete(board_id: int):
+    conn = get_conn()
+    if not models.get_board(conn, board_id):
+        raise HTTPException(status_code=404, detail="单板不存在")
+    models.delete_board(conn, board_id)
+    return _hx_redirect("/")
+
+
+@router.delete("/bom-version")
+def bom_version_delete(
+    board_name: str = Query(...),
+    pcb_version: str = Query(...),
+    bom_version: str = Query(...),
+):
+    conn = get_conn()
+    if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
+        raise HTTPException(status_code=404, detail="BOM 版本不存在")
+    models.delete_bom_version(conn, board_name, pcb_version, bom_version)
+    return _hx_redirect("/")
+
+
+@router.delete("/board-group")
+def board_group_delete(board_name: str = Query(...)):
+    conn = get_conn()
+    models.delete_board_name(conn, board_name)
+    return _hx_redirect("/")
