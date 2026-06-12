@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -6,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from app.db import connect, init_db
 
 templates = Jinja2Templates(directory="app/templates")
+templates.env.filters["urlencode"] = lambda v: quote(str(v), safe="")
 
 
 def get_conn():

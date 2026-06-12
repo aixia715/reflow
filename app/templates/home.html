@@ -12,8 +12,7 @@
 <div class="group-title">
   📋 {{ name }}
   <button class="del-icon" title="删除整组"
-          hx-delete="/board-group"
-          hx-vals='{"board_name": {{ name | tojson }}}'
+          hx-delete="/board-group?board_name={{ name | urlencode }}"
           hx-confirm="确认删除「{{ name }}」的全部数据？此操作将删除其下所有 BOM 版本和单板记录，不可恢复。">🗑</button>
 </div>
 {% for v in versions %}
@@ -23,8 +22,7 @@
     <b>{{ v.bom_version }}</b>
     <span class="muted">{{ v.ref_count }} 个位号 · {{ v.boards|length }} 块单板</span>
     <button class="del-icon ml-auto" title="删除 BOM 版本"
-            hx-delete="/bom-version"
-            hx-vals='{"board_name": {{ name | tojson }}, "pcb_version": {{ v.pcb_version | tojson }}, "bom_version": {{ v.bom_version | tojson }}}'
+            hx-delete="/bom-version?board_name={{ name | urlencode }}&pcb_version={{ v.pcb_version | urlencode }}&bom_version={{ v.bom_version | urlencode }}"
             hx-confirm="确认删除 BOM 版本「{{ v.bom_version }}」？将同时删除其下 {{ v.boards|length }} 块单板的全部记录，不可恢复。">🗑</button>
   </div>
   {% if v.boards %}

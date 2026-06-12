@@ -359,3 +359,89 @@ def test_delete_board_group(client):
     assert r.headers.get("hx-redirect") == "/"
     home = client.get("/").text
     assert "bomA" not in home
+
+
+# ── 补充删除功能边界测试 ──────────────────────────────────────────────
+
+def test_home_shows_delete_buttons(client):
+    """首页有数据时应渲染三层删除按钮。"""
+    _setup_board(client)
+    html = client.get("/").text
+    assert "hx-delete" in html
+    assert "del-icon" in html
+    assert "hx-confirm" in html
+    assert "chip-del" in html
+
+
+def test_delete_board_with_committed_history(client):
+    """有 commit 节点的单板删除后，单板页和节点页均 404。"""
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "22k"})
+    commit_r = client.post(f"/board/{board_id}/workspace/commit",
+                           data={"message": "测试提交"}, follow_redirects=False)
+    node_url = commit_r.headers.get("location", "")
+
+    client.delete(f"/board/{board_id}")
+
+    assert client.get(f"/board/{board_id}").status_code == 404
+    if node_url and "/node/" in node_url:
+        assert client.get(node_url.split("?")[0]).status_code == 404
+
+
+def test_delete_bom_version_cascades_multiple(client):
+    """BOM 版本下有 2 块板，删版本后两块板均 404。"""
+    loc1 = _setup_board(client)
+    board_id1 = loc1.rsplit("/", 1)[-1]
+    r2 = client.post("/board/new",
+                     data={"board_name": "B", "pcb_version": "v1",
+                           "bom_version": "bomA", "board_uid": "4"},
+                     follow_redirects=False)
+    board_id2 = r2.headers["location"].split("?")[0].rsplit("/", 1)[-1]
+
+    client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA")
+
+    assert client.get(f"/board/{board_id1}").status_code == 404
+    assert client.get(f"/board/{board_id2}").status_code == 404
+
+
+def test_delete_board_group_nonexistent(client):
+    """删除不存在的单板组静默成功（200 + HX-Redirect）。"""
+    r = client.delete("/board-group?board_name=不存在的名字")
+    assert r.status_code == 200
+    assert r.headers.get("hx-redirect") == "/"
+
+
+def test_can_recreate_after_board_delete(client):
+    """删除单板后，同名 board_uid 可在同 BOM 版本下重新创建。"""
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.delete(f"/board/{board_id}")
+
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_can_recreate_after_bom_version_delete(client):
+    """删 BOM 版本后，可重新用同版本号上传 CSV 创建。"""
+    _setup_board(client)
+    client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA")
+
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
+                    follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_delete_board_group_clears_home(client):
+    """删组后首页不再包含该 BOM 版本数据。"""
+    _setup_board(client)
+    client.delete("/board-group?board_name=B")
+    home = client.get("/").text
+    assert "bomA" not in home

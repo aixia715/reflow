@@ -139,3 +139,72 @@ def test_delete_board_name_cascades(conn):
     assert models.list_bom_versions(conn) == []
     assert conn.execute("SELECT COUNT(*) FROM boards_hierarchy").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM initial_bom").fetchone()[0] == 0
+
+
+def test_delete_board_with_committed_nodes_and_log(conn):
+    """commit 节点 + edit_log 记录均被级联删除，initial_bom 保留。"""
+    from app.csv_import import CsvEntry
+    from app import audit
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid = models.create_board(conn, "B", "v1", "bomA", "1")
+    ws = models.workspace_node(conn, bid)
+    models.set_change(conn, ws["id"], "R1", "modify", "22k")
+    audit.record_edit(conn, ws["id"], "R1", "10k", "22k", "modify", "direct")
+    models.commit_workspace(conn, bid, "第一次提交")
+    ws2 = models.workspace_node(conn, bid)
+    audit.record_edit(conn, ws2["id"], "C1", None, "1uF", "add", "direct")
+
+    models.delete_board(conn, bid)
+
+    assert models.get_board(conn, bid) is None
+    assert conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM node_changes").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM edit_log").fetchone()[0] == 0
+    assert models.get_initial_bom(conn, "B", "v1", "bomA") == {"R1": "10k"}
+
+
+def test_delete_bom_version_no_boards(conn):
+    """BOM 版本下无单板时，仅删 initial_bom，其他版本的单板不受影响。"""
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    models.create_bom_version(conn, "B", "v1", "bomB", [CsvEntry("C1", "100nF")])
+    models.create_board(conn, "B", "v1", "bomA", "1")
+
+    models.delete_bom_version(conn, "B", "v1", "bomB")
+
+    assert models.get_initial_bom(conn, "B", "v1", "bomB") == {}
+    assert conn.execute("SELECT COUNT(*) FROM boards_hierarchy").fetchone()[0] == 1
+
+
+def test_delete_does_not_affect_sibling_bom_version(conn):
+    """同 PCB 下删一个 BOM 版本，另一个版本数据完整。"""
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    models.create_bom_version(conn, "B", "v1", "bomB", [CsvEntry("C1", "100nF")])
+    bid_a = models.create_board(conn, "B", "v1", "bomA", "1")
+    bid_b = models.create_board(conn, "B", "v1", "bomB", "2")
+
+    models.delete_bom_version(conn, "B", "v1", "bomA")
+
+    assert models.get_board(conn, bid_a) is None
+    assert models.get_board(conn, bid_b) is not None
+    assert models.get_initial_bom(conn, "B", "v1", "bomA") == {}
+    assert models.get_initial_bom(conn, "B", "v1", "bomB") == {"C1": "100nF"}
+
+
+def test_delete_board_name_partial(conn):
+    """两个不同单板名，删一个，另一个数据完整。"""
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "BoardA", "v1", "bomA", [CsvEntry("R1", "10k")])
+    models.create_bom_version(conn, "BoardB", "v1", "bomA", [CsvEntry("C1", "100nF")])
+    bid_a = models.create_board(conn, "BoardA", "v1", "bomA", "1")
+    bid_b = models.create_board(conn, "BoardB", "v1", "bomA", "2")
+
+    models.delete_board_name(conn, "BoardA")
+
+    assert models.get_board(conn, bid_a) is None
+    assert models.get_board(conn, bid_b) is not None
+    assert models.get_initial_bom(conn, "BoardB", "v1", "bomA") == {"C1": "100nF"}
+    versions = models.list_bom_versions(conn)
+    assert len(versions) == 1
+    assert versions[0]["board_name"] == "BoardB"
