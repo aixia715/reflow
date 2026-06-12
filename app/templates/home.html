@@ -18,7 +18,7 @@
 {% for v in versions %}
 <div class="panel version">
   <div class="version-head">
-    <span class="badge">PCB {{ v.pcb_version }}</span>
+    <span class="badge {{ v.pcb_version | pcb_badge_class }}">PCB {{ v.pcb_version }}</span>
     <b>{{ v.bom_version }}</b>
     <span class="muted">{{ v.ref_count }} 个位号 · {{ v.boards|length }} 块单板</span>
     <button class="del-icon ml-auto" title="删除 BOM 版本"

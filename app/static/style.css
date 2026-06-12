@@ -6,6 +6,13 @@
   --green-bg:#dafbe1; --green-fg:#1a7f37;
   --yellow-badge-bg:#fff1b8; --yellow-badge-fg:#9a6700;
   --tl-line:#c7cedb; --accent-soft:#54aeff;
+  /* PCB 版本类型 badge 颜色（浅色主题） */
+  --px-dianxingjian-bg:#d4f5ed; --px-dianxingjian-fg:#0c5c48;
+  --px-dianxingqiangjiajian-bg:#fef3c7; --px-dianxingqiangjiajian-fg:#92400e;
+  --px-jiandingjian-bg:#ede9fe; --px-jiandingjian-fg:#4c1d95;
+  --px-zhengyang-bg:#dbeafe; --px-zhengyang-fg:#1e3a8a;
+  --px-special-bg:#ffe4e6; --px-special-fg:#9f1239;
+  --px-unknown-bg:#f3f4f6; --px-unknown-fg:#374151;
   --toast-bg:#1f2328; --toast-fg:#fff;
   --radius:6px;
 }
@@ -34,6 +41,13 @@ main{max-width:1100px;margin:0 auto;padding:20px 24px}
 .badge-yellow{background:var(--yellow-badge-bg);color:var(--yellow-badge-fg)}
 .badge-red{background:var(--red-bg);color:var(--red)}
 .badge-purple{background:var(--purple-bg);color:var(--purple)}
+/* PCB 版本类型 badge */
+.badge--px-dianxingjian{background:var(--px-dianxingjian-bg);color:var(--px-dianxingjian-fg)}
+.badge--px-dianxingqiangjiajian{background:var(--px-dianxingqiangjiajian-bg);color:var(--px-dianxingqiangjiajian-fg)}
+.badge--px-jiandingjian{background:var(--px-jiandingjian-bg);color:var(--px-jiandingjian-fg)}
+.badge--px-zhengyang{background:var(--px-zhengyang-bg);color:var(--px-zhengyang-fg)}
+.badge--px-special{background:var(--px-special-bg);color:var(--px-special-fg)}
+.badge--px-unknown{background:var(--px-unknown-bg);color:var(--px-unknown-fg)}
 
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
   padding:12px;margin-bottom:12px}
@@ -156,4 +170,11 @@ details.panel summary{cursor:pointer;font-weight:600}
   --purple:#bc8cff; --purple-bg:#1d1a2e;
   --tl-line:#3a4654; --accent-soft:#4493f8;
   --toast-bg:#2d333b; --toast-fg:#e6edf3;
+  /* PCB 版本类型 badge 颜色（深色主题） */
+  --px-dianxingjian-bg:#064e3b; --px-dianxingjian-fg:#6ee7b7;
+  --px-dianxingqiangjiajian-bg:#451a03; --px-dianxingqiangjiajian-fg:#fcd34d;
+  --px-jiandingjian-bg:#2e1065; --px-jiandingjian-fg:#c4b5fd;
+  --px-zhengyang-bg:#1e3a8a; --px-zhengyang-fg:#93c5fd;
+  --px-special-bg:#4c0519; --px-special-fg:#fda4af;
+  --px-unknown-bg:#1f2937; --px-unknown-fg:#9ca3af;
 }
