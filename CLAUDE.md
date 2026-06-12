@@ -48,6 +48,7 @@ pytest                        # 全部测试（当前 74 passed）
 
 ## 约定 / 注意事项
 
+- **改前端（`app/templates/`、`app/static/`）之前必读 `docs/前端风格指南.md`**：设计令牌（只用 CSS 变量、新颜色同步夜间模式）、组件清单（先复用再新建）、交互/文案规范、改完自检清单（两套主题都要实际查看）。
 - **用中文沟通**；代码注释、docstring、UI 文案均为中文，错误消息也是中文，保持一致。
 - **Starlette 1.2.1**：`TemplateResponse` 必须用新签名 `templates.TemplateResponse(request, "name.html", {context})`——`request` 第一个位置参数，context 里**不要**放 `"request"` 键。旧签名会抛 `TypeError`。
 - 标识符用 surrogate key（SQLite AUTOINCREMENT），URL 用节点/单板 id；名称仅展示，重命名不破坏链接。
@@ -60,6 +61,7 @@ pytest                        # 全部测试（当前 74 passed）
 
 ## 文档
 
+- 前端风格指南：`docs/前端风格指南.md`（改前端必读）
 - 设计 spec：`docs/superpowers/specs/2026-06-09-reflow-bom-tool-design.md`（另有 HTML 版）
 - 实现计划：`docs/superpowers/plans/2026-06-09-reflow-bom-tool.md`
 - 需求文档：`docs/Reflow-需求文档.md`
