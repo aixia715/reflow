@@ -59,6 +59,11 @@ label{font-size:13px}
 
 .toolbar{display:flex;gap:8px;margin-bottom:8px;align-items:center}
 .toolbar .input{width:220px}
+.input-clear-wrap{position:relative;display:inline-flex;align-items:center;width:220px}
+.input-clear-wrap .input{width:100%;padding-right:24px}
+.input-clear-btn{position:absolute;right:6px;border:none;background:none;color:var(--muted);
+  cursor:pointer;font-size:15px;padding:0;line-height:1}
+.input-clear-btn:hover{color:var(--fg)}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 .seg button,.seg label{border:none;background:#fff;padding:4px 12px;font-size:12px;
   cursor:pointer;color:var(--fg);font-family:inherit}

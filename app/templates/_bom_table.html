@@ -1,5 +1,8 @@
 <div class="toolbar">
-  <input class="input" placeholder="筛选位号 / Part…" x-model="q">
+  <div class="input-clear-wrap">
+    <input class="input" placeholder="筛选位号 / Part…" x-model="q">
+    <button type="button" class="input-clear-btn" x-show="q" @click="q=''" title="清空">×</button>
+  </div>
   <div class="seg">
     <button type="button" :class="{on: tab==='all'}" @click="tab='all'">全部 {{ total }}</button>
     <button type="button" :class="{on: tab==='mine'}" @click="tab='mine'">本节点修改 {{ mine_count }}</button>
