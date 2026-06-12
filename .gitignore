@@ -6,3 +6,5 @@ __pycache__/
 venv/
 .superpowers/
 images/
+*.egg-info/
+reflow.egg-info/
