@@ -2,9 +2,7 @@
 set -euo pipefail
 
 # ── 配置（按实际情况修改） ────────────────────────────────────────────────
-REMOTE_USER="ubuntu"
-REMOTE_HOST="your.server.ip"
-REMOTE_PORT="22"
+SSH_HOST="your-host"           # ~/.ssh/config 中的 Host 别名
 CONTAINER_NAME="reflow"
 IMAGE_NAME="reflow"
 IMAGE_TAG="$(grep '^version' pyproject.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')"
@@ -12,13 +10,13 @@ HOST_PORT="8000"
 DATA_VOLUME="reflow-data"
 # ─────────────────────────────────────────────────────────────────────────
 
-SSH="ssh -p ${REMOTE_PORT} ${REMOTE_USER}@${REMOTE_HOST}"
+SSH="ssh ${SSH_HOST}"
 FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo "==> [1/3] 本地构建镜像 ${FULL_IMAGE}"
 docker build -t "${FULL_IMAGE}" .
 
-echo "==> [2/3] 传输镜像到 ${REMOTE_HOST}（管道直传，无中间文件）"
+echo "==> [2/3] 传输镜像到 ${SSH_HOST}（管道直传，无中间文件）"
 docker save "${FULL_IMAGE}" | ${SSH} docker load
 
 echo "==> [3/3] 替换远端容器"
@@ -48,4 +46,4 @@ ${SSH} bash -s -- "${CONTAINER_NAME}" "${FULL_IMAGE}" "${HOST_PORT}" "${DATA_VOL
 REMOTE
 
 echo ""
-echo "部署完成！访问 http://${REMOTE_HOST}:${HOST_PORT}/"
+echo "部署完成！访问 http://${SSH_HOST}:${HOST_PORT}/"
