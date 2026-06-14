@@ -120,8 +120,10 @@ async def hc_edit(request: Request, board_id: int, hc_id: int,
             "images": existing, "error": err, "default_time": occurred_at or hc["occurred_at"],
             "form": {"title": title, "occurred_at": occurred_at, "description": description},
         }, status_code=200)
-    if delete_image_ids:
-        storage.delete_images(models.delete_hard_change_images(conn, list(delete_image_ids)))
+    own_ids = {im["id"] for im in existing}
+    to_delete = [i for i in delete_image_ids if i in own_ids]
+    if to_delete:
+        storage.delete_images(models.delete_hard_change_images(conn, to_delete))
     saved = []
     for name, data in blobs:
         stored = hard_change.make_stored_name(name)

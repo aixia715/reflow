@@ -67,3 +67,36 @@ def test_hard_change_detail_and_delete(client):
     assert rdel.status_code == 200 and rdel.headers.get("HX-Redirect", "").startswith(f"/board/{bid}")
     rg2 = client.get(f"/board/{bid}")
     assert "割线 X" not in rg2.text
+
+
+def _img_id_from_edit_form(client, bid, hid):
+    import re
+    r = client.get(f"/board/{bid}/hard-change/{hid}/edit")
+    m = re.search(r'name="delete_image_ids" value="(\d+)"', r.text)
+    assert m, "编辑表单未渲染图片复选框"
+    return m.group(1)
+
+
+def test_edit_ignores_foreign_image_ids(client):
+    bid = _new_board(client)
+    # 建两条带图的硬更改 A、B
+    for title in ("HCA", "HCB"):
+        client.post(f"/board/{bid}/hard-change",
+                    data={"title": title, "occurred_at": "2026-06-01T10:30", "description": ""},
+                    files=[("files", (f"{title}.png", b"\x89PNG\r\n", "image/png"))],
+                    follow_redirects=False)
+    rg = client.get(f"/board/{bid}")
+    import re
+    hids = re.findall(rf"/board/{bid}/hard-change/(\d+)", rg.text)
+    hids = sorted(set(hids))
+    assert len(hids) >= 2
+    hid_a, hid_b = hids[0], hids[1]
+    img_b = _img_id_from_edit_form(client, bid, hid_b)
+    # 编辑 A，却传入 B 的图片 id —— 不应删除 B 的图
+    client.post(f"/board/{bid}/hard-change/{hid_a}/edit",
+                data={"title": "HCA", "occurred_at": "2026-06-01T10:30",
+                      "description": "", "delete_image_ids": img_b},
+                follow_redirects=False)
+    # B 的图仍在
+    img_b_after = _img_id_from_edit_form(client, bid, hid_b)
+    assert img_b_after == img_b
