@@ -36,10 +36,11 @@ def create_app() -> FastAPI:
                 request, "404.html", {}, status_code=404)
         return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
 
-    from app.routes import hierarchy, board, log
+    from app.routes import hierarchy, board, log, hard_change
     app.include_router(hierarchy.router)
     app.include_router(board.router)
     app.include_router(log.router)
+    app.include_router(hard_change.router)
 
     @app.get("/healthz")
     def healthz():
