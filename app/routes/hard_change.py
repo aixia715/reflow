@@ -57,8 +57,10 @@ async def hc_create(request: Request, board_id: int,
     conn = get_conn()
     board = _require_board(conn, board_id)
     title = title.strip()
-    blobs = [(f.filename, await f.read()) for f in files if f.filename]
-    err = hard_change.validate_upload(title, [(n, len(b)) for n, b in blobs])
+    reals = [f for f in files if f.filename]
+    blobs = [(f.filename, await f.read()) for f in reals]
+    err = hard_change.validate_upload(title, [(n, len(b)) for n, b in blobs]) \
+        or hard_change.validate_content_types([f.content_type for f in reals])
     if err:
         return templates.TemplateResponse(request, "hard_change_form.html", {
             "board": board, "board_id": board_id, "mode": "new", "hc": None,
@@ -108,10 +110,12 @@ async def hc_edit(request: Request, board_id: int, hc_id: int,
     board = _require_board(conn, board_id)
     hc = _require_hc(conn, board_id, hc_id)
     title = title.strip()
-    blobs = [(f.filename, await f.read()) for f in files if f.filename]
+    reals = [f for f in files if f.filename]
+    blobs = [(f.filename, await f.read()) for f in reals]
     existing = models.list_hard_change_images(conn, hc_id)
     remaining = [im for im in existing if im["id"] not in set(delete_image_ids)]
-    err = hard_change.validate_upload(title, [(n, len(b)) for n, b in blobs])
+    err = hard_change.validate_upload(title, [(n, len(b)) for n, b in blobs]) \
+        or hard_change.validate_content_types([f.content_type for f in reals])
     if err is None and len(remaining) + len(blobs) > hard_change.MAX_IMAGES:
         err = f"附图最多 {hard_change.MAX_IMAGES} 张"
     if err:

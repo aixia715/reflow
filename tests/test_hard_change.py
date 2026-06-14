@@ -53,3 +53,15 @@ def test_storage_save_and_delete(tmp_path, monkeypatch):
     assert p.read_bytes() == b"hello"
     storage.delete_images(["a.png", "missing.png"])  # 缺文件不报错
     assert not p.exists()
+
+
+def test_validate_content_types_rejects_non_image():
+    assert hc.validate_content_types(["image/png", "text/html"]) is not None
+
+
+def test_validate_content_types_ok():
+    assert hc.validate_content_types(["image/png", "image/jpeg"]) is None
+
+
+def test_validate_content_types_empty_ok():
+    assert hc.validate_content_types([]) is None

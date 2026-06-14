@@ -33,6 +33,14 @@ def validate_upload(title: str, uploads: list[tuple[str, int]]) -> str | None:
     return None
 
 
+def validate_content_types(content_types) -> str | None:
+    """二次校验：上传文件的 Content-Type 必须是 image/*。返回中文错误或 None。"""
+    for ct in content_types:
+        if not (ct or "").startswith("image/"):
+            return f"不支持的文件类型：{ct or '未知'}（仅接受图片）"
+    return None
+
+
 def merge_timeline(nodes, hard_changes) -> list[dict]:
     """合并 BOM 节点与硬更改为按时间排序的时间线项。
 
