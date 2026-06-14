@@ -43,3 +43,13 @@ def test_merge_timeline_orders_newest_first_draft_pinned_top():
     out = hc.merge_timeline(nodes, hards)
     kinds = [(it["kind"], it["obj"]["id"]) for it in out]
     assert kinds == [("node", 3), ("node", 2), ("hard", 9), ("node", 1)]
+
+
+def test_storage_save_and_delete(tmp_path, monkeypatch):
+    monkeypatch.setenv("REFLOW_UPLOAD_DIR", str(tmp_path / "up"))
+    from app import storage
+    storage.save_image("a.png", b"hello")
+    p = tmp_path / "up" / "a.png"
+    assert p.read_bytes() == b"hello"
+    storage.delete_images(["a.png", "missing.png"])  # 缺文件不报错
+    assert not p.exists()
