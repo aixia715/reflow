@@ -128,8 +128,12 @@ details.panel summary{cursor:pointer;font-weight:600}
 .chip.pending{border-color:var(--accent-soft);background:var(--blue-bg)}
 .chip-wrap{display:inline-flex;align-items:center;gap:2px}
 .del-icon{border:none;background:none;cursor:pointer;color:var(--muted);font-size:14px;
-  padding:2px 4px;border-radius:3px;line-height:1;opacity:.45;transition:opacity .15s,color .15s}
-.del-icon:hover{opacity:1;color:var(--red)}
+  padding:2px 4px;border-radius:3px;line-height:1;opacity:0;transition:opacity .15s,color .15s}
+/* 默认隐藏，悬停所在元素时才渐显，减少视觉噪音；键盘聚焦也显示 */
+.group-title:hover .del-icon,
+.version-head:hover .del-icon,
+.chip-wrap:hover .del-icon{opacity:.45}
+.del-icon:hover,.del-icon:focus-visible{opacity:1;color:var(--red)}
 .ml-auto{margin-left:auto}
 .chip-del{font-size:12px;padding:1px 4px}
 .problem-list{margin:6px 0;padding-left:20px;font-size:13px;color:var(--red)}

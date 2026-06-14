@@ -49,11 +49,11 @@ def _click_accept_and_check(page: Page, btn, gone_text: str, base: str):
 
 # ── 测试：按钮可见性 ─────────────────────────────────────────────────
 
-def test_delete_buttons_visible_on_home(seeded_server, page: Page):
-    """首页加载后，三个层级的删除按钮均可见。"""
+def test_delete_buttons_present_on_home(seeded_server, page: Page):
+    """首页三个层级的删除按钮都存在于 DOM（默认隐藏，悬停所在元素时才显示）。"""
     page.goto(seeded_server)
     del_icons = page.locator(".del-icon")
-    expect(del_icons.first).to_be_visible()
+    expect(del_icons.first).to_be_attached()
     count = del_icons.count()
     assert count >= 3, f"期望 ≥3 个删除按钮，实际 {count} 个"
 
@@ -65,12 +65,24 @@ def test_chip_del_button_exists(seeded_server, page: Page):
     expect(chip_del.first).to_be_visible()
 
 
-def test_del_icon_initial_opacity(seeded_server, page: Page):
-    """删除按钮初始应为半透明（opacity < 0.8）。"""
+def test_del_icon_initial_hidden(seeded_server, page: Page):
+    """删除按钮默认隐藏（opacity == 0），仅在悬停所在元素时显示。"""
     page.goto(seeded_server)
     btn = page.locator(".del-icon").first
     opacity = float(btn.evaluate("el => parseFloat(getComputedStyle(el).opacity)"))
-    assert opacity < 0.8, f"期望初始 opacity < 0.8，实际 {opacity}"
+    assert opacity == 0, f"期望默认 opacity == 0（隐藏），实际 {opacity}"
+
+
+def test_del_icon_revealed_on_parent_hover(seeded_server, page: Page):
+    """悬停删除按钮所在的容器后，按钮从隐藏渐显（opacity > 0）。"""
+    page.goto(seeded_server)
+    chip_wrap = page.locator(".chip-wrap").first
+    chip_del = chip_wrap.locator(".chip-del")
+    assert float(chip_del.evaluate("el => getComputedStyle(el).opacity")) == 0
+    chip_wrap.hover()
+    page.wait_for_timeout(250)  # 等待 CSS transition（150ms）
+    opacity = float(chip_del.evaluate("el => getComputedStyle(el).opacity"))
+    assert opacity > 0, f"悬停容器后期望 opacity > 0，实际 {opacity}"
 
 
 def test_del_icon_hover_turns_red(seeded_server, page: Page):
