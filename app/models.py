@@ -276,3 +276,92 @@ def get_chain(conn, node_id) -> tuple[dict[str, str], list[list[dict]]]:
     )
     chain = [get_changeset(conn, n["id"]) for n in ancestry]
     return initial, chain
+
+
+# ---------- 硬更改 ----------
+
+def create_hard_change(conn, board_id, title, description, occurred_at, images) -> int:
+    """新建硬更改 + 附图。images: [(存盘名, 原始名), ...]，按序写 sort_order。返回 id。"""
+    now = _now()
+    hc_id = conn.execute(
+        "INSERT INTO hard_changes(board_id,title,description,occurred_at,created_at)"
+        " VALUES(?,?,?,?,?)",
+        (board_id, title, description, occurred_at, now),
+    ).lastrowid
+    for i, (fn, orig) in enumerate(images):
+        conn.execute(
+            "INSERT INTO hard_change_images"
+            "(hard_change_id,filename,original_name,sort_order,created_at)"
+            " VALUES(?,?,?,?,?)",
+            (hc_id, fn, orig, i, now),
+        )
+    conn.commit()
+    return hc_id
+
+
+def get_hard_change(conn, hc_id) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM hard_changes WHERE id=?", (hc_id,)).fetchone()
+
+
+def list_hard_changes(conn, board_id) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM hard_changes WHERE board_id=? ORDER BY occurred_at, id",
+        (board_id,),
+    ).fetchall()
+
+
+def list_hard_change_images(conn, hc_id) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM hard_change_images WHERE hard_change_id=? ORDER BY sort_order, id",
+        (hc_id,),
+    ).fetchall()
+
+
+def update_hard_change(conn, hc_id, title, description, occurred_at) -> None:
+    conn.execute(
+        "UPDATE hard_changes SET title=?, description=?, occurred_at=? WHERE id=?",
+        (title, description, occurred_at, hc_id),
+    )
+    conn.commit()
+
+
+def add_hard_change_images(conn, hc_id, images) -> None:
+    """追加附图，sort_order 接续现有最大值。images: [(存盘名, 原始名), ...]。"""
+    now = _now()
+    start = conn.execute(
+        "SELECT COALESCE(MAX(sort_order)+1, 0) AS n FROM hard_change_images"
+        " WHERE hard_change_id=?",
+        (hc_id,),
+    ).fetchone()["n"]
+    for i, (fn, orig) in enumerate(images):
+        conn.execute(
+            "INSERT INTO hard_change_images"
+            "(hard_change_id,filename,original_name,sort_order,created_at)"
+            " VALUES(?,?,?,?,?)",
+            (hc_id, fn, orig, start + i, now),
+        )
+    conn.commit()
+
+
+def delete_hard_change_images(conn, image_ids) -> list[str]:
+    """按图片 id 删除行，返回被删的 filename 列表（供删盘）。"""
+    if not image_ids:
+        return []
+    ph = ",".join("?" * len(image_ids))
+    rows = conn.execute(
+        f"SELECT filename FROM hard_change_images WHERE id IN ({ph})", image_ids
+    ).fetchall()
+    conn.execute(f"DELETE FROM hard_change_images WHERE id IN ({ph})", image_ids)
+    conn.commit()
+    return [r["filename"] for r in rows]
+
+
+def delete_hard_change(conn, hc_id) -> list[str]:
+    """删除硬更改及其附图行，返回被删的 filename 列表（供删盘）。"""
+    rows = conn.execute(
+        "SELECT filename FROM hard_change_images WHERE hard_change_id=?", (hc_id,)
+    ).fetchall()
+    conn.execute("DELETE FROM hard_change_images WHERE hard_change_id=?", (hc_id,))
+    conn.execute("DELETE FROM hard_changes WHERE id=?", (hc_id,))
+    conn.commit()
+    return [r["filename"] for r in rows]
