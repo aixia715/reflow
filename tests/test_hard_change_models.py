@@ -70,3 +70,20 @@ def test_delete_hard_change_returns_filenames(conn):
     assert sorted(fns) == ["a.png", "b.png"]
     assert models.get_hard_change(conn, hc_id) is None
     assert models.list_hard_change_images(conn, hc_id) == []
+
+
+def test_delete_board_cascades_hard_changes(conn):
+    bid = _mk_board(conn)
+    models.create_hard_change(conn, bid, "A", "", "2026-01-01T00:00",
+                              [("x.png", "x")])
+    fns = models.delete_board(conn, bid)
+    assert fns == ["x.png"]
+    assert models.list_hard_changes(conn, bid) == []
+
+
+def test_delete_bom_version_cascades_hard_changes(conn):
+    bid = _mk_board(conn)
+    models.create_hard_change(conn, bid, "A", "", "2026-01-01T00:00",
+                              [("y.png", "y")])
+    fns = models.delete_bom_version(conn, "B", "v1", "bomA")
+    assert "y.png" in fns

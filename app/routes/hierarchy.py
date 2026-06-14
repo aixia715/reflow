@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException, Q
 from fastapi.responses import RedirectResponse, Response
 
 from app.main import templates, get_conn
-from app import models
+from app import models, storage
 from app.csv_import import parse_bom_csv
 
 router = APIRouter()
@@ -122,7 +122,7 @@ def board_delete(board_id: int):
     conn = get_conn()
     if not models.get_board(conn, board_id):
         raise HTTPException(status_code=404, detail="单板不存在")
-    models.delete_board(conn, board_id)
+    storage.delete_images(models.delete_board(conn, board_id))
     return _hx_redirect("/")
 
 
@@ -135,12 +135,12 @@ def bom_version_delete(
     conn = get_conn()
     if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
         raise HTTPException(status_code=404, detail="BOM 版本不存在")
-    models.delete_bom_version(conn, board_name, pcb_version, bom_version)
+    storage.delete_images(models.delete_bom_version(conn, board_name, pcb_version, bom_version))
     return _hx_redirect("/")
 
 
 @router.delete("/board-group")
 def board_group_delete(board_name: str = Query(...)):
     conn = get_conn()
-    models.delete_board_name(conn, board_name)
+    storage.delete_images(models.delete_board_name(conn, board_name))
     return _hx_redirect("/")

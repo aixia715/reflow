@@ -157,8 +157,8 @@ def board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid) -> b
     ).fetchone() is not None
 
 
-def delete_board(conn, board_id) -> None:
-    """删除单板及其全部节点、changeset、审计日志（级联）。"""
+def delete_board(conn, board_id) -> list[str]:
+    """删除单板及其节点、changeset、审计日志、硬更改（级联）。返回被删图片 filename。"""
     node_ids = [r["id"] for r in conn.execute(
         "SELECT id FROM nodes WHERE board_id=?", (board_id,)
     ).fetchall()]
@@ -167,34 +167,51 @@ def delete_board(conn, board_id) -> None:
         conn.execute(f"DELETE FROM edit_log WHERE node_id IN ({ph})", node_ids)
         conn.execute(f"DELETE FROM node_changes WHERE node_id IN ({ph})", node_ids)
         conn.execute("DELETE FROM nodes WHERE board_id=?", (board_id,))
+    hc_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM hard_changes WHERE board_id=?", (board_id,)
+    ).fetchall()]
+    filenames: list[str] = []
+    if hc_ids:
+        ph = ",".join("?" * len(hc_ids))
+        filenames = [r["filename"] for r in conn.execute(
+            f"SELECT filename FROM hard_change_images WHERE hard_change_id IN ({ph})",
+            hc_ids,
+        ).fetchall()]
+        conn.execute(f"DELETE FROM hard_change_images WHERE hard_change_id IN ({ph})", hc_ids)
+        conn.execute("DELETE FROM hard_changes WHERE board_id=?", (board_id,))
     conn.execute("DELETE FROM boards_hierarchy WHERE id=?", (board_id,))
     conn.commit()
+    return filenames
 
 
-def delete_bom_version(conn, board_name, pcb_version, bom_version) -> None:
-    """删除 BOM 版本下的所有单板及初始 BOM（级联）。"""
+def delete_bom_version(conn, board_name, pcb_version, bom_version) -> list[str]:
+    """删除 BOM 版本下所有单板及初始 BOM（级联）。返回被删图片 filename。"""
     boards = conn.execute(
         "SELECT id FROM boards_hierarchy WHERE board_name=? AND pcb_version=? AND bom_version=?",
         (board_name, pcb_version, bom_version),
     ).fetchall()
+    filenames: list[str] = []
     for b in boards:
-        delete_board(conn, b["id"])
+        filenames += delete_board(conn, b["id"])
     conn.execute(
         "DELETE FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=?",
         (board_name, pcb_version, bom_version),
     )
     conn.commit()
+    return filenames
 
 
-def delete_board_name(conn, board_name) -> None:
-    """删除单板名称下所有 BOM 版本及其数据（级联）。"""
+def delete_board_name(conn, board_name) -> list[str]:
+    """删除单板名称下所有 BOM 版本及其数据（级联）。返回被删图片 filename。"""
     versions = conn.execute(
         "SELECT DISTINCT pcb_version, bom_version FROM initial_bom WHERE board_name=?",
         (board_name,),
     ).fetchall()
+    filenames: list[str] = []
     for v in versions:
-        delete_bom_version(conn, board_name, v["pcb_version"], v["bom_version"])
+        filenames += delete_bom_version(conn, board_name, v["pcb_version"], v["bom_version"])
     conn.commit()
+    return filenames
 
 
 def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part) -> None:
