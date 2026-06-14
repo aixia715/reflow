@@ -49,6 +49,24 @@ CREATE TABLE IF NOT EXISTS edit_log (
     created_at TEXT NOT NULL,
     note       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS hard_changes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id    INTEGER NOT NULL REFERENCES boards_hierarchy(id),
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    occurred_at TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hard_change_images (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    hard_change_id INTEGER NOT NULL REFERENCES hard_changes(id),
+    filename       TEXT NOT NULL,
+    original_name  TEXT,
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL
+);
 """
 
 
