@@ -22,6 +22,9 @@ def get_conn():
 def create_app() -> FastAPI:
     app = FastAPI(title="Reflow")
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    upload_dir = os.environ.get("REFLOW_UPLOAD_DIR", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
 
     from starlette.exceptions import HTTPException as StarletteHTTPException
     from starlette.responses import PlainTextResponse

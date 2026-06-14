@@ -9,3 +9,4 @@ images/
 *.egg-info/
 reflow.egg-info/
 deploy.*.sh
+uploads/
