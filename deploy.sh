@@ -13,13 +13,20 @@ DATA_VOLUME="reflow-data"
 SSH="ssh ${SSH_HOST}"
 FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 
-echo "==> [1/3] 本地构建镜像 ${FULL_IMAGE}"
+echo "==> [1/4] 检查服务器 ${SSH_HOST} 连通性"
+if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "${SSH_HOST}" true 2>/dev/null; then
+  echo "✗ 无法通过 SSH 连接到 ${SSH_HOST}，已中止部署（未浪费构建时间）。" >&2
+  echo "  请检查：网络、服务器是否在线、~/.ssh/config 中的 ${SSH_HOST} 别名与免密配置。" >&2
+  exit 1
+fi
+
+echo "==> [2/4] 本地构建镜像 ${FULL_IMAGE}"
 docker build -t "${FULL_IMAGE}" .
 
-echo "==> [2/3] 传输镜像到 ${SSH_HOST}（管道直传，无中间文件）"
+echo "==> [3/4] 传输镜像到 ${SSH_HOST}（管道直传，无中间文件）"
 docker save "${FULL_IMAGE}" | ${SSH} docker load
 
-echo "==> [3/3] 替换远端容器"
+echo "==> [4/4] 替换远端容器"
 ${SSH} bash -s -- "${CONTAINER_NAME}" "${FULL_IMAGE}" "${HOST_PORT}" "${DATA_VOLUME}" <<'REMOTE'
   CONTAINER_NAME=$1
   FULL_IMAGE=$2
