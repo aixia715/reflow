@@ -4,12 +4,16 @@
 <a href="/">首页</a> /
 {{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}
 {% endblock %}
-{% block ctxlinks %}<a href="/board/{{ board_id }}/log">审计日志</a>{% endblock %}
+{% block ctxlinks %}
+<a href="/board/{{ board_id }}/log">审计日志</a>
+<a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/new">＋ 记录硬更改</a>
+{% endblock %}
 {% block content %}
 <div class="page-head"><h1>状态演进</h1></div>
 <div class="timeline">
-{% for n in nodes %}
-{% set s = summaries[n.id] %}
+{% for it in timeline %}
+{% if it.kind == 'node' %}
+{% set n = it.obj %}{% set s = summaries[n.id] %}
 <a class="tl-item {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}"
    href="/board/{{ board_id }}/node/{{ n.id }}">
   <span class="dot"></span>
@@ -31,6 +35,17 @@
     </div>
   </div>
 </a>
+{% else %}
+{% set h = it.obj %}
+<a class="tl-item hard" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
+  <span class="dot"></span>
+  <div class="tl-card">
+    <b>🔧 {{ h.title }}</b>
+    <span class="badge badge-yellow">硬更改</span>
+    <div class="muted">{{ h.occurred_at|replace('T', ' ') }}{% if h.description %} · {{ h.description[:40] }}{% endif %}</div>
+  </div>
+</a>
+{% endif %}
 {% endfor %}
 </div>
 {% endblock %}
