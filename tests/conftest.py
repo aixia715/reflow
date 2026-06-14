@@ -16,7 +16,8 @@ BASE_URL = f"http://localhost:{PORT}"
 def live_server(tmp_path_factory):
     """启动真实 uvicorn 进程，供 Playwright 测试访问。"""
     db = tmp_path_factory.mktemp("livedb") / "test.sqlite"
-    env = {**os.environ, "REFLOW_DB": str(db)}
+    up = tmp_path_factory.mktemp("uploads")
+    env = {**os.environ, "REFLOW_DB": str(db), "REFLOW_UPLOAD_DIR": str(up)}
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app",
          "--port", str(PORT), "--log-level", "warning"],
