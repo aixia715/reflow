@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# 当 deploy.sh 被暂存时，自动同步非配置部分到所有 deploy.*.sh
+
+if git diff --cached --name-only | grep -q '^deploy\.sh$'; then
+  echo "检测到 deploy.sh 变更，同步到 deploy.*.sh..."
+  bash scripts/sync-deploy.sh
+fi

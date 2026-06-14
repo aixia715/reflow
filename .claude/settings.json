@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | grep -q '^.*/deploy\\.sh$' && bash scripts/sync-deploy.sh || true",
+            "statusMessage": "同步 deploy.sh 到 deploy.*.sh..."
+          }
+        ]
+      }
+    ]
+  }
+}
