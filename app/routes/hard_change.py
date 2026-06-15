@@ -12,6 +12,8 @@ router = APIRouter()
 
 
 def _now_minute() -> str:
+    """提交兜底：当 occurred_at 为空（如绕过 required 直接 POST）时用当前分钟。
+    注意：新建表单的默认时间已改由前端按浏览器本地时区填充，不再走此函数。"""
     return datetime.now().strftime("%Y-%m-%dT%H:%M")
 
 
@@ -45,7 +47,7 @@ def hc_new_form(request: Request, board_id: int):
     return templates.TemplateResponse(request, "hard_change_form.html", {
         "board": board, "board_id": board_id, "mode": "new",
         "hc": None, "images": [], "form": {}, "error": None,
-        "default_time": _now_minute(),
+        "default_time": "",
     })
 
 
@@ -64,7 +66,7 @@ async def hc_create(request: Request, board_id: int,
     if err:
         return templates.TemplateResponse(request, "hard_change_form.html", {
             "board": board, "board_id": board_id, "mode": "new", "hc": None,
-            "images": [], "error": err, "default_time": occurred_at or _now_minute(),
+            "images": [], "error": err, "default_time": occurred_at,
             "form": {"title": title, "occurred_at": occurred_at, "description": description},
         }, status_code=200)
     saved = []
