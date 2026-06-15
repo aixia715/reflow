@@ -16,12 +16,19 @@
   <div class="muted">发生时间：{{ hc.occurred_at|replace('T', ' ') }}</div>
   {% if hc.description %}<p class="hc-desc">{{ hc.description }}</p>{% endif %}
   {% if images %}
-  <div class="hc-gallery">
+  <div class="hc-gallery" x-data="{ open: false, src: '', alt: '' }">
     {% for im in images %}
-    <a class="hc-photo" href="/uploads/{{ im.filename }}" target="_blank">
-      <img src="/uploads/{{ im.filename }}" alt="{{ im.original_name }}">
+    <a class="hc-photo" href="/uploads/{{ im.filename }}"
+       data-src="/uploads/{{ im.filename }}" data-alt="{{ im.original_name }}"
+       @click.prevent="src = $el.dataset.src; alt = $el.dataset.alt; open = true">
+      <img src="/uploads/{{ im.filename }}" alt="{{ im.original_name }}" loading="lazy">
     </a>
     {% endfor %}
+    <div class="lightbox" x-cloak x-show="open"
+         @click="open = false" @keydown.escape.window="open = false">
+      <button type="button" class="lightbox-close" @click.stop="open = false" aria-label="关闭">✕</button>
+      <img class="lightbox-img" :src="src" :alt="alt" @click.stop>
+    </div>
   </div>
   {% else %}
   <div class="muted">（无附图）</div>

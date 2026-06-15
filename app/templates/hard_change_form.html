@@ -15,8 +15,12 @@
            value="{{ form.title if form.title is defined else (hc.title if hc else '') }}">
   </label>
   <label>发生时间
-    <input class="input" type="datetime-local" name="occurred_at"
-           value="{{ form.occurred_at if form.occurred_at else default_time }}">
+    <input class="input" type="datetime-local" name="occurred_at" required
+           value="{{ form.occurred_at if form.occurred_at else default_time }}"
+           x-data
+           x-init="if (!$el.value) { const d = new Date();
+             $el.value = new Date(d.getTime() - d.getTimezoneOffset()*60000)
+               .toISOString().slice(0,16); }">
   </label>
   <label>文字说明
     <textarea class="input" name="description" rows="4">{{ form.description if form.description is defined else (hc.description if hc else '') }}</textarea>
