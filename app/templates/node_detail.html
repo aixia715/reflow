@@ -19,6 +19,10 @@
   <span class="muted stable-link">稳定链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code></span>
 </div>
 
+{% if node.description %}
+<div class="hc-desc">{{ node.description }}</div>
+{% endif %}
+
 {% if node.is_committed %}
 <div class="flash flash-warn">⚠ 这是已提交的历史节点。在此编辑＝<b>修正历史记录</b>，会自动向下游传播；若下游改过同一位号将需要你逐个确认。</div>
 {% endif %}
@@ -40,6 +44,19 @@
     </div>
     {% endif %}
     <div id="changes-panel" class="panel">{% include "_changes_panel.html" %}</div>
+    {% if node.parent_id is not none %}
+    <details class="panel">
+      <summary>编辑节点信息…</summary>
+      <form class="edit-form" method="post"
+            action="/board/{{ board_id }}/node/{{ node.id }}/edit-info">
+        <input class="input" name="message" value="{{ node.message }}"
+               placeholder="标题（提交说明）" autocomplete="off">
+        <textarea class="input" name="description" rows="4"
+                  placeholder="长文本说明（背景、注意事项…）">{{ node.description }}</textarea>
+        <button class="btn btn-outline">保存信息</button>
+      </form>
+    </details>
+    {% endif %}
     {% if not node.is_committed %}
     <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit">
       <input class="input" name="message" placeholder="commit 说明" required>

@@ -1,5 +1,10 @@
 <div class="toolbar">
-  <input class="input" placeholder="筛选位号 / Part…" x-model="q">
+  <span class="input-clearable">
+    <input class="input" placeholder="筛选位号 / Part…" x-model="q"
+           @keydown.enter.prevent="if (q.trim()) { fill(q.trim(),'modify',''); $nextTick(() => $refs.partInput && $refs.partInput.focus()); }">
+    <button type="button" class="input-clear" x-show="q" x-cloak
+            @click="q=''" title="清空" tabindex="-1">×</button>
+  </span>
   <div class="seg">
     <button type="button" :class="{on: tab==='all'}" @click="tab='all'">全部 {{ total }}</button>
     <button type="button" :class="{on: tab==='mine'}" @click="tab='mine'">本节点修改 {{ mine_count }}</button>

@@ -10,7 +10,9 @@
     <label :class="{on: op==='add'}"><input type="radio" name="op" value="add" x-model="op">新增</label>
     <label :class="{on: op==='remove'}"><input type="radio" name="op" value="remove" x-model="op">不贴</label>
   </div>
-  <input class="input" name="part" x-model="part" placeholder="新 Part 值" :disabled="op==='remove'">
+  <input class="input" name="part" x-model="part" x-ref="partInput"
+         placeholder="新 Part 值" :disabled="op==='remove'"
+         @keydown.enter.prevent="$el.closest('form').requestSubmit()">
   <button class="btn btn-primary">应用修正</button>
   <div id="form-error"></div>
 </form>

@@ -91,6 +91,21 @@ def node_detail(request: Request, board_id: int, node_id: int):
         request, "node_detail.html", _node_context(conn, board_id, node))
 
 
+@router.post("/board/{board_id}/node/{node_id}/edit-info")
+def edit_node_info(board_id: int, node_id: int,
+                   message: str = Form(""), description: str = Form("")):
+    """编辑节点的标题（提交说明）与长文本说明。根节点（初始状态）不可改。"""
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    if node["parent_id"] is None:
+        return PlainTextResponse("根节点（初始状态）不支持编辑信息", status_code=400)
+    models.update_node_info(conn, node_id, message.strip(), description.strip())
+    return RedirectResponse(
+        f"/board/{board_id}/node/{node_id}?flash=✓ 已更新节点信息", status_code=303)
+
+
 @router.post("/board/{board_id}/node/{node_id}/edit")
 def edit_node(request: Request, board_id: int, node_id: int,
               reference: str = Form(...), op: str = Form(...), part: str = Form(None)):

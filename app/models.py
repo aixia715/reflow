@@ -251,6 +251,15 @@ def commit_workspace(conn, board_id, message) -> int:
     return draft["id"]
 
 
+def update_node_info(conn, node_id, message, description) -> None:
+    """更新节点的标题（提交说明）与长文本说明。不改 BOM 内容，不记审计日志。"""
+    conn.execute(
+        "UPDATE nodes SET message=?, description=? WHERE id=?",
+        (message, description, node_id),
+    )
+    conn.commit()
+
+
 def workspace_node(conn, board_id) -> sqlite3.Row:
     return conn.execute(
         "SELECT * FROM nodes WHERE board_id=? AND is_committed=0 ORDER BY id DESC LIMIT 1",

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     board_id     INTEGER NOT NULL REFERENCES boards_hierarchy(id),
     parent_id    INTEGER REFERENCES nodes(id),
     message      TEXT NOT NULL DEFAULT '',
+    description  TEXT NOT NULL DEFAULT '',
     created_at   TEXT NOT NULL,
     is_committed INTEGER NOT NULL DEFAULT 0,
     committed_at TEXT
@@ -79,4 +80,13 @@ def connect(path: str = "reflow.sqlite") -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """对已有库做幂等增量迁移（无版本表，单人 MVP 够用）。"""
+    # nodes.description：老库无此列时补上（CREATE TABLE IF NOT EXISTS 不会改已存在的表）
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(nodes)")}
+    if "description" not in cols:
+        conn.execute("ALTER TABLE nodes ADD COLUMN description TEXT NOT NULL DEFAULT ''")

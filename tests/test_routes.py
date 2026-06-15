@@ -58,6 +58,45 @@ def test_edit_history_node_returns_conflict_fragment(client):
     assert "冲突" in r.text or "采用修正值" in r.text
 
 
+def test_edit_info_updates_committed_node(client):
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    # 先提交一个非根节点
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    client.post(f"/board/{board_id}/commit", data={"message": "原标题"})
+    from app import models
+    from app.main import get_conn
+    conn = get_conn()
+    nodes = models.list_nodes(conn, board_id)
+    committed = [n for n in nodes if n["is_committed"] and n["parent_id"] is not None][0]
+    r = client.post(f"/board/{board_id}/node/{committed['id']}/edit-info",
+                    data={"message": "改后标题", "description": "详细说明文本"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    node = models.get_node(get_conn(), committed["id"])
+    assert node["message"] == "改后标题"
+    assert node["description"] == "详细说明文本"
+    # 详情页能看到长说明
+    page = client.get(f"/board/{board_id}/node/{committed['id']}")
+    assert "详细说明文本" in page.text
+
+
+def test_edit_info_rejects_root_node(client):
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    from app import models
+    from app.main import get_conn
+    root = models.list_nodes(get_conn(), board_id)[0]
+    assert root["parent_id"] is None
+    r = client.post(f"/board/{board_id}/node/{root['id']}/edit-info",
+                    data={"message": "篡改根", "description": "x"},
+                    follow_redirects=False)
+    assert r.status_code == 400
+    node = models.get_node(get_conn(), root["id"])
+    assert node["message"] != "篡改根"
+
+
 def test_log_page_lists_edits(client):
     loc = _setup_board(client)
     board_id = int(loc.rsplit("/", 1)[-1])
