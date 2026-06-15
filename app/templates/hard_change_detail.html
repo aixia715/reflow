@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ hc.title }} · 硬更改 — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">板 {{ board.board_uid }}</a> /
+硬更改
+{% endblock %}
+{% block ctxlinks %}
+<a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/{{ hc.id }}/edit">编辑</a>
+<button class="btn-link danger" hx-post="/board/{{ board_id }}/hard-change/{{ hc.id }}/delete"
+        hx-confirm="确认删除硬更改「{{ hc.title }}」？此操作将一并删除其所有附图，不可恢复。">删除</button>
+{% endblock %}
+{% block content %}
+<div class="page-head"><h1>🔧 {{ hc.title }}</h1></div>
+<div class="panel">
+  <div class="muted">发生时间：{{ hc.occurred_at|replace('T', ' ') }}</div>
+  {% if hc.description %}<p class="hc-desc">{{ hc.description }}</p>{% endif %}
+  {% if images %}
+  <div class="hc-gallery">
+    {% for im in images %}
+    <a class="hc-photo" href="/uploads/{{ im.filename }}" target="_blank">
+      <img src="/uploads/{{ im.filename }}" alt="{{ im.original_name }}">
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="muted">（无附图）</div>
+  {% endif %}
+</div>
+{% endblock %}

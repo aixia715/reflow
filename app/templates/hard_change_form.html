@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ '编辑' if mode == 'edit' else '记录' }}硬更改 · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">板 {{ board.board_uid }}</a> /
+{{ '编辑' if mode == 'edit' else '记录' }}硬更改
+{% endblock %}
+{% block content %}
+<div class="page-head"><h1>{{ '编辑' if mode == 'edit' else '记录' }}硬更改</h1></div>
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+<form class="panel" method="post" enctype="multipart/form-data"
+      action="{% if mode == 'edit' %}/board/{{ board_id }}/hard-change/{{ hc.id }}/edit{% else %}/board/{{ board_id }}/hard-change{% endif %}">
+  <label>标题
+    <input class="input" name="title" required
+           value="{{ form.title if form.title is defined else (hc.title if hc else '') }}">
+  </label>
+  <label>发生时间
+    <input class="input" type="datetime-local" name="occurred_at"
+           value="{{ form.occurred_at if form.occurred_at else default_time }}">
+  </label>
+  <label>文字说明
+    <textarea class="input" name="description" rows="4">{{ form.description if form.description is defined else (hc.description if hc else '') }}</textarea>
+  </label>
+  {% if images %}
+  <div class="muted">已有附图（勾选以删除）：</div>
+  <div class="hc-gallery">
+    {% for im in images %}
+    <label class="hc-thumb">
+      <img src="/uploads/{{ im.filename }}" alt="{{ im.original_name }}">
+      <span><input type="checkbox" name="delete_image_ids" value="{{ im.id }}"> 删除</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <label>{{ '追加附图' if mode == 'edit' else '附图（可多选）' }}
+    <input class="input" type="file" name="files" multiple
+           accept="image/png,image/jpeg,image/webp,image/gif">
+  </label>
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">{{ '保存' if mode == 'edit' else '记录' }}</button>
+    <a class="btn btn-outline" href="/board/{{ board_id }}">取消</a>
+  </div>
+</form>
+{% endblock %}

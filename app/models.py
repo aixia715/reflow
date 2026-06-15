@@ -157,8 +157,8 @@ def board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid) -> b
     ).fetchone() is not None
 
 
-def delete_board(conn, board_id) -> None:
-    """删除单板及其全部节点、changeset、审计日志（级联）。"""
+def delete_board(conn, board_id) -> list[str]:
+    """删除单板及其节点、changeset、审计日志、硬更改（级联）。返回被删图片 filename。"""
     node_ids = [r["id"] for r in conn.execute(
         "SELECT id FROM nodes WHERE board_id=?", (board_id,)
     ).fetchall()]
@@ -167,34 +167,51 @@ def delete_board(conn, board_id) -> None:
         conn.execute(f"DELETE FROM edit_log WHERE node_id IN ({ph})", node_ids)
         conn.execute(f"DELETE FROM node_changes WHERE node_id IN ({ph})", node_ids)
         conn.execute("DELETE FROM nodes WHERE board_id=?", (board_id,))
+    hc_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM hard_changes WHERE board_id=?", (board_id,)
+    ).fetchall()]
+    filenames: list[str] = []
+    if hc_ids:
+        ph = ",".join("?" * len(hc_ids))
+        filenames = [r["filename"] for r in conn.execute(
+            f"SELECT filename FROM hard_change_images WHERE hard_change_id IN ({ph})",
+            hc_ids,
+        ).fetchall()]
+        conn.execute(f"DELETE FROM hard_change_images WHERE hard_change_id IN ({ph})", hc_ids)
+        conn.execute("DELETE FROM hard_changes WHERE board_id=?", (board_id,))
     conn.execute("DELETE FROM boards_hierarchy WHERE id=?", (board_id,))
     conn.commit()
+    return filenames
 
 
-def delete_bom_version(conn, board_name, pcb_version, bom_version) -> None:
-    """删除 BOM 版本下的所有单板及初始 BOM（级联）。"""
+def delete_bom_version(conn, board_name, pcb_version, bom_version) -> list[str]:
+    """删除 BOM 版本下所有单板及初始 BOM（级联）。返回被删图片 filename。"""
     boards = conn.execute(
         "SELECT id FROM boards_hierarchy WHERE board_name=? AND pcb_version=? AND bom_version=?",
         (board_name, pcb_version, bom_version),
     ).fetchall()
+    filenames: list[str] = []
     for b in boards:
-        delete_board(conn, b["id"])
+        filenames += delete_board(conn, b["id"])
     conn.execute(
         "DELETE FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=?",
         (board_name, pcb_version, bom_version),
     )
     conn.commit()
+    return filenames
 
 
-def delete_board_name(conn, board_name) -> None:
-    """删除单板名称下所有 BOM 版本及其数据（级联）。"""
+def delete_board_name(conn, board_name) -> list[str]:
+    """删除单板名称下所有 BOM 版本及其数据（级联）。返回被删图片 filename。"""
     versions = conn.execute(
         "SELECT DISTINCT pcb_version, bom_version FROM initial_bom WHERE board_name=?",
         (board_name,),
     ).fetchall()
+    filenames: list[str] = []
     for v in versions:
-        delete_bom_version(conn, board_name, v["pcb_version"], v["bom_version"])
+        filenames += delete_bom_version(conn, board_name, v["pcb_version"], v["bom_version"])
     conn.commit()
+    return filenames
 
 
 def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part) -> None:
@@ -276,3 +293,92 @@ def get_chain(conn, node_id) -> tuple[dict[str, str], list[list[dict]]]:
     )
     chain = [get_changeset(conn, n["id"]) for n in ancestry]
     return initial, chain
+
+
+# ---------- 硬更改 ----------
+
+def create_hard_change(conn, board_id, title, description, occurred_at, images) -> int:
+    """新建硬更改 + 附图。images: [(存盘名, 原始名), ...]，按序写 sort_order。返回 id。"""
+    now = _now()
+    hc_id = conn.execute(
+        "INSERT INTO hard_changes(board_id,title,description,occurred_at,created_at)"
+        " VALUES(?,?,?,?,?)",
+        (board_id, title, description, occurred_at, now),
+    ).lastrowid
+    for i, (fn, orig) in enumerate(images):
+        conn.execute(
+            "INSERT INTO hard_change_images"
+            "(hard_change_id,filename,original_name,sort_order,created_at)"
+            " VALUES(?,?,?,?,?)",
+            (hc_id, fn, orig, i, now),
+        )
+    conn.commit()
+    return hc_id
+
+
+def get_hard_change(conn, hc_id) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM hard_changes WHERE id=?", (hc_id,)).fetchone()
+
+
+def list_hard_changes(conn, board_id) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM hard_changes WHERE board_id=? ORDER BY occurred_at, id",
+        (board_id,),
+    ).fetchall()
+
+
+def list_hard_change_images(conn, hc_id) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM hard_change_images WHERE hard_change_id=? ORDER BY sort_order, id",
+        (hc_id,),
+    ).fetchall()
+
+
+def update_hard_change(conn, hc_id, title, description, occurred_at) -> None:
+    conn.execute(
+        "UPDATE hard_changes SET title=?, description=?, occurred_at=? WHERE id=?",
+        (title, description, occurred_at, hc_id),
+    )
+    conn.commit()
+
+
+def add_hard_change_images(conn, hc_id, images) -> None:
+    """追加附图，sort_order 接续现有最大值。images: [(存盘名, 原始名), ...]。"""
+    now = _now()
+    start = conn.execute(
+        "SELECT COALESCE(MAX(sort_order)+1, 0) AS n FROM hard_change_images"
+        " WHERE hard_change_id=?",
+        (hc_id,),
+    ).fetchone()["n"]
+    for i, (fn, orig) in enumerate(images):
+        conn.execute(
+            "INSERT INTO hard_change_images"
+            "(hard_change_id,filename,original_name,sort_order,created_at)"
+            " VALUES(?,?,?,?,?)",
+            (hc_id, fn, orig, start + i, now),
+        )
+    conn.commit()
+
+
+def delete_hard_change_images(conn, image_ids) -> list[str]:
+    """按图片 id 删除行，返回被删的 filename 列表（供删盘）。"""
+    if not image_ids:
+        return []
+    ph = ",".join("?" * len(image_ids))
+    rows = conn.execute(
+        f"SELECT filename FROM hard_change_images WHERE id IN ({ph})", image_ids
+    ).fetchall()
+    conn.execute(f"DELETE FROM hard_change_images WHERE id IN ({ph})", image_ids)
+    conn.commit()
+    return [r["filename"] for r in rows]
+
+
+def delete_hard_change(conn, hc_id) -> list[str]:
+    """删除硬更改及其附图行，返回被删的 filename 列表（供删盘）。"""
+    rows = conn.execute(
+        "SELECT filename FROM hard_change_images WHERE hard_change_id=?", (hc_id,)
+    ).fetchall()
+    conn.execute("DELETE FROM hard_change_images WHERE hard_change_id=?", (hc_id,))
+    conn.execute("DELETE FROM hard_changes WHERE id=?", (hc_id,))
+    conn.commit()
+    return [r["filename"] for r in rows]

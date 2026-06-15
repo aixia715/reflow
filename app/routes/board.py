@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse
 
 from app.main import templates, get_conn
-from app import models, propagation, audit
+from app import models, propagation, audit, hard_change
 from app.bom_engine import fold_bom
 from app.validation import validate_edit
 
@@ -69,12 +69,14 @@ def state_graph(request: Request, board_id: int):
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
-    nodes = list(reversed(models.list_nodes(conn, board_id)))   # 最新在上
+    nodes = models.list_nodes(conn, board_id)
+    hcs = [dict(h) for h in models.list_hard_changes(conn, board_id)]
+    timeline = hard_change.merge_timeline(nodes, hcs)
     initial_count = len(models.get_initial_bom(
         conn, board["board_name"], board["pcb_version"], board["bom_version"]))
     return templates.TemplateResponse(
         request, "state_graph.html",
-        {"board": board, "board_id": board_id, "nodes": nodes,
+        {"board": board, "board_id": board_id, "timeline": timeline,
          "summaries": models.node_summaries(conn, board_id),
          "initial_count": initial_count})
 
