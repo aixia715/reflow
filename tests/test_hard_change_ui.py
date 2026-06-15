@@ -1,5 +1,7 @@
 """硬更改关键路径的浏览器测试。"""
 import re
+import struct
+import zlib
 
 import httpx
 from playwright.sync_api import Page, expect
@@ -7,6 +9,19 @@ from playwright.sync_api import Page, expect
 PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
            b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+
+
+def _solid_png(w=640, h=420, rgb=(70, 130, 200)) -> bytes:
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+
+    def _chunk(typ, data):
+        c = typ + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + _chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + _chunk(b"IDAT", zlib.compress(raw))
+            + _chunk(b"IEND", b""))
 
 
 def _make_board(base: str, uid: str = "HC1") -> str:
@@ -55,3 +70,42 @@ def test_new_form_time_is_browser_local(live_server, page: Page):
         ".toISOString().slice(0,16); }")
     # 到「年月日时」一致即可证明取的是浏览器本地时间（容忍跨分钟；极端跨小时可忽略）
     assert val[:13] == browser_now[:13], f"{val} vs {browser_now}"
+
+
+def test_detail_image_lightbox(live_server, page: Page):
+    bid = _make_board(live_server, uid="HC3")
+    # 记录一条带附图的硬更改（使用大尺寸图片，以便灯箱可正常放大显示）
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.fill("input[name=title]", "带图硬更改")
+    page.set_input_files("input[name=files]", files=[
+        {"name": "p.png", "mimeType": "image/png", "buffer": _solid_png()}])
+    page.click("button[type=submit]")
+    page.wait_for_load_state("networkidle")
+
+    # 进入详情页
+    page.locator(".tl-item.hard").first.click()
+    page.wait_for_load_state("networkidle")
+
+    # 初始：灯箱不可见
+    expect(page.locator(".lightbox")).to_be_hidden()
+    # 点击缩略图 → 灯箱与大图可见
+    page.locator(".hc-gallery img").first.click()
+    expect(page.locator(".lightbox")).to_be_visible()
+    expect(page.locator(".lightbox-img")).to_be_visible()
+    box = page.locator(".lightbox-img").bounding_box()
+    assert box and box["width"] > 200, box  # 放大后远大于 120px 缩略图，防止被缩略图样式误压
+    # 点关闭按钮 → 灯箱隐藏
+    page.locator(".lightbox-close").click()
+    expect(page.locator(".lightbox")).to_be_hidden()
+
+    # 点遮罩空白 → 灯箱隐藏
+    page.locator(".hc-gallery img").first.click()
+    expect(page.locator(".lightbox")).to_be_visible()
+    page.locator(".lightbox").click(position={"x": 5, "y": 5})  # 角落空白处属于遮罩
+    expect(page.locator(".lightbox")).to_be_hidden()
+
+    # 按 ESC → 灯箱隐藏
+    page.locator(".hc-gallery img").first.click()
+    expect(page.locator(".lightbox")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator(".lightbox")).to_be_hidden()
