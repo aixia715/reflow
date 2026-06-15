@@ -63,7 +63,7 @@ docker run -d --name reflow --restart unless-stopped \
 
 访问 `http://<部署机IP>:8000/`。
 
-- **数据位置**：SQLite 数据库在容器内 `/data/reflow.sqlite`（由环境变量 `REFLOW_DB` 指定）。想直接用主机目录存放，把 `-v reflow-data:/data` 换成 `-v /srv/reflow:/data`（备份时直接拷走目录里的 `reflow.sqlite` 即可）。
+- **数据位置**：SQLite 数据库在容器内 `/data/reflow.sqlite`（由环境变量 `REFLOW_DB` 指定），硬更改上传图片在 `/data/uploads/`（由 `REFLOW_UPLOAD_DIR` 指定）——两者同在 `/data` 卷，重部署都不丢。想直接用主机目录存放，把 `-v reflow-data:/data` 换成 `-v /srv/reflow:/data`（备份时直接拷走目录里的 `reflow.sqlite` 和 `uploads/` 即可）。
 - **升级版本**：导入新镜像后重建容器，数据卷不受影响：
 
   ```bash
