@@ -43,6 +43,25 @@ def test_commit_workspace_creates_node(client):
     assert r.status_code in (200, 303)
 
 
+def test_commit_with_description_persists_and_shows(client):
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    r = client.post(f"/board/{board_id}/commit",
+                    data={"message": "改 R1", "description": "客户要求 47k，批次 A 起生效"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    from app import models
+    from app.main import get_conn
+    conn = get_conn()
+    node = [n for n in models.list_nodes(conn, board_id)
+            if n["is_committed"] and n["parent_id"] is not None][0]
+    assert node["description"] == "客户要求 47k，批次 A 起生效"
+    page = client.get(f"/board/{board_id}/node/{node['id']}")
+    assert "客户要求 47k，批次 A 起生效" in page.text
+
+
 def test_edit_history_node_returns_conflict_fragment(client):
     loc = _setup_board(client)
     board_id = int(loc.rsplit("/", 1)[-1])
@@ -56,6 +75,34 @@ def test_edit_history_node_returns_conflict_fragment(client):
     r = client.post(f"/board/{board_id}/node/{root}/edit",
                     data={"reference": "R1", "op": "modify", "part": "22k"})
     assert "冲突" in r.text or "采用修正值" in r.text
+
+
+def test_draft_commit_box_merges_title_and_description(client):
+    """草稿页：提交框含 description 输入框，且不再出现独立的「编辑节点信息」面板。"""
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    ws = _workspace_id(client, board_id)
+    page = client.get(f"/board/{board_id}/node/{ws}").text
+    # 提交框内有 description 文本域
+    assert 'name="description"' in page
+    assert "/commit" in page
+    # 草稿不再显示「编辑节点信息」入口（避免标题二次输入）
+    assert "编辑节点信息" not in page
+
+
+def test_committed_node_keeps_edit_info_panel(client):
+    """已提交（非根）节点仍保留「编辑节点信息」面板。"""
+    loc = _setup_board(client)
+    board_id = int(loc.rsplit("/", 1)[-1])
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    client.post(f"/board/{board_id}/commit", data={"message": "改 R1"})
+    from app import models
+    from app.main import get_conn
+    node = [n for n in models.list_nodes(get_conn(), board_id)
+            if n["is_committed"] and n["parent_id"] is not None][0]
+    page = client.get(f"/board/{board_id}/node/{node['id']}").text
+    assert "编辑节点信息" in page
 
 
 def test_edit_info_updates_committed_node(client):

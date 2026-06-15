@@ -198,7 +198,7 @@ def workspace_edit(board_id: int, reference: str = Form(...),
 
 
 @router.post("/board/{board_id}/commit")
-def commit(board_id: int, message: str = Form(...)):
+def commit(board_id: int, message: str = Form(...), description: str = Form("")):
     conn = get_conn()
-    models.commit_workspace(conn, board_id, message)
+    models.commit_workspace(conn, board_id, message, description.strip())
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已提交：{message}", status_code=303)
