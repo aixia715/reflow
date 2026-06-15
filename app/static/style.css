@@ -63,7 +63,9 @@ main{max-width:1100px;margin:0 auto;padding:20px 24px}
 .btn-link.danger{color:var(--red)}
 
 .input{border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;
-  font-size:13px;font-family:inherit;width:100%}
+  font-size:13px;font-family:inherit;width:100%;
+  background:var(--surface);color:var(--fg)}
+.input::placeholder{color:var(--muted)}
 input[type=file]{font-size:13px}
 label{font-size:13px}
 
@@ -78,6 +80,11 @@ label{font-size:13px}
 
 .toolbar{display:flex;gap:8px;margin-bottom:8px;align-items:center}
 .toolbar .input{width:220px}
+.input-clearable{position:relative;display:inline-flex;align-items:center}
+.input-clearable .input{padding-right:26px}
+.input-clear{position:absolute;right:6px;border:none;background:none;cursor:pointer;
+  color:var(--muted);font-size:16px;line-height:1;padding:0 2px}
+.input-clear:hover,.input-clear:focus-visible{color:var(--fg)}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 .seg button,.seg label{border:none;background:var(--surface);padding:4px 12px;font-size:12px;
   cursor:pointer;color:var(--fg);font-family:inherit}

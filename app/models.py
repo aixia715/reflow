@@ -231,16 +231,17 @@ def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, pa
     conn.commit()
 
 
-def commit_workspace(conn, board_id, message) -> int:
-    """把工作区草稿翻成正式节点，新开空草稿，返回被提交节点 id。"""
+def commit_workspace(conn, board_id, message, description="") -> int:
+    """把工作区草稿翻成正式节点，新开空草稿，返回被提交节点 id。
+    message=标题/提交说明，description=长文本说明，二者同时落到被提交节点行。"""
     draft = conn.execute(
         "SELECT * FROM nodes WHERE board_id=? AND is_committed=0 ORDER BY id DESC LIMIT 1",
         (board_id,),
     ).fetchone()
     now = _now()
     conn.execute(
-        "UPDATE nodes SET is_committed=1, committed_at=?, message=? WHERE id=?",
-        (now, message, draft["id"]),
+        "UPDATE nodes SET is_committed=1, committed_at=?, message=?, description=? WHERE id=?",
+        (now, message, description, draft["id"]),
     )
     conn.execute(
         "INSERT INTO nodes(board_id,parent_id,message,created_at,is_committed,committed_at)"
@@ -249,6 +250,15 @@ def commit_workspace(conn, board_id, message) -> int:
     )
     conn.commit()
     return draft["id"]
+
+
+def update_node_info(conn, node_id, message, description) -> None:
+    """更新节点的标题（提交说明）与长文本说明。不改 BOM 内容，不记审计日志。"""
+    conn.execute(
+        "UPDATE nodes SET message=?, description=? WHERE id=?",
+        (message, description, node_id),
+    )
+    conn.commit()
 
 
 def workspace_node(conn, board_id) -> sqlite3.Row:

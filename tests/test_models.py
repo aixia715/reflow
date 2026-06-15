@@ -60,6 +60,43 @@ def test_changeset_upsert_and_chain_for_node(conn):
     assert models.get_changeset(conn, ws_id) == []
 
 
+def test_update_node_info_changes_message_and_description(conn):
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    board_id = models.create_board(conn, "B", "v1", "bomA", "3")
+    root_id = models.list_nodes(conn, board_id)[0]["id"]
+
+    models.update_node_info(conn, root_id, "新标题", "这是一段长说明\n第二行")
+    node = models.get_node(conn, root_id)
+    assert node["message"] == "新标题"
+    assert node["description"] == "这是一段长说明\n第二行"
+
+
+def test_commit_workspace_persists_description(conn):
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    board_id = models.create_board(conn, "B", "v1", "bomA", "3")
+    ws = models.workspace_node(conn, board_id)
+    models.set_change(conn, ws["id"], "R1", "modify", "47k")
+
+    committed_id = models.commit_workspace(conn, board_id, "改 R1", "客户要求 47k\n批次 A 起")
+    node = models.get_node(conn, committed_id)
+    assert node["message"] == "改 R1"
+    assert node["description"] == "客户要求 47k\n批次 A 起"
+    # 新开的空草稿 description 为空
+    new_ws = models.workspace_node(conn, board_id)
+    assert new_ws["id"] != committed_id
+    assert new_ws["description"] == ""
+
+
+def test_commit_workspace_description_defaults_empty(conn):
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    board_id = models.create_board(conn, "B", "v1", "bomA", "3")
+    committed_id = models.commit_workspace(conn, board_id, "只填标题")
+    assert models.get_node(conn, committed_id)["description"] == ""
+
+
 def test_list_board_log_filters_and_orders(tmp_path):
     from app.db import connect, init_db
     from app.csv_import import CsvEntry
