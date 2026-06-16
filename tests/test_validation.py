@@ -51,3 +51,27 @@ def test_part_with_surrounding_whitespace_passes():
 def test_remove_ignores_spurious_part():
     # 契约：remove 不要求 part，传了多余值也合法（路由层会忽略）
     assert validate_edit(BOM, "C1", "remove", "spurious") is None
+
+
+from app.validation import validate_new_name
+
+
+def test_new_name_empty_rejected():
+    assert "不能为空" in validate_new_name("")
+
+
+def test_new_name_whitespace_rejected():
+    assert "不能为空" in validate_new_name("   ")
+
+
+def test_new_name_none_rejected():
+    assert "不能为空" in validate_new_name(None)
+
+
+def test_valid_new_name_passes():
+    assert validate_new_name("v2") is None
+
+
+def test_new_name_not_stripped_in_return():
+    # 契约：只判断 trim 后非空，不负责裁剪；裁剪由调用方（路由）负责
+    assert validate_new_name("  v2  ") is None
