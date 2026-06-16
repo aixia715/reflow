@@ -1,9 +1,12 @@
+import json
+
 from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
 
 from app.main import templates, get_conn
 from app import models, storage
 from app.csv_import import parse_bom_csv
+from app.validation import validate_new_name
 
 router = APIRouter()
 
@@ -143,4 +146,68 @@ def bom_version_delete(
 def board_group_delete(board_name: str = Query(...)):
     conn = get_conn()
     storage.delete_images(models.delete_board_name(conn, board_name))
+    return _hx_redirect("/")
+
+
+def _toast_error(msg: str) -> Response:
+    """重命名失败：200 + 弹 toast，不重定向，保留输入框。"""
+    return Response(status_code=200,
+                    headers={"HX-Trigger": json.dumps({"showToast": msg})})
+
+
+@router.post("/board-group/rename")
+def board_group_rename(board_name: str = Form(...), new_name: str = Form(...)):
+    conn = get_conn()
+    new_name = new_name.strip()
+    err = validate_new_name(new_name)
+    if err:
+        return _toast_error(err)
+    try:
+        models.rename_board_name(conn, board_name, new_name)
+    except ValueError as e:
+        return _toast_error(str(e))
+    return _hx_redirect("/")
+
+
+@router.post("/pcb-version/rename")
+def pcb_version_rename(board_name: str = Form(...), pcb_version: str = Form(...),
+                       new_name: str = Form(...)):
+    conn = get_conn()
+    new_name = new_name.strip()
+    err = validate_new_name(new_name)
+    if err:
+        return _toast_error(err)
+    try:
+        models.rename_pcb_version(conn, board_name, pcb_version, new_name)
+    except ValueError as e:
+        return _toast_error(str(e))
+    return _hx_redirect("/")
+
+
+@router.post("/bom-version/rename")
+def bom_version_rename(board_name: str = Form(...), pcb_version: str = Form(...),
+                       bom_version: str = Form(...), new_name: str = Form(...)):
+    conn = get_conn()
+    new_name = new_name.strip()
+    err = validate_new_name(new_name)
+    if err:
+        return _toast_error(err)
+    try:
+        models.rename_bom_version(conn, board_name, pcb_version, bom_version, new_name)
+    except ValueError as e:
+        return _toast_error(str(e))
+    return _hx_redirect("/")
+
+
+@router.post("/board/{board_id}/rename")
+def board_uid_rename(board_id: int, new_name: str = Form(...)):
+    conn = get_conn()
+    new_name = new_name.strip()
+    err = validate_new_name(new_name)
+    if err:
+        return _toast_error(err)
+    try:
+        models.rename_board_uid(conn, board_id, new_name)
+    except ValueError as e:
+        return _toast_error(str(e))
     return _hx_redirect("/")
