@@ -32,3 +32,13 @@ def validate_edit(
     else:
         return f"未知操作类型：{op}"
     return None
+
+
+def validate_new_name(new: str | None) -> str | None:
+    """重命名时的新名校验：trim 后非空。返回中文错误消息或 None。
+
+    只判断非空，不裁剪（裁剪由调用方负责，与 validate_edit 的 part 契约一致）。
+    """
+    if not (new or "").strip():
+        return "名称不能为空"
+    return None
