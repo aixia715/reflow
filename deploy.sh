@@ -46,7 +46,16 @@ if git -C "${SCRIPT_DIR}" fetch -q origin master 2>/dev/null; then
 else
   echo "  （无法 fetch origin/master，已跳过远端比较，仅基于本地信息判断）" >&2
 fi
-if [ -n "$(git -C "${SCRIPT_DIR}" status --porcelain 2>/dev/null)" ]; then
+# 已注册的 linked worktree（如 .claude/worktrees/*）在主仓库里表现为未追踪目录，
+# 会让 git status --porcelain 非空。像 VS Code 一样把它们当独立仓库排除，不计为未提交改动。
+WT_EXCLUDES=()
+while IFS= read -r _wt; do
+  case "${_wt}" in
+    "${SCRIPT_DIR%/}/"*) WT_EXCLUDES+=(":(exclude,top)${_wt#${SCRIPT_DIR%/}/}") ;;
+  esac
+done < <(git -C "${SCRIPT_DIR}" worktree list --porcelain 2>/dev/null \
+           | awk '/^worktree /{print substr($0, 10)}' | tail -n +2)
+if [ -n "$(git -C "${SCRIPT_DIR}" status --porcelain -- . ${WT_EXCLUDES[@]+"${WT_EXCLUDES[@]}"} 2>/dev/null)" ]; then
   GIT_ISSUES="${GIT_ISSUES}\n  - 工作区有未提交改动"
 fi
 if [ -n "${GIT_ISSUES}" ]; then
