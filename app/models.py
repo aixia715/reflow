@@ -214,6 +214,78 @@ def delete_board_name(conn, board_name) -> list[str]:
     return filenames
 
 
+def rename_board_name(conn, old, new) -> None:
+    """重命名单板名称：级联更新两表所有匹配行。同名冲突抛 ValueError。"""
+    if new == old:
+        return
+    exists = (
+        conn.execute("SELECT 1 FROM boards_hierarchy WHERE board_name=? LIMIT 1",
+                     (new,)).fetchone()
+        or conn.execute("SELECT 1 FROM initial_bom WHERE board_name=? LIMIT 1",
+                        (new,)).fetchone()
+    )
+    if exists:
+        raise ValueError(f"单板名称「{new}」已存在")
+    conn.execute("UPDATE boards_hierarchy SET board_name=? WHERE board_name=?", (new, old))
+    conn.execute("UPDATE initial_bom SET board_name=? WHERE board_name=?", (new, old))
+    conn.commit()
+
+
+def rename_pcb_version(conn, board_name, old, new) -> None:
+    """重命名 PCB 版本：级联该 board_name 下该 PCB 的所有行。冲突抛 ValueError。"""
+    if new == old:
+        return
+    exists = (
+        conn.execute("SELECT 1 FROM boards_hierarchy WHERE board_name=? AND pcb_version=? LIMIT 1",
+                     (board_name, new)).fetchone()
+        or conn.execute("SELECT 1 FROM initial_bom WHERE board_name=? AND pcb_version=? LIMIT 1",
+                        (board_name, new)).fetchone()
+    )
+    if exists:
+        raise ValueError(f"PCB 版本「{new}」已存在")
+    conn.execute("UPDATE boards_hierarchy SET pcb_version=? WHERE board_name=? AND pcb_version=?",
+                 (new, board_name, old))
+    conn.execute("UPDATE initial_bom SET pcb_version=? WHERE board_name=? AND pcb_version=?",
+                 (new, board_name, old))
+    conn.commit()
+
+
+def rename_bom_version(conn, board_name, pcb_version, old, new) -> None:
+    """重命名 BOM 版本：只动 (board_name, pcb_version, old) 三元组。冲突抛 ValueError。"""
+    if new == old:
+        return
+    exists = (
+        conn.execute("SELECT 1 FROM boards_hierarchy"
+                     " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
+                     (board_name, pcb_version, new)).fetchone()
+        or conn.execute("SELECT 1 FROM initial_bom"
+                        " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
+                        (board_name, pcb_version, new)).fetchone()
+    )
+    if exists:
+        raise ValueError(f"BOM 版本「{new}」已存在")
+    conn.execute("UPDATE boards_hierarchy SET bom_version=?"
+                 " WHERE board_name=? AND pcb_version=? AND bom_version=?",
+                 (new, board_name, pcb_version, old))
+    conn.execute("UPDATE initial_bom SET bom_version=?"
+                 " WHERE board_name=? AND pcb_version=? AND bom_version=?",
+                 (new, board_name, pcb_version, old))
+    conn.commit()
+
+
+def rename_board_uid(conn, board_id, new) -> None:
+    """重命名单板 ID：只动该行。同 BOM 版本内重名抛 ValueError。"""
+    row = get_board(conn, board_id)
+    if row is None:
+        raise ValueError("单板不存在")
+    if new == row["board_uid"]:
+        return
+    if board_uid_exists(conn, row["board_name"], row["pcb_version"], row["bom_version"], new):
+        raise ValueError(f"单板 ID「{new}」在该 BOM 版本下已存在")
+    conn.execute("UPDATE boards_hierarchy SET board_uid=? WHERE id=?", (new, board_id))
+    conn.commit()
+
+
 def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part) -> None:
     """修正根节点初始 BOM 的某位号（part=None 表示删除该位号）。"""
     if part is None:
