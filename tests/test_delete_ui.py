@@ -49,98 +49,68 @@ def _click_accept_and_check(page: Page, btn, gone_text: str, base: str):
 
 # ── 测试：按钮可见性 ─────────────────────────────────────────────────
 
-def test_delete_buttons_present_on_home(seeded_server, page: Page):
-    """首页三个层级的删除按钮都存在于 DOM（默认隐藏，悬停所在元素时才显示）。"""
+def test_delete_actions_present_in_menus(seeded_server, page: Page):
+    """三个层级的删除按钮都在各自 ⋯ 菜单内（默认隐藏）。"""
     page.goto(seeded_server)
-    del_icons = page.locator(".del-icon")
-    expect(del_icons.first).to_be_attached()
-    count = del_icons.count()
-    assert count >= 3, f"期望 ≥3 个删除按钮，实际 {count} 个"
-
-
-def test_chip_del_button_exists(seeded_server, page: Page):
-    """每个单板芯片旁应有 .chip-del（×）按钮。"""
-    page.goto(seeded_server)
-    chip_del = page.locator(".chip-del")
-    expect(chip_del.first).to_be_visible()
-
-
-def test_del_icon_initial_hidden(seeded_server, page: Page):
-    """删除按钮默认隐藏（opacity == 0），仅在悬停所在元素时显示。"""
-    page.goto(seeded_server)
-    btn = page.locator(".del-icon").first
-    opacity = float(btn.evaluate("el => parseFloat(getComputedStyle(el).opacity)"))
-    assert opacity == 0, f"期望默认 opacity == 0（隐藏），实际 {opacity}"
-
-
-def test_del_icon_revealed_on_parent_hover(seeded_server, page: Page):
-    """悬停删除按钮所在的容器后，按钮从隐藏渐显（opacity > 0）。"""
-    page.goto(seeded_server)
-    chip_wrap = page.locator(".chip-wrap").first
-    chip_del = chip_wrap.locator(".chip-del")
-    assert float(chip_del.evaluate("el => getComputedStyle(el).opacity")) == 0
-    chip_wrap.hover()
-    page.wait_for_timeout(250)  # 等待 CSS transition（150ms）
-    opacity = float(chip_del.evaluate("el => getComputedStyle(el).opacity"))
-    assert opacity > 0, f"悬停容器后期望 opacity > 0，实际 {opacity}"
-
-
-def test_del_icon_hover_turns_red(seeded_server, page: Page):
-    """悬停后删除按钮颜色应变为红色系。"""
-    page.goto(seeded_server)
-    btn = page.locator(".del-icon").first
-    btn.hover()
-    page.wait_for_timeout(200)  # 等待 CSS transition（150ms）
-    color = btn.evaluate("el => getComputedStyle(el).color")
-    parts = [int(x) for x in color.replace("rgb(", "").replace(")", "").split(",")]
-    assert parts[0] > parts[1] and parts[0] > parts[2], f"期望红色，实际颜色 {color}"
+    dels = page.locator(".menu-pop button.del")
+    count = dels.count()
+    assert count >= 3, f"期望 ≥3 个菜单内删除按钮，实际 {count}"
 
 
 # ── 测试：确认弹窗交互 ────────────────────────────────────────────────
 
 def test_board_delete_cancel_keeps_data(live_server, page: Page):
-    """点击单板删除 × → dismiss confirm → 无 DELETE 请求 → 单板芯片仍在。"""
+    """点单板 ⋯ → 删除单板 → dismiss confirm → 无 DELETE 请求 → 单板芯片仍在。"""
     board_id = _api_create_board(live_server, "CancelBoard", "v1", "bomCancel", "CN001")
     page.goto(live_server)
 
-    chip_del = page.locator(f"[hx-delete='/board/{board_id}']")
-    expect(chip_del).to_be_visible()
+    chip = page.locator(".chip-wrap", has_text="CN001")
+    chip.hover()
+    chip.locator(".menu-btn").click()
+    del_btn = chip.locator("button.del")
 
     page.once("dialog", lambda d: d.dismiss())
-    chip_del.click()
+    del_btn.click()
     page.wait_for_timeout(500)
 
-    expect(chip_del).to_be_visible()
+    # 单板芯片仍然可见
+    expect(chip).to_be_visible()
 
 
 def test_board_delete_confirm_removes_board(live_server, page: Page):
-    """点击单板删除 × → accept → HX-Redirect 触发 → 单板消失。"""
+    """点单板 ⋯ → 删除单板 → accept → 单板消失。"""
     board_id = _api_create_board(live_server, "DelBoard", "v1", "bomDel", "DB002")
     page.goto(live_server)
 
-    chip_del = page.locator(f"[hx-delete='/board/{board_id}']")
-    expect(chip_del).to_be_visible()
+    chip = page.locator(".chip-wrap", has_text="DB002")
+    chip.hover()
+    chip.locator(".menu-btn").click()
+    del_btn = chip.locator("button.del")
 
-    _click_accept_and_check(page, chip_del, "DB002", live_server)
+    _click_accept_and_check(page, del_btn, "DB002", live_server)
 
 
 def test_bom_version_delete_confirm(live_server, page: Page):
-    """点击 BOM 版本 🗑 → accept → 版本及其单板消失。"""
+    """点 BOM 版本 ⋯ → 删除 BOM 版本 → accept → 版本及其单板消失。"""
     _api_create_board(live_server, "BomDelBoard", "v1", "bomDel2", "BD002")
     page.goto(live_server)
 
-    bom_del = page.locator("[hx-delete*='/bom-version'][hx-delete*='BomDelBoard']")
-    expect(bom_del).to_be_visible()
+    version_head = page.locator(".version-head", has=page.locator("[hx-delete*='BomDelBoard']"))
+    version_head.hover()
+    version_head.locator(".menu-btn").click()
+    del_btn = version_head.locator("button.del")
 
-    _click_accept_and_check(page, bom_del, "BomDelBoard", live_server)
+    _click_accept_and_check(page, del_btn, "BomDelBoard", live_server)
 
 
 def test_board_group_delete_confirm(live_server, page: Page):
-    """点击组 🗑 → accept → 整组消失。"""
+    """点组 ⋯ → 删除整组 → accept → 整组消失。"""
     _api_create_board(live_server, "GroupDelBoard", "v1", "bomG", "GD002")
     page.goto(live_server)
 
-    group_del = page.locator("[hx-delete*='/board-group'][hx-delete*='GroupDelBoard']")
-    expect(group_del).to_be_visible()
+    group = page.locator(".group-title", has_text="GroupDelBoard")
+    group.hover()
+    group.locator(".menu-btn").click()
+    del_btn = group.locator("button.del")
 
-    _click_accept_and_check(page, group_del, "GroupDelBoard", live_server)
+    _click_accept_and_check(page, del_btn, "GroupDelBoard", live_server)

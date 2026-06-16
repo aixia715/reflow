@@ -9,33 +9,83 @@
 </div>
 {% endif %}
 {% for name, versions in groups.items() %}
-<div class="group-title">
-  📋 {{ name }}
-  <button class="del-icon" title="删除整组"
-          hx-delete="/board-group?board_name={{ name | urlencode }}"
-          hx-confirm="确认删除「{{ name }}」的全部数据？此操作将删除其下所有 BOM 版本和单板记录，不可恢复。">🗑</button>
+<div class="group-title" x-data="{open:false, editing:false}" @click.outside="open=false">
+  <span x-show="!editing">📋 {{ name }}</span>
+  <form x-show="editing" x-cloak class="rename-form" hx-post="/board-group/rename"
+        hx-swap="none" @submit="editing=false">
+    <input type="hidden" name="board_name" value="{{ name }}">
+    <input class="rename-input" name="new_name" value="{{ name }}"
+           x-ref="gi" @keydown.escape="editing=false"
+           x-effect="editing && $nextTick(() => $refs.gi.select())">
+  </form>
+  <span class="menu" x-show="!editing">
+    <button class="menu-btn" @click="open=!open" title="操作">⋯</button>
+    <div class="menu-pop" x-show="open" x-cloak>
+      <button type="button" @click="editing=true; open=false">✏️ 重命名</button>
+      <button type="button" class="del"
+              hx-delete="/board-group?board_name={{ name | urlencode }}"
+              hx-confirm="确认删除「{{ name }}」的全部数据？此操作将删除其下所有 BOM 版本和单板记录，不可恢复。">🗑 删除整组</button>
+    </div>
+  </span>
 </div>
 {% for v in versions %}
 <div class="panel version">
-  <div class="version-head">
-    <span class="badge {{ v.pcb_version | pcb_badge_class }}">PCB {{ v.pcb_version }}</span>
-    <b>{{ v.bom_version }}</b>
+  <div class="version-head" x-data="{open:false, editing:false}" @click.outside="open=false">
+    <span class="badge {{ v.pcb_version | pcb_badge_class }}"
+          x-show="editing!=='pcb'">PCB {{ v.pcb_version }}</span>
+    <form x-show="editing==='pcb'" x-cloak class="rename-form" hx-post="/pcb-version/rename"
+          hx-swap="none" @submit="editing=false">
+      <input type="hidden" name="board_name" value="{{ name }}">
+      <input type="hidden" name="pcb_version" value="{{ v.pcb_version }}">
+      <input class="rename-input" name="new_name" value="{{ v.pcb_version }}"
+             x-ref="pi" @keydown.escape="editing=false"
+             x-effect="editing==='pcb' && $nextTick(() => $refs.pi.select())">
+    </form>
+    <b x-show="editing!=='bom'">{{ v.bom_version }}</b>
+    <form x-show="editing==='bom'" x-cloak class="rename-form" hx-post="/bom-version/rename"
+          hx-swap="none" @submit="editing=false">
+      <input type="hidden" name="board_name" value="{{ name }}">
+      <input type="hidden" name="pcb_version" value="{{ v.pcb_version }}">
+      <input type="hidden" name="bom_version" value="{{ v.bom_version }}">
+      <input class="rename-input" name="new_name" value="{{ v.bom_version }}"
+             x-ref="bi" @keydown.escape="editing=false"
+             x-effect="editing==='bom' && $nextTick(() => $refs.bi.select())">
+    </form>
     <span class="muted">{{ v.ref_count }} 个位号 · {{ v.boards|length }} 块单板</span>
-    <button class="del-icon ml-auto" title="删除 BOM 版本"
-            hx-delete="/bom-version?board_name={{ name | urlencode }}&pcb_version={{ v.pcb_version | urlencode }}&bom_version={{ v.bom_version | urlencode }}"
-            hx-confirm="确认删除 BOM 版本「{{ v.bom_version }}」？将同时删除其下 {{ v.boards|length }} 块单板的全部记录，不可恢复。">🗑</button>
+    <span class="menu ml-auto" x-show="!editing">
+      <button class="menu-btn" @click="open=!open" title="操作">⋯</button>
+      <div class="menu-pop" x-show="open" x-cloak>
+        <button type="button" @click="editing='pcb'; open=false">✏️ 重命名 PCB版本</button>
+        <button type="button" @click="editing='bom'; open=false">✏️ 重命名 BOM版本</button>
+        <button type="button" class="del"
+                hx-delete="/bom-version?board_name={{ name | urlencode }}&pcb_version={{ v.pcb_version | urlencode }}&bom_version={{ v.bom_version | urlencode }}"
+                hx-confirm="确认删除 BOM 版本「{{ v.bom_version }}」？将同时删除其下 {{ v.boards|length }} 块单板的全部记录，不可恢复。">🗑 删除 BOM 版本</button>
+      </div>
+    </span>
   </div>
   {% if v.boards %}
   <div class="chips">
     {% for b in v.boards %}
-    <span class="chip-wrap">
-      <a class="chip {{ 'pending' if b.pending else '' }}" href="/board/{{ b.id }}">
+    <span class="chip-wrap" x-data="{open:false, editing:false}" @click.outside="open=false">
+      <a class="chip {{ 'pending' if b.pending else '' }}" href="/board/{{ b.id }}"
+         x-show="!editing">
         板 {{ b.board_uid }}
         <span class="muted">· {{ b.node_count }} 个节点{% if b.pending %} · {{ b.pending }} 条未提交{% endif %}</span>
       </a>
-      <button class="del-icon chip-del" title="删除单板"
-              hx-delete="/board/{{ b.id }}"
-              hx-confirm="确认删除单板「{{ b.board_uid }}」？此操作将同时删除该单板所有节点记录，不可恢复。">×</button>
+      <form x-show="editing" x-cloak class="rename-form" hx-post="/board/{{ b.id }}/rename"
+            hx-swap="none" @submit="editing=false">
+        <input class="rename-input" name="new_name" value="{{ b.board_uid }}"
+               x-ref="ci{{ b.id }}" @keydown.escape="editing=false"
+               x-effect="editing && $nextTick(() => $refs['ci{{ b.id }}'].select())">
+      </form>
+      <span class="menu" x-show="!editing">
+        <button class="menu-btn chip-menu" @click="open=!open" title="操作">⋯</button>
+        <div class="menu-pop" x-show="open" x-cloak>
+          <button type="button" @click="editing=true; open=false">✏️ 重命名</button>
+          <button type="button" class="del" hx-delete="/board/{{ b.id }}"
+                  hx-confirm="确认删除单板「{{ b.board_uid }}」？此操作将同时删除该单板所有节点记录，不可恢复。">🗑 删除单板</button>
+        </div>
+      </span>
     </span>
     {% endfor %}
   </div>

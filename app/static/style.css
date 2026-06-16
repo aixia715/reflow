@@ -15,6 +15,7 @@
   --px-unknown-bg:#f3f4f6; --px-unknown-fg:#374151;
   --toast-bg:#1f2328; --toast-fg:#fff;
   --radius:6px;
+  --menu-shadow:#1f23282e;
 }
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
@@ -206,6 +207,7 @@ details.panel summary{cursor:pointer;font-weight:600}
   --purple:#bc8cff; --purple-bg:#1d1a2e;
   --tl-line:#3a4654; --accent-soft:#4493f8;
   --toast-bg:#2d333b; --toast-fg:#e6edf3;
+  --menu-shadow:#00000066;
   /* PCB 版本类型 badge 颜色（深色主题） */
   --px-dianxingjian-bg:#064e3b; --px-dianxingjian-fg:#6ee7b7;
   --px-dianxingqiangjiajian-bg:#451a03; --px-dianxingqiangjiajian-fg:#fcd34d;
@@ -214,3 +216,24 @@ details.panel summary{cursor:pointer;font-weight:600}
   --px-special-bg:#4c0519; --px-special-fg:#fda4af;
   --px-unknown-bg:#1f2937; --px-unknown-fg:#9ca3af;
 }
+
+/* ⋯ 操作菜单 */
+.menu{position:relative;display:inline-flex}
+.menu-btn{border:none;background:none;cursor:pointer;color:var(--muted);font-size:14px;
+  padding:2px 6px;border-radius:3px;line-height:1;opacity:0;transition:opacity .15s,color .15s}
+.group-title:hover .menu-btn,
+.version-head:hover .menu-btn,
+.chip-wrap:hover .menu-btn{opacity:.45}
+.menu-btn:hover,.menu-btn:focus-visible{opacity:1;color:var(--fg)}
+.menu-pop{position:absolute;right:0;top:100%;z-index:20;min-width:128px;margin-top:2px;
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  box-shadow:0 6px 18px var(--menu-shadow);padding:4px;display:flex;flex-direction:column}
+.menu-pop button{border:none;background:none;text-align:left;cursor:pointer;font:inherit;
+  font-size:13px;padding:6px 10px;border-radius:4px;color:var(--fg);white-space:nowrap}
+.menu-pop button:hover{background:var(--surface-2)}
+.menu-pop button.del{color:var(--red)}
+/* 内联重命名输入框 */
+.rename-form{display:inline-flex;margin:0}
+.rename-input{border:1px solid var(--blue);border-radius:5px;padding:1px 6px;
+  font:inherit;color:var(--fg);background:var(--surface);outline:none;
+  box-shadow:0 0 0 3px var(--accent-soft)}

@@ -450,13 +450,13 @@ def test_delete_board_group(client):
 # ── 补充删除功能边界测试 ──────────────────────────────────────────────
 
 def test_home_shows_delete_buttons(client):
-    """首页有数据时应渲染三层删除按钮。"""
+    """首页有数据时应渲染三层删除按钮（在 ⋯ 菜单内）。"""
     _setup_board(client)
     html = client.get("/").text
     assert "hx-delete" in html
-    assert "del-icon" in html
+    assert "menu-pop" in html
     assert "hx-confirm" in html
-    assert "chip-del" in html
+    assert "menu-btn" in html
 
 
 def test_delete_board_with_committed_history(client):
