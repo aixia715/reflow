@@ -127,7 +127,7 @@ details.panel summary{cursor:pointer;font-weight:600}
 .tl-item.draft .tl-card{border-color:var(--accent-soft)}
 .tl-item:hover .tl-card{border-color:var(--blue)}
 /* 硬更改时间线卡片：黄色圆点 + 左缘强调，区分 BOM 节点 */
-.tl-item.hard .dot{background:var(--yellow-fg);border-color:var(--yellow-fg)}
+.tl-item.hard .dot{background:var(--yellow-fg)}
 .tl-item.hard .tl-card{border-left:3px solid var(--yellow-badge-fg)}
 /* 硬更改详情/表单 */
 .hc-desc{white-space:pre-wrap;margin:8px 0;font-size:14px}
