@@ -7,10 +7,16 @@ from fastapi.templating import Jinja2Templates
 from app.db import connect, init_db
 
 from app.badge_config import pcb_badge_class
+from app import hashing
 
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["urlencode"] = lambda v: quote(str(v), safe="")
 templates.env.filters["pcb_badge_class"] = pcb_badge_class
+# 模板里取节点 / 硬更改的哈希（长用于 title，短用于展示）
+templates.env.globals["node_hash"] = hashing.node_hash
+templates.env.globals["node_short"] = hashing.node_short
+templates.env.globals["hard_hash"] = hashing.hard_change_hash
+templates.env.globals["hard_short"] = hashing.hard_change_short
 
 
 def get_conn():
@@ -36,11 +42,12 @@ def create_app() -> FastAPI:
                 request, "404.html", {}, status_code=404)
         return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
 
-    from app.routes import hierarchy, board, log, hard_change
+    from app.routes import hierarchy, board, log, hard_change, hashes
     app.include_router(hierarchy.router)
     app.include_router(board.router)
     app.include_router(log.router)
     app.include_router(hard_change.router)
+    app.include_router(hashes.router)
 
     @app.get("/healthz")
     def healthz():

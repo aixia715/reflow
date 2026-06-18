@@ -88,6 +88,13 @@ def get_node(conn, node_id) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
 
 
+def all_committed_nodes(conn) -> list[sqlite3.Row]:
+    """全库已提交节点的 (id, board_id)，供哈希解析枚举。"""
+    return conn.execute(
+        "SELECT id, board_id FROM nodes WHERE is_committed=1"
+    ).fetchall()
+
+
 # ---------- changeset ----------
 
 def set_change(conn, node_id, reference, op, part) -> None:
@@ -407,6 +414,11 @@ def list_hard_changes(conn, board_id) -> list[sqlite3.Row]:
         "SELECT * FROM hard_changes WHERE board_id=? ORDER BY occurred_at, id",
         (board_id,),
     ).fetchall()
+
+
+def all_hard_changes(conn) -> list[sqlite3.Row]:
+    """全库硬更改的 (id, board_id)，供哈希解析枚举。"""
+    return conn.execute("SELECT id, board_id FROM hard_changes").fetchall()
 
 
 def list_hard_change_images(conn, hc_id) -> list[sqlite3.Row]:
