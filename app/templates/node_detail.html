@@ -17,6 +17,9 @@
   <span class="badge badge-blue">未提交 · {{ changes|length }} 条修改</span>
   {% endif %}
   <span class="muted stable-link">稳定链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code></span>
+  {% if node.is_committed %}
+  <span class="muted stable-link">哈希 <a href="/hash/{{ node_hash(node.id) }}" title="完整哈希 {{ node_hash(node.id) }}（点击跳转）"><code>{{ node_short(node.id) }}</code></a></span>
+  {% endif %}
 </div>
 
 {% if node.description %}

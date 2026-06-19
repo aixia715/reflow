@@ -11,7 +11,10 @@
         hx-confirm="确认删除硬更改「{{ hc.title }}」？此操作将一并删除其所有附图，不可恢复。">删除</button>
 {% endblock %}
 {% block content %}
-<div class="page-head"><h1>🔧 {{ hc.title }}</h1></div>
+<div class="page-head">
+  <h1>🔧 {{ hc.title }}</h1>
+  <span class="muted stable-link">哈希 <a href="/hash/{{ hard_hash(hc.id) }}" title="完整哈希 {{ hard_hash(hc.id) }}（点击跳转）"><code>{{ hard_short(hc.id) }}</code></a></span>
+</div>
 <div class="panel">
   <div class="muted">发生时间：{{ hc.occurred_at|replace('T', ' ') }}</div>
   {% if hc.description %}<p class="hc-desc">{{ hc.description }}</p>{% endif %}
