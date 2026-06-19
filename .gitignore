@@ -10,3 +10,4 @@ images/
 reflow.egg-info/
 deploy.*.sh
 uploads/
+.claude/worktrees/
