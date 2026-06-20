@@ -1,3 +1,6 @@
+{% if node.is_committed %}
+<div class="flash flash-warn">修正会改变本链接内容，引用方将看到新值。若只是新增变更，请在工作区操作。</div>
+{% endif %}
 <form class="edit-form"
       hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit"
       hx-target="#bom" hx-swap="innerHTML"
