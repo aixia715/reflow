@@ -7,8 +7,7 @@ on:
     types: [created]
   issues:
     types: [opened, edited]
-  pull_request:
-    types: [opened, reopened]   # 不含 synchronize，避免每次 push 重复评审；要每次 push 评审再加 synchronize
+  # PR 自动评审已迁至 ci.yml，并门控在测试+冒烟通过之后；此处只保留按需触发
 
 jobs:
   # 1) 评论触发：/opencode 或 /oc —— 不设 prompt（否则覆盖评论指令）
@@ -57,22 +56,4 @@ jobs:
           model: ${{ vars.OPENCODE_MODEL }}
           prompt: "阅读本 issue 的标题与正文，按其中描述的需求或缺陷进行处理：在新分支实现/修复并提交，开一个 PR。遵循仓库 CLAUDE.md 的约定，用中文回复与说明。"
 
-  # 3) PR 自动评审（增强项）：pull_request 事件，给评审 prompt
-  review:
-    if: |
-      github.actor != 'opencode-agent[bot]' &&
-      github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-      - uses: anomalyco/opencode/github@latest
-        env:
-          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-        with:
-          model: ${{ vars.OPENCODE_MODEL }}
-          prompt: "审阅这个 PR 的改动：聚焦正确性、潜在 bug、与本仓库约定（见 CLAUDE.md）的一致性。用中文把结论作为评论发表。"
+  # PR 自动评审已迁至 ci.yml 的 review job，门控在 tests + docker-smoke 通过之后
