@@ -10,7 +10,9 @@ jobs:
 
   review:
     needs: checks
-    if: github.actor != 'opencode-agent[bot]' && github.event.action != 'synchronize'
+    # 只跳过 synchronize（每次 push），避免重复评审；不排除 bot 触发者——
+    # bot 开的 PR 正是最该评审的对象，且评审结论评论不含 /opencode|/oc，不会回头触发 comment job
+    if: github.event.action != 'synchronize'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
