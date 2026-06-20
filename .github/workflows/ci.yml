@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"          # 对齐 pyproject requires-python >=3.11
+          python-version: "3.12"          # 对齐生产镜像 python:3.12-slim，测试与部署同版本
       - run: pip install -e ".[dev]"
       - run: playwright install --with-deps chromium   # e2e/UI 测试需浏览器
       - run: pytest -q
