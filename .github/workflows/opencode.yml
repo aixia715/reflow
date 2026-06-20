@@ -14,10 +14,13 @@ jobs:
   # 1) 评论触发：/opencode 或 /oc —— 不设 prompt（否则覆盖评论指令）
   comment:
     if: |
-      (github.event_name == 'issue_comment' &&
-        (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc'))) ||
-      (github.event_name == 'pull_request_review_comment' &&
-        (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')))
+      github.actor != 'opencode-agent[bot]' &&
+      (
+        (github.event_name == 'issue_comment' &&
+          (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc'))) ||
+        (github.event_name == 'pull_request_review_comment' &&
+          (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc')))
+      )
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -35,6 +38,7 @@ jobs:
   # 2) Issue 触发：门控关键词（复刻 @claude 语义）；issues 必须带 prompt
   issue:
     if: |
+      github.actor != 'opencode-agent[bot]' &&
       github.event_name == 'issues' &&
       (contains(github.event.issue.body, '/opencode') || contains(github.event.issue.body, '/oc') ||
        contains(github.event.issue.title, '/opencode') || contains(github.event.issue.title, '/oc'))
@@ -55,7 +59,9 @@ jobs:
 
   # 3) PR 自动评审（增强项）：pull_request 事件，给评审 prompt
   review:
-    if: github.event_name == 'pull_request'
+    if: |
+      github.actor != 'opencode-agent[bot]' &&
+      github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
