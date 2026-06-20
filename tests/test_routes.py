@@ -284,6 +284,10 @@ def test_committed_node_shows_history_warning(client):
     client.post(f"/board/{board_id}/commit", data={"message": "S1"})
     r = client.get(f"/board/{board_id}/node/{ws}")
     assert "修正历史记录" in r.text
+    assert "链接不变但内容会变" in r.text      # 链接分享维度提示
+    assert "引用此链接的笔记将不再准确" in r.text
+    assert "建议在工作区修改后提交" in r.text   # 引导新变更走工作区
+    assert "修正会改变本链接内容" in r.text       # 表单上方 inline 提示
     assert "撤销" not in r.text            # 已提交节点无撤销入口
 
 

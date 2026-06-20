@@ -27,7 +27,7 @@
 {% endif %}
 
 {% if node.is_committed %}
-<div class="flash flash-warn">⚠ 这是已提交的历史节点。在此编辑＝<b>修正历史记录</b>，会自动向下游传播；若下游改过同一位号将需要你逐个确认。</div>
+<div class="flash flash-warn">⚠ 这是已提交的历史节点，链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code> 已固定。在此编辑＝<b>修正历史记录</b>：链接不变但内容会变，引用此链接的笔记将不再准确；同时自动向下游传播，下游改过同位号需逐个确认。如需记录新变更，建议在工作区修改后提交。</div>
 {% endif %}
 
 <div class="two-col" x-data="bomPage()" @fill-form.window="setFrom($event.detail)">
