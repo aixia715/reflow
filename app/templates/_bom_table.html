@@ -1,6 +1,6 @@
 <div class="toolbar">
   <span class="input-clearable">
-    <input class="input" placeholder="筛选位号 / Part…" x-model="q"
+    <input class="input" placeholder="筛选位号 / Part…" x-model="q" x-ref="filterInput"
            @keydown.enter.prevent="if (q.trim()) { fill(q.trim(),'modify',''); $nextTick(() => $refs.partInput && $refs.partInput.focus()); }">
     <button type="button" class="input-clear" x-show="q" x-cloak
             @click="q=''" title="清空" tabindex="-1">×</button>
