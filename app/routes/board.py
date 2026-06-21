@@ -6,6 +6,8 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change
 from app.bom_engine import fold_bom
 from app.validation import validate_edit
+from app import compare
+from app.models import _now
 
 router = APIRouter()
 
@@ -202,3 +204,43 @@ def commit(board_id: int, message: str = Form(...), description: str = Form(""))
     conn = get_conn()
     models.commit_workspace(conn, board_id, message, description.strip())
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已提交：{message}", status_code=303)
+
+
+def _node_ts(node) -> str:
+    """节点用于时间区间的时间戳：已提交/根节点用 committed_at，草稿用当下。"""
+    return node["committed_at"] or _now()
+
+
+@router.get("/board/{board_id}/compare")
+def compare_nodes(request: Request, board_id: int, left: int | None = None, right: int | None = None):
+    conn = get_conn()
+    board = models.get_board(conn, board_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
+    if left is None or right is None:
+        raise HTTPException(status_code=404, detail="缺少对比节点参数")
+    if left == right:
+        return RedirectResponse(
+            f"/board/{board_id}?flash=不能和自己比", status_code=303)
+    ln = models.get_node(conn, left)
+    rn = models.get_node(conn, right)
+    for n in (ln, rn):
+        if n is None or n["board_id"] != board_id:
+            raise HTTPException(status_code=404, detail="节点不存在")
+    li, lc = models.get_chain(conn, left)
+    ri, rc = models.get_chain(conn, right)
+    left_bom = fold_bom(li, lc)
+    right_bom = fold_bom(ri, rc)
+    rows = compare.diff_boms(left_bom, right_bom)
+    diff_rows = [r for r in rows if r["kind"] != "same"]
+    same_rows = [r for r in rows if r["kind"] == "same"]
+    counts = {k: sum(1 for r in rows if r["kind"] == k)
+              for k in ("add", "modify", "remove", "same")}
+    hcs = [dict(h) for h in models.list_hard_changes(conn, board_id)]
+    between = compare.hard_changes_between(hcs, _node_ts(ln), _node_ts(rn))
+    return templates.TemplateResponse(request, "compare.html", {
+        "board": board, "board_id": board_id,
+        "left_node": ln, "right_node": rn,
+        "diff_rows": diff_rows, "same_rows": same_rows,
+        "counts": counts, "hard_changes": between,
+    })

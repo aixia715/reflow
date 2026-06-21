@@ -7,17 +7,27 @@
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}/log">审计日志</a>
 <a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/new">＋ 记录硬更改</a>
+<button type="button" class="btn btn-outline" data-testid="compare-toggle"
+        x-data @click="$dispatch('toggle-cmp')">对比节点…</button>
 {% endblock %}
 {% block content %}
 <div class="page-head"><h1>状态演进</h1></div>
-<div class="timeline">
+<div class="timeline" x-data="{ cmp: false, sel: [],
+       toggle(id){ const i = this.sel.indexOf(id);
+         if (i > -1) this.sel.splice(i, 1);
+         else if (this.sel.length < 2) this.sel.push(id); },
+       href(){ return `/board/{{ board_id }}/compare?left=${this.sel[0]}&right=${this.sel[1]}`; } }"
+     @toggle-cmp.window="cmp = !cmp; sel = []">
 {% for it in timeline %}
 {% if it.kind == 'node' %}
 {% set n = it.obj %}{% set s = summaries[n.id] %}
-<a class="tl-item {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}"
-   href="/board/{{ board_id }}/node/{{ n.id }}">
+<div class="tl-item {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}">
   <span class="dot"></span>
-  <div class="tl-card">
+  <label class="cmp-check" x-show="cmp" x-cloak>
+    <input type="checkbox" :checked="sel.includes({{ n.id }})"
+           @change="toggle({{ n.id }})" :disabled="!sel.includes({{ n.id }}) && sel.length >= 2">
+  </label>
+  <a class="tl-card" href="/board/{{ board_id }}/node/{{ n.id }}">
     <b>{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}</b>
     {% if n.parent_id is none %}
     <span class="badge badge-purple">初始 BOM · {{ initial_count }} 位号</span>
@@ -32,10 +42,10 @@
         {{ c.reference }} {{ {'add': '新增', 'modify': '修改', 'remove': '不贴'}[c.op] }}{% if not loop.last %} · {% endif %}
       {%- endfor -%}
       {%- if s|length > 4 %} …{% endif -%}
-      {%- if s %} · {% endif %}{{ n.committed_at or n.created_at }}
+      {%- if s %} · {% endif %}<time class="local-dt" datetime="{{ n.committed_at or n.created_at }}">{{ n.committed_at or n.created_at }}</time>
     </div>
-  </div>
-</a>
+  </a>
+</div>
 {% else %}
 {% set h = it.obj %}
 <a class="tl-item hard" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
@@ -44,10 +54,14 @@
     <b>🔧 {{ h.title }}</b>
     <span class="badge badge-yellow">硬更改</span>
     <code class="muted" title="哈希 {{ hard_hash(h.id) }}">{{ hard_short(h.id) }}</code>
-    <div class="muted">{{ h.occurred_at|replace('T', ' ') }}{% if h.description %} · {{ h.description[:40] }}{% endif %}</div>
+    <div class="muted"><time class="local-dt" datetime="{{ h.occurred_at }}">{{ h.occurred_at }}</time>{% if h.description %} · {{ h.description[:40] }}{% endif %}</div>
   </div>
 </a>
 {% endif %}
 {% endfor %}
+<div class="compare-bar" data-testid="compare-bar" x-show="cmp && sel.length === 2" x-cloak>
+  已选 2 个节点
+  <a class="btn btn-primary" data-testid="compare-go" :href="href()">开始对比 →</a>
+</div>
 </div>
 {% endblock %}

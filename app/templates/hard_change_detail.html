@@ -16,7 +16,7 @@
   <span class="muted stable-link">哈希 <a href="/hash/{{ hard_hash(hc.id) }}" title="完整哈希 {{ hard_hash(hc.id) }}（点击跳转）"><code>{{ hard_short(hc.id) }}</code></a></span>
 </div>
 <div class="panel">
-  <div class="muted">发生时间：{{ hc.occurred_at|replace('T', ' ') }}</div>
+  <div class="muted">发生时间：<time class="local-dt" datetime="{{ hc.occurred_at }}">{{ hc.occurred_at }}</time></div>
   {% if hc.description %}<p class="hc-desc">{{ hc.description }}</p>{% endif %}
   {% if images %}
   <div class="hc-gallery" x-data="{ open: false, src: '', alt: '' }">

@@ -77,6 +77,18 @@ def _img_id_from_edit_form(client, bid, hid):
     return m.group(1)
 
 
+def test_create_hard_change_stores_utc(client):
+    # 直接 POST canonical UTC（模拟前端已转换），断言存库即为该值
+    bid = _new_board(client)
+    client.post(f"/board/{bid}/hard-change",
+                data={"title": "飞线", "occurred_at": "2026-06-13T01:10:00+00:00",
+                      "description": "x"})
+    from app.main import get_conn
+    from app import models
+    hcs = models.list_hard_changes(get_conn(), int(bid))
+    assert hcs[-1]["occurred_at"] == "2026-06-13T01:10:00+00:00"
+
+
 def test_edit_ignores_foreign_image_ids(client):
     bid = _new_board(client)
     # 建两条带图的硬更改 A、B
@@ -100,3 +112,22 @@ def test_edit_ignores_foreign_image_ids(client):
     # B 的图仍在
     img_b_after = _img_id_from_edit_form(client, bid, hid_b)
     assert img_b_after == img_b
+
+
+def test_create_hard_change_empty_occurred_at_uses_canonical_utc(client):
+    """POST 硬更改时若 occurred_at 为空，服务端兜底应使用 canonical UTC (+00:00)。"""
+    bid = _new_board(client)
+    r = client.post(f"/board/{bid}/hard-change",
+                    data={"title": "服端兜底时间", "occurred_at": "",
+                          "description": "empty occurred_at"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    from app.main import get_conn
+    from app import models
+    import re
+    hcs = models.list_hard_changes(get_conn(), int(bid))
+    assert len(hcs) > 0
+    stored = hcs[-1]["occurred_at"]
+    # 应为 canonical UTC 格式：YYYY-MM-DDTHH:MM:SS+00:00
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$", stored), \
+        f"expected canonical UTC format, got: {stored}"

@@ -25,7 +25,7 @@
   <tbody>
   {% for r in rows %}
   <tr>
-    <td class="muted">{{ r.created_at }}</td>
+    <td class="muted"><time class="local-dt" datetime="{{ r.created_at }}">{{ r.created_at }}</time></td>
     <td><a href="/board/{{ board_id }}/node/{{ r.node_id }}">
       {% if not r.node_committed %}工作区草稿{% else %}#{{ r.node_id }} {{ r.node_message or '(无说明)' }}{% endif %}</a></td>
     <td><code>{{ r.reference }}</code></td>

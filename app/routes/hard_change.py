@@ -1,5 +1,4 @@
 """硬更改路由：新建、详情、编辑、删除。"""
-from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
@@ -9,12 +8,6 @@ from app.main import templates, get_conn
 from app import models, hard_change, storage
 
 router = APIRouter()
-
-
-def _now_minute() -> str:
-    """提交兜底：当 occurred_at 为空（如绕过 required 直接 POST）时用当前分钟。
-    注意：新建表单的默认时间已改由前端按浏览器本地时区填充，不再走此函数。"""
-    return datetime.now().strftime("%Y-%m-%dT%H:%M")
 
 
 def _hx_redirect(url: str) -> Response:
@@ -74,7 +67,7 @@ async def hc_create(request: Request, board_id: int,
         stored = hard_change.make_stored_name(name)
         storage.save_image(stored, data)
         saved.append((stored, name))
-    occurred = occurred_at.strip() or _now_minute()
+    occurred = occurred_at.strip() or models._now()
     models.create_hard_change(conn, board_id, title, description.strip(), occurred, saved)
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已记录硬更改", status_code=303)
 

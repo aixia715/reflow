@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}对比 · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a> / 对比
+{% endblock %}
+{% block ctxlinks %}
+<a href="/board/{{ board_id }}">状态图</a>
+{% endblock %}
+{% block content %}
+{% macro node_label(n) -%}
+{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}
+{%- endmacro %}
+<div class="page-head" x-data="{ showSame: false }">
+  <h1>对比</h1>
+  <span class="badge">{{ node_label(left_node) }}</span>
+  <span class="muted">→</span>
+  <span class="badge">{{ node_label(right_node) }}</span>
+  <a class="btn btn-outline" href="/board/{{ board_id }}/compare?left={{ right_node.id }}&right={{ left_node.id }}">⇄ 交换</a>
+
+  <div class="muted" style="width:100%">
+    共 {{ counts.add }} 新增 · {{ counts.modify }} 修改 · {{ counts.remove }} 不贴 · {{ counts.same }} 项未变
+  </div>
+
+  {% if diff_rows %}
+  <table class="bom" style="width:100%">
+    <thead><tr><th>位号</th><th>{{ node_label(left_node) }} 的值</th><th></th><th>{{ node_label(right_node) }} 的值</th><th>变化</th></tr></thead>
+    <tbody>
+    {% for r in diff_rows %}
+      <tr class="row-{{ r.kind }}">
+        <td><code>{{ r.reference }}</code></td>
+        <td>{% if r.left is none %}<span class="muted">—</span>{% else %}{{ r.left }}{% endif %}</td>
+        <td class="muted">→</td>
+        <td>{% if r.right is none %}<span class="muted">不贴</span>{% else %}{{ r.right }}{% endif %}</td>
+        <td>{{ {'add':'新增','modify':'修改','remove':'不贴'}[r.kind] }}</td>
+      </tr>
+    {% endfor %}
+    {% if same_rows %}
+      <tr><td colspan="5">
+        <button type="button" class="btn-link" @click="showSame = !showSame"
+                x-text="showSame ? '▾ 收起未变项' : '▸ 展开 {{ same_rows|length }} 项未变'"></button>
+      </td></tr>
+      {% for r in same_rows %}
+      <tr x-show="showSame" x-cloak>
+        <td><code>{{ r.reference }}</code></td>
+        <td class="muted">{{ r.left }}</td><td class="muted">=</td>
+        <td class="muted">{{ r.right }}</td><td></td>
+      </tr>
+      {% endfor %}
+    {% endif %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="flash">两节点 BOM 完全一致。</div>
+  {% endif %}
+
+  <section style="width:100%;margin-top:1.5rem">
+    <h2>这段时间内的硬更改{% if hard_changes %}（{{ hard_changes|length }} 条）{% endif %}</h2>
+    {% if hard_changes %}
+    {% for h in hard_changes %}
+    <a class="tl-item hard" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
+      <div class="tl-card">
+        <b>🔧 {{ h.title }}</b>
+        <div class="muted"><time class="local-dt" datetime="{{ h.occurred_at }}">{{ h.occurred_at }}</time>{% if h.description %} · {{ h.description[:40] }}{% endif %}</div>
+      </div>
+    </a>
+    {% endfor %}
+    {% else %}
+    <div class="muted">这段时间内没有硬更改记录。</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

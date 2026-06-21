@@ -12,7 +12,7 @@
 <div class="page-head">
   <h1>{% if not node.is_committed %}工作区草稿{% elif node.parent_id is none %}初始状态{% else %}#{{ node.id }} {{ node.message or '(无说明)' }}{% endif %}</h1>
   {% if node.is_committed %}
-  <span class="badge">已提交 · {{ node.committed_at }}</span>
+  <span class="badge">已提交 · <time class="local-dt" datetime="{{ node.committed_at }}">{{ node.committed_at }}</time></span>
   {% else %}
   <span class="badge badge-blue">未提交 · {{ changes|length }} 条修改</span>
   {% endif %}
