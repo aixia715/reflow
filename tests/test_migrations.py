@@ -36,20 +36,3 @@ def test_migrate_occurred_at_end_to_end(tmp_path):
     vals = [r["occurred_at"] for r in conn.execute("SELECT occurred_at FROM hard_changes ORDER BY id")]
     assert vals == ["2026-06-13T01:10:00+00:00", "2026-06-14T00:00:00+00:00"]
     assert migrate_occurred_at(conn) == 0   # 幂等：再跑无变化
-
-
-def test_migrate_occurred_at_end_to_end(tmp_path):
-    db = tmp_path / "m.sqlite"
-    conn = sqlite3.connect(db)
-    conn.row_factory = sqlite3.Row
-    init_db(conn)            # 建表
-    conn.execute("INSERT INTO hard_changes(board_id,title,description,occurred_at,created_at)"
-                 " VALUES(1,'a','',?,?)", ("2026-06-13T09:10", "2026-06-13T01:00:00+00:00"))
-    conn.execute("INSERT INTO hard_changes(board_id,title,description,occurred_at,created_at)"
-                 " VALUES(1,'b','',?,?)", ("2026-06-14T00:00:00+00:00", "2026-06-13T01:00:00+00:00"))
-    conn.commit()
-    n = migrate_occurred_at(conn)
-    assert n == 1   # 仅无偏移那条被转换
-    vals = [r["occurred_at"] for r in conn.execute("SELECT occurred_at FROM hard_changes ORDER BY id")]
-    assert vals == ["2026-06-13T01:10:00+00:00", "2026-06-14T00:00:00+00:00"]
-    assert migrate_occurred_at(conn) == 0   # 幂等：再跑无变化
