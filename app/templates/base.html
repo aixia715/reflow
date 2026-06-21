@@ -39,6 +39,15 @@
   document.body.addEventListener('showToast', e => showToast(e.detail.value));
   document.querySelectorAll('#toast-zone .toast')
     .forEach(t => setTimeout(() => t.remove(), 3500));
+  function renderLocalDates(root){
+    (root || document).querySelectorAll('time.local-dt').forEach(el => {
+      const iso = el.getAttribute('datetime');
+      const d = iso ? new Date(iso) : null;
+      if (d && !isNaN(d)) el.textContent = d.toLocaleString('zh-CN', { hour12: false });
+    });
+  }
+  renderLocalDates();
+  document.body.addEventListener('htmx:afterSwap', e => renderLocalDates(e.target));
 </script>
 </body>
 </html>

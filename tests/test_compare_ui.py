@@ -30,3 +30,13 @@ def test_compare_mode_select_two_and_go(live_server, page: Page):
     go = page.locator("[data-testid=compare-go]")
     href = go.get_attribute("href")
     assert "/compare?left=" in href and "right=" in href
+
+
+def test_local_dt_rendered_to_local(live_server, page: Page):
+    bid = _make_board(live_server, uid="LDT1")
+    page.goto(f"{live_server}/board/{bid}")
+    # 节点提交时间已是 UTC（含 +00:00）；渲染后文本不应再带 'T...+00:00'
+    el = page.locator("time.local-dt").first
+    expect(el).to_be_visible()
+    text = el.inner_text()
+    assert "+00:00" not in text and "T" not in text
