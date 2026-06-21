@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "只跑到阶段A 并打印计划，不执行任何写操作"
+        description: "试运行：只预览会如何处理各 issue（不评论、不开 PR、不做任何修改）"
         type: boolean
         default: false
 
