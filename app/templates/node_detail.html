@@ -18,7 +18,7 @@
   {% endif %}
   <span class="muted stable-link">稳定链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code></span>
   {% if node.is_committed %}
-  <span class="muted stable-link">哈希 <a href="/hash/{{ node_hash(node.id) }}" title="完整哈希 {{ node_hash(node.id) }}（点击跳转）"><code>{{ node_short(node.id) }}</code></a></span>
+  <span class="muted stable-link">哈希 <a href="/hash/{{ node_hash(node.id) }}" title="完整哈希 {{ node_hash(node.id) }}（点击跳转）"><code>{{ node_short(node.id) }}</code></a><button type="button" class="copy-hash" title="复制哈希值" onclick="copyHash('{{ node_hash(node.id) }}')">复制</button></span>
   {% endif %}
 </div>
 

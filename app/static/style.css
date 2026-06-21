@@ -34,6 +34,10 @@ main{max-width:1100px;margin:0 auto;padding:20px 24px}
 .page-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
 .stable-link{margin-left:auto;font-size:12px}
 .muted{color:var(--muted)}
+.copy-hash{display:inline-block;border:1px solid var(--border);background:var(--surface);
+  color:var(--muted);border-radius:3px;cursor:pointer;font-size:11px;line-height:1;
+  padding:1px 6px;font-family:inherit;vertical-align:baseline}
+.copy-hash:hover{color:var(--blue);border-color:var(--blue)}
 
 .badge{display:inline-block;background:var(--code-bg);color:var(--muted);border-radius:999px;
   padding:1px 10px;font-size:12px;white-space:nowrap}
