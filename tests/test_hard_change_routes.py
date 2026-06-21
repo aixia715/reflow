@@ -77,6 +77,18 @@ def _img_id_from_edit_form(client, bid, hid):
     return m.group(1)
 
 
+def test_create_hard_change_stores_utc(client):
+    # 直接 POST canonical UTC（模拟前端已转换），断言存库即为该值
+    bid = _new_board(client)
+    client.post(f"/board/{bid}/hard-change",
+                data={"title": "飞线", "occurred_at": "2026-06-13T01:10:00+00:00",
+                      "description": "x"})
+    from app.main import get_conn
+    from app import models
+    hcs = models.list_hard_changes(get_conn(), int(bid))
+    assert hcs[-1]["occurred_at"] == "2026-06-13T01:10:00+00:00"
+
+
 def test_edit_ignores_foreign_image_ids(client):
     bid = _new_board(client)
     # 建两条带图的硬更改 A、B

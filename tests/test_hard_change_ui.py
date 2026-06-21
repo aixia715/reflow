@@ -51,25 +51,27 @@ def test_record_hard_change_flow(live_server, page: Page):
 def test_new_form_time_is_browser_local(live_server, page: Page):
     bid = _make_board(live_server, uid="HC2")
 
-    # 服务器不再注入硬编码时间：原始 HTML 中 occurred_at 的 value 为空
+    # 服务器侧 HTML：可见输入为 occurred_at_local（无硬编码值），隐藏字段 occurred_at 由 Alpine 填充
     with httpx.Client(base_url=live_server) as c:
         html = c.get(f"/board/{bid}/hard-change/new").text
-    m = re.search(r'name="occurred_at"[^>]*\bvalue="([^"]*)"', html)
-    assert m is not None, "未找到 occurred_at 字段"
-    assert m.group(1) == "", f"服务器仍注入了时间：{m.group(1)!r}"
+    assert 'name="occurred_at_local"' in html, "未找到 occurred_at_local 可见输入"
+    assert 'name="occurred_at"' in html, "未找到 occurred_at 隐藏字段"
 
-    # 浏览器加载后由客户端填入本地当前时间（datetime-local 格式）
+    # 浏览器加载后，Alpine 把本地时间填入 occurred_at_local，把 UTC 填入隐藏的 occurred_at
     page.goto(f"{live_server}/board/{bid}/hard-change/new")
     page.wait_for_function(
-        "document.querySelector('input[name=occurred_at]').value !== ''")
-    val = page.input_value("input[name=occurred_at]")
-    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", val), val
+        "document.querySelector('input[name=occurred_at_local]').value !== ''")
+    local_val = page.input_value("input[name=occurred_at_local]")
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", local_val), local_val
     browser_now = page.evaluate(
         "() => { const d = new Date();"
         " return new Date(d.getTime() - d.getTimezoneOffset()*60000)"
         ".toISOString().slice(0,16); }")
     # 到「年月日时」一致即可证明取的是浏览器本地时间（容忍跨分钟；极端跨小时可忽略）
-    assert val[:13] == browser_now[:13], f"{val} vs {browser_now}"
+    assert local_val[:13] == browser_now[:13], f"{local_val} vs {browser_now}"
+    # 隐藏字段应已被 sync() 转成 canonical UTC 格式
+    utc_val = page.evaluate("document.querySelector('input[name=occurred_at]').value")
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\+00:00$", utc_val), utc_val
 
 
 def test_detail_image_lightbox(live_server, page: Page):
