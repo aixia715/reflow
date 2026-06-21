@@ -23,8 +23,10 @@ BASE_BRANCH="master"
 DRY_RUN="${DRY_RUN:-false}"
 PENDING_LIMIT=3   # 待人工处理的 issue 达到此数即本次不再继续，避免问题积压
 
-# 早失败：确认 opencode CLI 可用
+# 早失败：确认 opencode CLI 与必需环境变量就绪
 opencode --version >/dev/null 2>&1 || { echo "未找到 opencode CLI" >&2; exit 1; }
+[ -n "${OPENCODE_MODEL:-}" ]   || { echo "OPENCODE_MODEL 未设置" >&2; exit 1; }
+[ -n "${OPENCODE_API_KEY:-}" ] || { echo "OPENCODE_API_KEY 未设置" >&2; exit 1; }
 
 # 用 stdin 作为 prompt 调用模型，stdout 即模型输出
 run_opencode() { opencode run --model "$OPENCODE_MODEL" "$(cat)"; }
@@ -50,8 +52,11 @@ echo "候选数量：$count"
 
 echo "==> 阶段A：评估 + 排序 + 取前 3"
 raw="$( { cat "$PROMPT_DIR/stage-a.md"; echo "$candidates"; } | run_opencode )"
-# 容错：剥掉可能的 ``` 围栏，提取首个 JSON 数组
-plan="$(printf '%s' "$raw" | sed -e 's/^```json//' -e 's/^```//' | jq -c '.' 2>/dev/null || true)"
+# 容错：从模型输出中抓出首个 JSON 数组（容忍前导文字 / ``` 围栏 / 缩进）
+plan="$(printf '%s' "$raw" | python3 -c \
+  "import re,sys,json; m=re.search(r'\[.*\]', sys.stdin.read(), re.S); \
+print(json.dumps(json.loads(m.group(0)), ensure_ascii=False) if m else '', end='')" \
+  2>/dev/null || true)"
 if ! jq -e 'type=="array"' <<<"$plan" >/dev/null 2>&1; then
   echo "阶段A 未返回合法 JSON，今日跳过。原始输出：" >&2
   printf '%s\n' "$raw" >&2
@@ -87,13 +92,14 @@ while IFS= read -r item; do
   issue_json="$(gh issue view "$number" --json title,body)"
   title="$(jq -r '.title' <<<"$issue_json")"
 
-  # 干净起点
-  git checkout "$BASE_BRANCH" >/dev/null 2>&1 || true
-  git reset --hard >/dev/null 2>&1 || true
-  git clean -fd >/dev/null 2>&1 || true
+  # 干净起点：强制切回基线分支并清掉任何残留（含上一轮模型可能留下的改动）
+  git checkout -f "$BASE_BRANCH" >/dev/null 2>&1 \
+    || { echo "  无法切回 $BASE_BRANCH，跳过 #$number"; continue; }
+  git reset --hard >/dev/null
+  git clean -fd >/dev/null
 
   echo "  阶段B：实现修复"
-  if ! { cat "$PROMPT_DIR/stage-b.md"; echo "#$number $title"; echo; jq -r '.body' <<<"$issue_json"; } | run_opencode; then
+  if ! { cat "$PROMPT_DIR/stage-b.md"; echo "#$number $title"; echo; jq -r '.body // ""' <<<"$issue_json"; } | run_opencode; then
     echo "  阶段B 运行失败，跳过 #$number"; continue
   fi
 
@@ -124,7 +130,7 @@ resolve #${number}
 
 由每日定时 opencode triage 生成，已在本地通过 pytest，请人工审阅后合并。"
   gh issue edit "$number" --add-label "$LABEL_FIXED"
-  git checkout "$BASE_BRANCH" >/dev/null 2>&1 || true
+  git checkout "$BASE_BRANCH" >/dev/null
   echo "  已开 PR 并打标签「$LABEL_FIXED」"
 done < <(jq -c '.[]' <<<"$plan")
 
