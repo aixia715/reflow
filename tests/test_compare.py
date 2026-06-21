@@ -1,4 +1,34 @@
-from app.compare import diff_boms
+from app.compare import diff_boms, hard_changes_between
+
+
+def _hc(i, ts):
+    return {"id": i, "occurred_at": ts, "title": f"hc{i}"}
+
+
+def test_between_inclusive_and_sorted():
+    hcs = [
+        _hc(1, "2026-06-10T00:00:00+00:00"),  # 早于区间
+        _hc(2, "2026-06-12T06:30:00+00:00"),  # 区间内
+        _hc(3, "2026-06-13T01:10:00+00:00"),  # 恰为右端点
+        _hc(4, "2026-06-20T00:00:00+00:00"),  # 晚于区间
+    ]
+    lo = "2026-06-11T00:00:00+00:00"
+    hi = "2026-06-13T01:10:00+00:00"
+    got = hard_changes_between(hcs, lo, hi)
+    assert [h["id"] for h in got] == [2, 3]
+
+
+def test_between_symmetric_lo_hi_order():
+    hcs = [_hc(2, "2026-06-12T06:30:00+00:00")]
+    a = "2026-06-11T00:00:00+00:00"
+    b = "2026-06-13T00:00:00+00:00"
+    assert hard_changes_between(hcs, a, b) == hard_changes_between(hcs, b, a)
+
+
+def test_between_empty_when_none_in_range():
+    hcs = [_hc(1, "2026-06-01T00:00:00+00:00")]
+    assert hard_changes_between(hcs, "2026-06-10T00:00:00+00:00",
+                                "2026-06-12T00:00:00+00:00") == []
 
 
 def test_diff_add_modify_remove_same_sorted():
