@@ -212,11 +212,13 @@ def _node_ts(node) -> str:
 
 
 @router.get("/board/{board_id}/compare")
-def compare_nodes(request: Request, board_id: int, left: int, right: int):
+def compare_nodes(request: Request, board_id: int, left: int | None = None, right: int | None = None):
     conn = get_conn()
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
+    if left is None or right is None:
+        raise HTTPException(status_code=404, detail="缺少对比节点参数")
     if left == right:
         return RedirectResponse(
             f"/board/{board_id}?flash=不能和自己比", status_code=303)

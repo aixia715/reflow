@@ -580,3 +580,12 @@ def test_compare_missing_node_404(client):
     nid = _node_ids(client, board_id)[0]
     r = client.get(f"/board/{board_id}/compare?left={nid}&right=999999")
     assert r.status_code == 404
+    assert "节点不存在" in r.text
+
+
+def test_compare_missing_param_404(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    nid = _node_ids(client, board_id)[0]
+    r = client.get(f"/board/{board_id}/compare?left={nid}")   # 缺 right
+    assert r.status_code == 404
