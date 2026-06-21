@@ -28,6 +28,12 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+      # 让 opencode 改完代码能本地跑 pytest（含 Playwright UI 测试）自验
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # 对齐 scheduled / _checks.yml / 生产镜像
+      - run: pip install -e ".[dev]"
+      - run: playwright install --with-deps chromium   # UI 测试需浏览器
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -51,6 +57,12 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+      # 让 opencode 改完代码能本地跑 pytest（含 Playwright UI 测试）自验
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # 对齐 scheduled / _checks.yml / 生产镜像
+      - run: pip install -e ".[dev]"
+      - run: playwright install --with-deps chromium   # UI 测试需浏览器
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
