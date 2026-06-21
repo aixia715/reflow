@@ -535,3 +535,48 @@ def test_delete_board_group_clears_home(client):
     client.delete("/board-group?board_name=B")
     home = client.get("/").text
     assert "bomA" not in home
+
+
+def _commit_edit(client, board_id, ref, op, part, msg):
+    """在工作区改一处并提交，返回新提交节点所在 board 的最新状态。"""
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": ref, "op": op, "part": part})
+    client.post(f"/board/{board_id}/commit", data={"message": msg},
+                follow_redirects=False)
+
+
+def _node_ids(client, board_id):
+    """从状态图页解析出节点 id（按页面出现顺序）。"""
+    import re
+    r = client.get(f"/board/{board_id}")
+    return [int(x) for x in re.findall(rf"/board/{board_id}/node/(\d+)", r.text)]
+
+
+def test_compare_page_renders_diff(client):
+    loc = _setup_board(client)               # 初始 BOM: R1=10k
+    board_id = loc.rsplit("/", 1)[-1]
+    _commit_edit(client, board_id, "C9", "add", "100nF", "加 C9")
+    ids = sorted(set(_node_ids(client, board_id)))
+    left, right = ids[0], ids[-1]
+    r = client.get(f"/board/{board_id}/compare?left={left}&right={right}")
+    assert r.status_code == 200
+    assert "C9" in r.text
+    assert "对比" in r.text
+
+
+def test_compare_same_node_redirects(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    nid = _node_ids(client, board_id)[0]
+    r = client.get(f"/board/{board_id}/compare?left={nid}&right={nid}",
+                   follow_redirects=False)
+    assert r.status_code == 303
+    assert "compare" not in r.headers["location"]
+
+
+def test_compare_missing_node_404(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    nid = _node_ids(client, board_id)[0]
+    r = client.get(f"/board/{board_id}/compare?left={nid}&right=999999")
+    assert r.status_code == 404
