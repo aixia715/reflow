@@ -107,6 +107,15 @@ while IFS= read -r item; do
     echo "  模型未产生改动，跳过 #$number"; continue
   fi
 
+  # GitHub 禁止 App 令牌（CI 的 GITHUB_TOKEN）创建/修改 .github/workflows/ 下的文件，
+  # 这类改动 push 必然被拒。提前识别并跳过+留言，交人工处理，避免拖垮整轮。
+  if git status --porcelain | grep -q '\.github/workflows/'; then
+    git reset --hard >/dev/null 2>&1 || true
+    git clean -fd >/dev/null 2>&1 || true
+    gh issue comment "$number" --body "本次自动修复改动涉及工作流文件（\`.github/workflows/\`），而 CI 的 GITHUB_TOKEN 无权推送此类改动，已跳过自动处理，需要人工修改。"
+    echo "  改动涉及 .github/workflows/，无法用 GITHUB_TOKEN 推送，跳过 #$number"; continue
+  fi
+
   echo "  跑 pytest 门禁"
   if ! pytest -q; then
     git reset --hard >/dev/null 2>&1 || true
@@ -121,14 +130,24 @@ while IFS= read -r item; do
   git commit -m "fix: 自动修复 issue #${number}（${title}）
 
 resolve #${number}"
-  git push -u origin "$branch"
-  gh pr create --head "$branch" --base "$BASE_BRANCH" \
+  # push / 开 PR 失败都不让整轮崩：留言说明并继续处理下一个 issue
+  if ! git push -u origin "$branch"; then
+    gh issue comment "$number" --body "自动修复已在本地生成并通过测试，但推送失败（可能是权限或冲突），已跳过自动处理，需要人工介入。"
+    git checkout "$BASE_BRANCH" >/dev/null 2>&1 || true
+    git branch -D "$branch" >/dev/null 2>&1 || true
+    echo "  推送失败，已留言并跳过 #$number"; continue
+  fi
+  if ! gh pr create --head "$branch" --base "$BASE_BRANCH" \
     --title "自动修复 #${number}：${title}" \
     --body "自动修复 issue #${number}。
 
 resolve #${number}
 
-由每日定时 opencode triage 生成，已在本地通过 pytest，请人工审阅后合并。"
+由每日定时 opencode triage 生成，已在本地通过 pytest，请人工审阅后合并。"; then
+    gh issue comment "$number" --body "自动修复已推送到分支 \`$branch\`，但开 PR 失败，需要人工手动开 PR。"
+    git checkout "$BASE_BRANCH" >/dev/null 2>&1 || true
+    echo "  开 PR 失败，已留言并跳过 #$number"; continue
+  fi
   gh issue edit "$number" --add-label "$LABEL_FIXED"
   git checkout "$BASE_BRANCH" >/dev/null
   echo "  已开 PR 并打标签「$LABEL_FIXED」"
