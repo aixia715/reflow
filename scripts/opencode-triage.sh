@@ -22,35 +22,14 @@ LABEL_WAITING="等待回复"
 BASE_BRANCH="master"
 DRY_RUN="${DRY_RUN:-false}"
 PENDING_LIMIT=3   # 待人工处理的 issue 达到此数即本次不再继续，避免问题积压
-OPENCODE_TIMEOUT="${OPENCODE_TIMEOUT:-900}"   # 单次 opencode 调用上限（秒），超时即判失败
-OPENCODE_ATTEMPTS="${OPENCODE_ATTEMPTS:-3}"   # 含首次在内的尝试次数（超时/失败则重发）
 
 # 早失败：确认 opencode CLI 与必需环境变量就绪
 opencode --version >/dev/null 2>&1 || { echo "未找到 opencode CLI" >&2; exit 1; }
 [ -n "${OPENCODE_MODEL:-}" ]   || { echo "OPENCODE_MODEL 未设置" >&2; exit 1; }
 [ -n "${OPENCODE_API_KEY:-}" ] || { echo "OPENCODE_API_KEY 未设置" >&2; exit 1; }
 
-# 单次调用：带硬超时（超时返回 124，宽限 30s 后 SIGKILL，避免卡死）
-opencode_once() {
-  timeout -k 30 "$OPENCODE_TIMEOUT" opencode run --model "$OPENCODE_MODEL" "$1"
-}
-
-# 带超时重试的调用（仅适合只读/可重复场景，如阶段A）：失败或超时就重发，
-# 用临时文件隔离每次输出，只把「成功那次」的 stdout 吐出来，避免半截输出混入。
-run_opencode() {
-  local prompt out attempt rc
-  prompt="$(cat)"
-  out="$(mktemp)"
-  for attempt in $(seq 1 "$OPENCODE_ATTEMPTS"); do
-    if opencode_once "$prompt" >"$out" 2>/dev/null; then
-      cat "$out"; rm -f "$out"; return 0
-    else
-      rc=$?
-      echo "  opencode 第 $attempt/$OPENCODE_ATTEMPTS 次未成功（退出码 $rc，124=超时），重试…" >&2
-    fi
-  done
-  rm -f "$out"; return 1
-}
+# 用 stdin 作为 prompt 调用模型，stdout 即模型输出
+run_opencode() { opencode run --model "$OPENCODE_MODEL" "$(cat)"; }
 
 select_issues() {
   LABEL_FIXED="$LABEL_FIXED" LABEL_WAITING="$LABEL_WAITING" \
@@ -112,24 +91,17 @@ while IFS= read -r item; do
 
   issue_json="$(gh issue view "$number" --json title,body)"
   title="$(jq -r '.title' <<<"$issue_json")"
-  prompt_b="$( { cat "$PROMPT_DIR/stage-b.md"; echo "#$number $title"; echo; jq -r '.body // ""' <<<"$issue_json"; } )"
 
-  # 阶段B 是写操作：每次尝试前都强制切回基线分支并清干净，
-  # 这样某次超时/失败留下的半截改动不会被下一次重发继承。
-  ok=false
-  for attempt in $(seq 1 "$OPENCODE_ATTEMPTS"); do
-    git checkout -f "$BASE_BRANCH" >/dev/null 2>&1 \
-      || { echo "  无法切回 $BASE_BRANCH，跳过 #$number"; break; }
-    git reset --hard >/dev/null
-    git clean -fd >/dev/null
-    echo "  阶段B：实现修复（第 $attempt/$OPENCODE_ATTEMPTS 次）"
-    if opencode_once "$prompt_b"; then
-      ok=true; break
-    else
-      echo "  阶段B 第 $attempt 次未成功（退出码 $?，124=超时），重试…" >&2
-    fi
-  done
-  if [ "$ok" != true ]; then echo "  阶段B 多次未成功，跳过 #$number"; continue; fi
+  # 干净起点：强制切回基线分支并清掉任何残留（含上一轮模型可能留下的改动）
+  git checkout -f "$BASE_BRANCH" >/dev/null 2>&1 \
+    || { echo "  无法切回 $BASE_BRANCH，跳过 #$number"; continue; }
+  git reset --hard >/dev/null
+  git clean -fd >/dev/null
+
+  echo "  阶段B：实现修复"
+  if ! { cat "$PROMPT_DIR/stage-b.md"; echo "#$number $title"; echo; jq -r '.body // ""' <<<"$issue_json"; } | run_opencode; then
+    echo "  阶段B 运行失败，跳过 #$number"; continue
+  fi
 
   if [ -z "$(git status --porcelain)" ]; then
     echo "  模型未产生改动，跳过 #$number"; continue

@@ -46,4 +46,3 @@
 - 自动修复 PR 由 `GITHUB_TOKEN` 创建，**不会触发** `ci.yml`（GitHub 防工作流嵌套）——与现状「bot 开的 PR 本就跳过评审」一致；阶段B 已在开 PR 前本地跑过 `pytest`。
   若希望自动修复 PR 也跑测试+评审，可改用 PAT（如 `secrets.GH_PAT`）创建 PR。
 - 阶段A 要求模型输出严格 JSON；解析失败则当天跳过（不做任何写操作）。
-- **opencode 调用超时/重试**：每次 `opencode run` 用 `timeout` 限时（默认 `OPENCODE_TIMEOUT=900` 秒），超时或失败会重发，共尝试 `OPENCODE_ATTEMPTS`（默认 3）次。阶段B 是写操作，每次重试前都会 `git checkout -f` + `reset` + `clean` 回到干净基线，避免半截改动被继承。两个值可在工作流里用同名环境变量覆盖。
