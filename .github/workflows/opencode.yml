@@ -31,6 +31,8 @@ jobs:
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # 放行访问仓库目录外的路径，避免 CI 里 opencode 卡在 external_directory 权限确认
+          OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
         with:
           model: ${{ vars.OPENCODE_MODEL }}
 
@@ -52,6 +54,8 @@ jobs:
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # 放行访问仓库目录外的路径，避免 CI 里 opencode 卡在 external_directory 权限确认
+          OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
         with:
           model: ${{ vars.OPENCODE_MODEL }}
           prompt: "阅读本 issue 的标题与正文，按其中描述的需求或缺陷进行处理：在新分支实现/修复并提交，开一个 PR。遵循仓库 CLAUDE.md 的约定，用中文回复与说明。"
