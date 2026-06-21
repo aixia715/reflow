@@ -165,6 +165,13 @@ details.panel summary{cursor:pointer;font-weight:600}
 .modal-foot{padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:10px;
   justify-content:flex-end}
 
+/* 对比入口 */
+.cmp-check{display:inline-flex;align-items:center;margin-right:.4rem}
+a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持块级排版 */
+.compare-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:.75rem;
+  padding:.6rem .9rem;margin-top:1rem;border-radius:var(--radius);
+  background:var(--surface);border:1px solid var(--border)}
+
 /* Alpine 初始化前隐藏带 x-cloak 的元素，避免闪现 */
 [x-cloak]{display:none !important}
 
