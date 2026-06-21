@@ -3,6 +3,7 @@
   "permission": {
     "edit": "allow",
     "bash": "allow",
-    "webfetch": "allow"
+    "webfetch": "allow",
+    "external_directory": "allow"
   }
 }

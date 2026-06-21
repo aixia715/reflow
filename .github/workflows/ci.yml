@@ -25,6 +25,8 @@ jobs:
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # 放行访问仓库目录外的路径，避免 CI 里 opencode 卡在 external_directory 权限确认
+          OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
         with:
           model: ${{ vars.OPENCODE_MODEL }}
           prompt: "审阅这个 PR 的改动：聚焦正确性、潜在 bug、与本仓库约定（见 CLAUDE.md）的一致性。用中文把结论作为评论发表。"
