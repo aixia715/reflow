@@ -1,0 +1,56 @@
+name: opencode-scheduled
+
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 北京时间 02:00（UTC+8）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只跑到阶段A 并打印计划，不执行任何写操作"
+        type: boolean
+        default: false
+
+# 避免与上一次未结束的运行重叠
+concurrency:
+  group: opencode-scheduled
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      OPENCODE_MODEL: ${{ vars.OPENCODE_MODEL }}
+      # CI 专用权限配置（放开非交互工具），不影响仓库根目录给本地使用的配置
+      OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0          # 需要完整历史以建分支/开 PR
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # 对齐生产镜像与 _checks.yml
+      - run: pip install -e ".[dev]"
+      - run: playwright install --with-deps chromium   # 修复后跑 pytest 需浏览器
+
+      - name: 安装 opencode CLI
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: 确保标签存在
+        run: |
+          gh label create "等待回复" --color FBCA04 \
+            --description "opencode 已就该 issue 提问，等待人类答复" 2>/dev/null || true
+          gh label create "已自动修复" --color 0E8A16 \
+            --description "opencode 已为该 issue 开出修复 PR" 2>/dev/null || true
+
+      - name: 运行每日 triage
+        run: bash scripts/opencode-triage.sh
