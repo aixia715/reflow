@@ -13,7 +13,7 @@ jobs:
   # 1) 评论触发：/opencode 或 /oc —— 不设 prompt（否则覆盖评论指令）
   comment:
     if: |
-      github.actor != 'opencode-agent[bot]' &&
+      github.actor != 'opencode-agent[bot]' && github.actor != 'opencode-agent' &&
       (
         (github.event_name == 'issue_comment' &&
           (contains(github.event.comment.body, '/opencode') || contains(github.event.comment.body, '/oc'))) ||
@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      issues: write   # 回复后给 issue 打「等待回复」标签
     steps:
       - uses: actions/checkout@v6
         with:
@@ -41,17 +42,29 @@ jobs:
           OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
         with:
           model: ${{ vars.OPENCODE_MODEL }}
+      # opencode 回复后打「等待回复」标签，便于人工整理时一目了然。
+      # 仅对 issue 生效：PR 评论（含 issue_comment 触发在 PR 上、pull_request_review_comment）跳过。
+      - name: 标记「等待回复」
+        if: ${{ github.event_name == 'issue_comment' && !github.event.issue.pull_request }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "等待回复" --color FBCA04 \
+            --description "opencode 已就该 issue 提问，等待人类答复" 2>/dev/null || true
+          gh issue edit "${{ github.event.issue.number }}" --add-label "等待回复"
 
   # 2) Issue 触发：门控关键词（复刻 @claude 语义）；issues 必须带 prompt
   issue:
     if: |
-      github.actor != 'opencode-agent[bot]' &&
+      github.actor != 'opencode-agent[bot]' && github.actor != 'opencode-agent' &&
       github.event_name == 'issues' &&
       (contains(github.event.issue.body, '/opencode') || contains(github.event.issue.body, '/oc') ||
        contains(github.event.issue.title, '/opencode') || contains(github.event.issue.title, '/oc'))
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      issues: write          # 据结果给 issue 打标签
+      pull-requests: read    # 对比前后开放 PR，判断 opencode 是否新开了 PR
     steps:
       - uses: actions/checkout@v6
         with:
@@ -63,6 +76,12 @@ jobs:
           python-version: "3.12"  # 对齐 scheduled / _checks.yml / 生产镜像
       - run: pip install -e ".[dev]"
       - run: playwright install --with-deps chromium   # UI 测试需浏览器
+      # 记录处理前的开放 PR 集合，用于事后判断 opencode 是否新开了 PR
+      - name: 记录处理前的开放 PR
+        id: prs_before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "list=$(gh pr list --state open --json number --jq 'map(.number)|join(" ")')" >> "$GITHUB_OUTPUT"
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -71,5 +90,28 @@ jobs:
         with:
           model: ${{ vars.OPENCODE_MODEL }}
           prompt: "阅读本 issue 的标题与正文，按其中描述的需求或缺陷进行处理：在新分支实现/修复并提交，开一个 PR。遵循仓库 CLAUDE.md 的约定，用中文回复与说明。"
+      # 据处理结果打标签，便于人工整理时一目了然：
+      #   · opencode 新开了 PR → 「已自动修复」（PR 待审，与定时 triage 的 simple 路径语义一致）
+      #   · 否则（仅回复未开 PR / 处理失败）→ 「等待回复」（球在人类一侧）
+      # 单人仓库串行处理，用前后开放 PR 差集判断"是否新增 PR"足够稳健。
+      - name: 据处理结果打标签
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          before=" ${{ steps.prs_before.outputs.list }} "
+          opened_pr=false
+          for n in $(gh pr list --state open --json number --jq 'map(.number)|join(" ")'); do
+            case "$before" in *" $n "*) ;; *) opened_pr=true ;; esac
+          done
+          if [ "$opened_pr" = true ]; then
+            gh label create "已自动修复" --color 0E8A16 \
+              --description "opencode 已为该 issue 开出修复 PR" 2>/dev/null || true
+            gh issue edit "${{ github.event.issue.number }}" --add-label "已自动修复"
+          else
+            gh label create "等待回复" --color FBCA04 \
+              --description "opencode 已就该 issue 提问，等待人类答复" 2>/dev/null || true
+            gh issue edit "${{ github.event.issue.number }}" --add-label "等待回复"
+          fi
 
   # PR 自动评审已迁至 ci.yml 的 review job，门控在 tests + docker-smoke 通过之后

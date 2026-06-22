@@ -32,7 +32,7 @@ opencode --version >/dev/null 2>&1 || { echo "未找到 opencode CLI" >&2; exit 
 run_opencode() { opencode run --model "$OPENCODE_MODEL" "$(cat)"; }
 
 select_issues() {
-  LABEL_FIXED="$LABEL_FIXED" LABEL_WAITING="$LABEL_WAITING" \
+  LABEL_FIXED="$LABEL_FIXED" \
     bash "$SCRIPT_DIR/select-triage-issues.sh" "$@"
 }
 

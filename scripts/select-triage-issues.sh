@@ -7,24 +7,24 @@
 #
 # 分类规则（gh issue list 只列 open issue，故出现的都仍处于打开状态）：
 #   · 带「已自动修复」标签 —— 已开过修复 PR、仍等人类审阅/合并，算作「未处理（pending）」；不作候选。
-#   · 带「等待回复」标签且最后一条评论作者是机器人 —— 我们已提过问、正在等人类答复，
-#     算作「未处理（pending）」；不作候选、不占当天名额。人类回复后（末评论变人类）会重新纳入候选。
+#   · 最后一条评论作者是机器人 —— 我们（定时/按需任一流程）已回复、正在等人类答复，
+#     算作「未处理（pending）」；不作候选、不占当天名额。不依赖「等待回复」标签：/oc 等
+#     按需流程回复后即便没打标签也能被正确跳过。人类回复后（末评论变人类）会重新纳入候选。
 #   · 其余 —— 候选。
 #
 # 候选输出（stdout）：JSON 数组 [{"number":N,"title":"...","body":"..."}]，按创建时间升序。
 # 依赖：gh（已登录，env GH_TOKEN）、jq。
-# 可选环境变量：LABEL_FIXED / LABEL_WAITING 覆盖标签名。
+# 可选环境变量：LABEL_FIXED 覆盖标签名。
 set -euo pipefail
 
 MODE="${1:-candidates}"          # candidates | count-pending
 LABEL_FIXED="${LABEL_FIXED:-已自动修复}"
-LABEL_WAITING="${LABEL_WAITING:-等待回复}"
 
 # 判断某个评论作者是否为「机器人」——其评论代表「我们已回复、在等人类」。
 is_bot() {
   local login="$1"
   case "$login" in
-    opencode-agent'[bot]'|github-actions'[bot]'|github-actions) return 0 ;;
+    opencode-agent|opencode-agent'[bot]'|github-actions'[bot]'|github-actions) return 0 ;;
   esac
   # 任意以 [bot] 结尾的 GitHub App 账号
   [ "${login%\[bot\]}" != "$login" ] && return 0
@@ -48,14 +48,13 @@ while IFS= read -r row; do
     continue
   fi
 
-  # 等待回复 + 末评论为机器人 → 未处理（pending），不作候选
-  if grep -qxF "$LABEL_WAITING" <<<"$labels"; then
-    last_author="$(gh issue view "$number" --json comments \
-      -q '.comments[-1].author.login // ""')"
-    if [ -n "$last_author" ] && is_bot "$last_author"; then
-      pending=$((pending + 1))
-      continue
-    fi
+  # 末条评论作者是机器人 → 我们已回复、在等人类 → 未处理（pending），不作候选。
+  # 不依赖「等待回复」标签：/oc 等按需流程回复后即便没打标签也能被正确跳过。
+  last_author="$(gh issue view "$number" --json comments \
+    -q '.comments[-1].author.login // ""')"
+  if [ -n "$last_author" ] && is_bot "$last_author"; then
+    pending=$((pending + 1))
+    continue
   fi
 
   candidates="$(jq -c --argjson c "$candidates" \

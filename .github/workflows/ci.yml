@@ -13,7 +13,8 @@ jobs:
     # 跳过 synchronize（每次 push）避免重复评审；同时排除 bot 触发者——
     # opencode 只为「对仓库有写权限的请求者」评审，而 bot 自己开的 PR 作者权限为 none，
     # 评审会在权限闸门处必然失败（见 PR #43），故 bot 开的 PR 直接跳过评审
-    if: github.actor != 'opencode-agent[bot]' && github.event.action != 'synchronize'
+    # 注意：真实机器人账号是裸 opencode-agent（CONTRIBUTOR，非 [bot] App），两种都要排除
+    if: github.actor != 'opencode-agent[bot]' && github.actor != 'opencode-agent' && github.event.action != 'synchronize'
     runs-on: ubuntu-latest
     permissions:
       id-token: write

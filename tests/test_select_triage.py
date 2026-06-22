@@ -1,8 +1,8 @@
 """预筛脚本 scripts/select-triage-issues.sh 的回归测试。
 
 用一个假的 `gh`（放到 PATH 最前）喂入固定数据，验证两类输出：
-  · 默认模式：候选 issue 的 JSON 数组（剔除「已自动修复」与「等待回复+末评论为机器人」，按创建时间升序）
-  · count-pending：未处理条数（已自动修复仍打开 + 等待回复且末评论为机器人）
+  · 默认模式：候选 issue 的 JSON 数组（剔除「已自动修复」与「末评论为机器人」，按创建时间升序）
+  · count-pending：未处理条数（已自动修复仍打开 + 末评论为机器人；均不依赖「等待回复」标签）
 """
 import json
 import os
@@ -51,30 +51,39 @@ def _run(tmp_path, issues, last_authors, mode=None):
 
 # 一份覆盖各分类的数据集
 ISSUES = [
-    _issue(1, "2026-06-10T00:00:00Z"),                              # 普通 → 候选
+    _issue(1, "2026-06-10T00:00:00Z"),                              # 普通（无末评论）→ 候选
     _issue(2, "2026-06-11T00:00:00Z", labels=["已自动修复"]),        # PR 待审 → pending
     _issue(3, "2026-06-09T00:00:00Z", labels=["等待回复"]),          # 末评论机器人 → pending
     _issue(4, "2026-06-12T00:00:00Z", labels=["等待回复"]),          # 末评论人类 → 候选
-    _issue(5, "2026-06-08T00:00:00Z", labels=["等待回复"]),          # 末评论机器人 → pending
+    _issue(5, "2026-06-08T00:00:00Z"),                              # 无标签 + 末评论机器人（#17 场景）→ pending
 ]
 LAST_AUTHORS = {
     "3": "github-actions[bot]",
     "4": "aixia715",
-    "5": "opencode-agent[bot]",
+    # 裸账号 opencode-agent（非 [bot] App）：锁定 is_bot 修复，且无「等待回复」标签也应判 pending
+    "5": "opencode-agent",
 }
 
 
-def test_candidates_excludes_fixed_and_bot_waiting(tmp_path):
+def test_candidates_excludes_fixed_and_bot_last(tmp_path):
     out = _run(tmp_path, ISSUES, LAST_AUTHORS)
     nums = [c["number"] for c in json.loads(out)]
     # 仅普通(#1) 与 人类已回复(#4)；按创建时间升序 1 在前 4 在后
     assert nums == [1, 4]
 
 
-def test_count_pending_includes_open_fixed_and_bot_waiting(tmp_path):
+def test_count_pending_includes_open_fixed_and_bot_last(tmp_path):
     out = _run(tmp_path, ISSUES, LAST_AUTHORS, mode="count-pending")
-    # #2(已自动修复待审) + #3 + #5（等待回复且末评论机器人）
+    # #2(已自动修复待审) + #3(末评论机器人) + #5(无标签但末评论裸账号机器人)
     assert out == "3"
+
+
+def test_bot_last_comment_skipped_without_waiting_label(tmp_path):
+    """#17 场景回归：无任何标签，但末评论是机器人 → 不作候选、计入 pending。"""
+    issues = [_issue(17, "2026-06-15T00:00:00Z")]
+    authors = {"17": "opencode-agent"}
+    assert _run(tmp_path, issues, authors) == "[]"
+    assert _run(tmp_path, issues, authors, mode="count-pending") == "1"
 
 
 def test_empty_returns_empty_array_and_zero(tmp_path):
