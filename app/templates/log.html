@@ -28,10 +28,13 @@
     <td class="muted"><time class="local-dt" datetime="{{ r.created_at }}">{{ r.created_at }}</time></td>
     <td><a href="/board/{{ board_id }}/node/{{ r.node_id }}">
       {% if not r.node_committed %}工作区草稿{% else %}#{{ r.node_id }} {{ r.node_message or '(无说明)' }}{% endif %}</a></td>
-    <td><code>{{ r.reference }}</code></td>
+    <td>{% if r.op != 'delete_node' %}<code>{{ r.reference }}</code>{% else %}—{% endif %}</td>
     <td>
-      {% if r.old_part %}<span class="strike">{{ r.old_part }}</span> → {% endif %}
-      {% if r.new_part %}<b>{{ r.new_part }}</b>{% else %}<b>不贴</b>{% endif %}
+      {% if r.op == 'delete_node' %}<b>🗑 删除节点</b>
+      {% else %}
+        {% if r.old_part %}<span class="strike">{{ r.old_part }}</span> → {% endif %}
+        {% if r.new_part %}<b>{{ r.new_part }}</b>{% else %}<b>不贴</b>{% endif %}
+      {% endif %}
     </td>
     <td>
       {% if r.source == 'direct' %}<span class="badge badge-blue">直接修改</span>

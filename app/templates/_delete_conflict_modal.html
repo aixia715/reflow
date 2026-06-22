@@ -1,0 +1,24 @@
+<div class="modal-overlay">
+  <div class="modal">
+    <div class="modal-head">删除节点 #{{ node_id }}：下游位号将改变，请确认</div>
+    <p class="muted">删除后下游会重接到上一个节点；以下位号原本继承自被删节点，请逐个选择保留原值还是采用新继承值。删除后不可恢复。</p>
+    <form hx-post="/board/{{ board_id }}/node/{{ node_id }}/delete-confirm" hx-swap="none">
+      {% for c in conflicts %}
+      <fieldset class="conflict">
+        <legend><code>{{ c.reference }}</code> 在下游节点 #{{ c.downstream_node_id }}：
+          {{ c.downstream_value or '不贴' }} → {{ c.corrected_value or '不贴' }}</legend>
+        <input type="hidden" name="reference" value="{{ c.reference }}">
+        <select class="input" name="choice">
+          <option value="take">采用新继承值（{{ c.corrected_value or '不贴' }}）</option>
+          <option value="keep">保留下游原值（{{ c.downstream_value or '不贴' }}）</option>
+        </select>
+      </fieldset>
+      {% endfor %}
+      <div class="modal-foot">
+        <button type="button" class="btn"
+                onclick="document.getElementById('modal').innerHTML=''">取消</button>
+        <button class="btn btn-primary">确认删除</button>
+      </div>
+    </form>
+  </div>
+</div>

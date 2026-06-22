@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse
 
@@ -164,6 +165,60 @@ def undo_change(request: Request, board_id: int, node_id: int,
     return templates.TemplateResponse(
         request, "_node_update.html", _node_context(conn, board_id, node),
         headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已撤销 {reference} 的修改"})})
+
+
+def _check_deletable(conn, board_id, node_id):
+    """删除前的公共校验：节点存在且属于该单板、非根、已提交。
+    返回 (node, error_response)；error_response 非 None 时直接返回它。"""
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    if node["parent_id"] is None:
+        return node, PlainTextResponse("根节点（初始状态）不可删除", status_code=400)
+    if not node["is_committed"]:
+        return node, PlainTextResponse(
+            "工作区草稿不可删除，用「撤销」清空修改即可", status_code=400)
+    return node, None
+
+
+def _deleted_redirect(board_id, node_id):
+    """删除成功后让 HTMX 整页跳转到状态图并提示。
+    HX-Redirect 是手动设的响应头（须 latin-1），故对非 ASCII 的 flash 做 URL 编码。"""
+    flash = quote(f"✓ 已删除节点 {node_id}", safe="")
+    resp = PlainTextResponse("")
+    resp.headers["HX-Redirect"] = f"/board/{board_id}?flash={flash}"
+    return resp
+
+
+@router.post("/board/{board_id}/node/{node_id}/delete")
+def delete_node(request: Request, board_id: int, node_id: int):
+    """删除已提交节点：无冲突直接删并跳转；有下游受影响位号则弹确认框（1-A）。"""
+    conn = get_conn()
+    node, err = _check_deletable(conn, board_id, node_id)
+    if err is not None:
+        return err
+    conflicts = propagation.detect_delete_conflicts(conn, node_id)
+    if conflicts:
+        return templates.TemplateResponse(
+            request, "_delete_conflict_modal.html",
+            {"board_id": board_id, "node_id": node_id, "node": node,
+             "conflicts": conflicts},
+            headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
+    propagation.delete_node(conn, node_id)
+    return _deleted_redirect(board_id, node_id)
+
+
+@router.post("/board/{board_id}/node/{node_id}/delete-confirm")
+def delete_node_confirm(board_id: int, node_id: int,
+                        reference: list[str] = Form(default=[]),
+                        choice: list[str] = Form(default=[])):
+    """确认删除：按每个受影响位号的 keep/take 选择执行删除（1-A）。"""
+    conn = get_conn()
+    _node, err = _check_deletable(conn, board_id, node_id)
+    if err is not None:
+        return err
+    propagation.delete_node(conn, node_id, dict(zip(reference, choice)))
+    return _deleted_redirect(board_id, node_id)
 
 
 @router.post("/board/{board_id}/node/{node_id}/resolve")

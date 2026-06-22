@@ -7,6 +7,12 @@
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}">状态图</a>
 <a href="/board/{{ board_id }}/log">审计日志</a>
+{% if node.is_committed and node.parent_id is not none %}
+<button type="button" class="btn-link danger" data-testid="delete-node"
+        hx-post="/board/{{ board_id }}/node/{{ node.id }}/delete"
+        hx-confirm="确定删除此节点？下游将重接到上一个节点，删除后不可恢复。"
+        hx-target="#modal" hx-swap="innerHTML">删除节点</button>
+{% endif %}
 {% endblock %}
 {% block content %}
 <div class="page-head">
