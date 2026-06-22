@@ -13,7 +13,7 @@
 {% block content %}
 <div class="page-head">
   <h1>🔧 {{ hc.title }}</h1>
-  <span class="muted stable-link">哈希 <a href="/hash/{{ hard_hash(hc.id) }}" title="完整哈希 {{ hard_hash(hc.id) }}（点击跳转）"><code>{{ hard_short(hc.id) }}</code></a><button type="button" class="copy-hash" title="复制哈希值" onclick="copyHash('{{ hard_hash(hc.id) }}')">复制</button></span>
+  <span class="muted stable-link">哈希 <a href="/hash/{{ hard_hash(hc.id) }}" title="完整哈希 {{ hard_hash(hc.id) }}（点击跳转）"><code>{{ hard_short(hc.id) }}</code></a><button type="button" class="copy-hash" title="复制哈希值" onclick="copyHash('{{ hard_short(hc.id) }}')">复制</button></span>
 </div>
 <div class="panel">
   <div class="muted">发生时间：<time class="local-dt" datetime="{{ hc.occurred_at }}">{{ hc.occurred_at }}</time></div>

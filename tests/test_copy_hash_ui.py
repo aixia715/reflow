@@ -22,7 +22,7 @@ def _make_board_with_committed_node(base: str, uid: str = "CP1") -> str:
 
 
 def test_copy_hash_button_copies_and_shows_toast(live_server, page: Page):
-    """点击复制按钮后应复制完整哈希到剪贴板并显示 toast。"""
+    """点击复制按钮后应复制短哈希到剪贴板并显示 toast。"""
     bid = _make_board_with_committed_node(live_server)
     page.context.grant_permissions(["clipboard-read", "clipboard-write"])
 
@@ -32,7 +32,7 @@ def test_copy_hash_button_copies_and_shows_toast(live_server, page: Page):
     expect(page.locator("#toast-zone .toast")).to_contain_text("复制")
 
     clipboard = page.evaluate("navigator.clipboard.readText()")
-    assert len(clipboard) == 40, f"剪贴板内容不是 40 位哈希: {clipboard}"
+    assert len(clipboard) == 8, f"剪贴板内容不是 8 位短哈希: {clipboard}"
     assert all(c in "0123456789abcdef" for c in clipboard)
 
 
@@ -57,7 +57,7 @@ def test_copy_hash_fallback_when_clipboard_api_unavailable(live_server, page: Pa
         "Object.defineProperty(navigator, 'clipboard', "
         "{get: () => window.__realClipboard, configurable: true})")
     clipboard = page.evaluate("navigator.clipboard.readText()")
-    assert len(clipboard) == 40, f"fallback 复制内容不是 40 位哈希: {clipboard}"
+    assert len(clipboard) == 8, f"fallback 复制内容不是 8 位短哈希: {clipboard}"
 
 
 def test_copy_hash_on_node_detail_page(live_server, page: Page):
@@ -75,4 +75,4 @@ def test_copy_hash_on_node_detail_page(live_server, page: Page):
     expect(page.locator("#toast-zone .toast")).to_contain_text("复制")
 
     clipboard = page.evaluate("navigator.clipboard.readText()")
-    assert len(clipboard) == 40
+    assert len(clipboard) == 8
