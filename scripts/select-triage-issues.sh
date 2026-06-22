@@ -20,6 +20,10 @@ set -euo pipefail
 MODE="${1:-candidates}"          # candidates | count-pending
 LABEL_FIXED="${LABEL_FIXED:-已自动修复}"
 
+# 逐条诊断日志走 stderr（stdout 是被调用方 $(...) 捕获的 JSON/数字，不能混入）。
+# 只在 candidates 这一遍打印：count-pending 遍同样遍历全部 issue，若两遍都打会重复刷屏。
+log_pick() { [ "$MODE" = "count-pending" ] || printf '%s\n' "$*" >&2; }
+
 # 判断某个评论作者是否为「机器人」——其评论代表「我们已回复、在等人类」。
 is_bot() {
   local login="$1"
@@ -45,6 +49,7 @@ while IFS= read -r row; do
   # 已自动修复但 issue 仍开着（PR 待审/合并）→ 未处理（pending），不作候选
   if grep -qxF "$LABEL_FIXED" <<<"$labels"; then
     pending=$((pending + 1))
+    log_pick "  预筛跳过 #$number（带「$LABEL_FIXED」标签，PR 待审/合并）"
     continue
   fi
 
@@ -54,9 +59,11 @@ while IFS= read -r row; do
     -q '.comments[-1].author.login // ""')"
   if [ -n "$last_author" ] && is_bot "$last_author"; then
     pending=$((pending + 1))
+    log_pick "  预筛跳过 #$number（末评论作者为机器人：$last_author，等待人类答复）"
     continue
   fi
 
+  log_pick "  预筛入选 #$number（纳入候选）"
   candidates="$(jq -c --argjson c "$candidates" \
     '$c + [{number, title, body}]' <<<"$row")"
 done < <(jq -c 'sort_by(.createdAt) | .[]' <<<"$issues_json")
