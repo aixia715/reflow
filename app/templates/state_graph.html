@@ -8,7 +8,10 @@
 <a href="/board/{{ board_id }}/log">审计日志</a>
 <a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/new">＋ 记录硬更改</a>
 <button type="button" class="btn btn-outline" data-testid="compare-toggle"
-        x-data @click="$dispatch('toggle-cmp')">对比节点…</button>
+        x-data="{ cmp: false }"
+        @toggle-cmp.window="cmp = !cmp"
+        @click="$dispatch('toggle-cmp')"
+        x-text="cmp ? '退出对比' : '对比节点…'"></button>
 {% endblock %}
 {% block content %}
 <div class="page-head"><h1>状态演进</h1></div>
@@ -21,13 +24,11 @@
 {% for it in timeline %}
 {% if it.kind == 'node' %}
 {% set n = it.obj %}{% set s = summaries[n.id] %}
-<div class="tl-item {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}">
+<div class="tl-item node {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}">
   <span class="dot"></span>
-  <label class="cmp-check" x-show="cmp" x-cloak>
-    <input type="checkbox" :checked="sel.includes({{ n.id }})"
-           @change="toggle({{ n.id }})" :disabled="!sel.includes({{ n.id }}) && sel.length >= 2">
-  </label>
-  <a class="tl-card" href="/board/{{ board_id }}/node/{{ n.id }}">
+  <a class="tl-card" href="/board/{{ board_id }}/node/{{ n.id }}"
+     :class="{ 'selected': sel.includes({{ n.id }}) }"
+     @click="if (cmp) { $event.preventDefault(); toggle({{ n.id }}); }">
     <b>{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}</b>
     {% if n.parent_id is none %}
     <span class="badge badge-purple">初始 BOM · {{ initial_count }} 位号</span>

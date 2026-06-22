@@ -133,6 +133,9 @@ details.panel summary{cursor:pointer;font-weight:600}
 /* 硬更改时间线卡片：黄色圆点 + 左缘强调，区分 BOM 节点 */
 .tl-item.hard .dot{background:var(--yellow-fg)}
 .tl-item.hard .tl-card{border-left:3px solid var(--yellow-badge-fg)}
+/* 对比模式：单击选中的节点卡片高亮 */
+.tl-card.selected{border-color:var(--blue);background:var(--blue-bg);
+  box-shadow:0 0 0 1px var(--blue)}
 /* 硬更改详情/表单 */
 .hc-desc{white-space:pre-wrap;margin:8px 0;font-size:14px}
 .form-actions{display:flex;gap:8px;margin-top:12px}
@@ -170,7 +173,6 @@ details.panel summary{cursor:pointer;font-weight:600}
   justify-content:flex-end}
 
 /* 对比入口 */
-.cmp-check{display:inline-flex;align-items:center;margin-right:.4rem}
 a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持块级排版 */
 .compare-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:.75rem;
   padding:.6rem .9rem;margin-top:1rem;border-radius:var(--radius);
