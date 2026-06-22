@@ -98,3 +98,55 @@ def test_state_graph_shows_short_hash(client):
     short = hashing.node_short(node_id)
     page = client.get(f"/board/{board_id}").text
     assert short in page
+
+
+# --- issue #53：哈希值旁的复制按钮（HTTP 兼容） ---
+
+
+def _make_hard_change(client, board_id):
+    client.post(f"/board/{board_id}/hard-change",
+                data={"title": "返修 U1", "occurred_at": "2026-06-17T10:00",
+                      "description": ""})
+    from app import models
+    from app.main import get_conn
+    return models.list_hard_changes(get_conn(), board_id)[0]["id"]
+
+
+def test_node_detail_has_copy_hash_button(client):
+    """节点详情页哈希值旁应有复制按钮，按钮携带完整哈希。"""
+    board_id = _setup_board(client)
+    node_id = _committed_node(client, board_id)
+    full = hashing.node_hash(node_id)
+    page = client.get(f"/board/{board_id}/node/{node_id}").text
+    assert "copy-hash" in page, "节点详情页缺少复制哈希按钮"
+    assert f"copyHash('{full}')" in page, "复制按钮未携带完整哈希"
+
+
+def test_state_graph_node_has_copy_hash_button(client):
+    """状态图节点哈希值旁应有复制按钮，按钮携带完整哈希。"""
+    board_id = _setup_board(client)
+    node_id = _committed_node(client, board_id)
+    full = hashing.node_hash(node_id)
+    page = client.get(f"/board/{board_id}").text
+    assert "copy-hash" in page, "状态图节点项缺少复制哈希按钮"
+    assert f"copyHash('{full}')" in page, "节点复制按钮未携带完整哈希"
+
+
+def test_state_graph_hard_change_has_copy_hash_button(client):
+    """状态图硬更改哈希值旁应有复制按钮，按钮携带完整哈希。"""
+    board_id = _setup_board(client)
+    hc_id = _make_hard_change(client, board_id)
+    full = hashing.hard_change_hash(hc_id)
+    page = client.get(f"/board/{board_id}").text
+    assert "copy-hash" in page, "状态图硬更改项缺少复制哈希按钮"
+    assert f"copyHash('{full}')" in page, "硬更改复制按钮未携带完整哈希"
+
+
+def test_hard_change_detail_has_copy_hash_button(client):
+    """硬更改详情页哈希值旁应有复制按钮，按钮携带完整哈希。"""
+    board_id = _setup_board(client)
+    hc_id = _make_hard_change(client, board_id)
+    full = hashing.hard_change_hash(hc_id)
+    page = client.get(f"/board/{board_id}/hard-change/{hc_id}").text
+    assert "copy-hash" in page, "硬更改详情页缺少复制哈希按钮"
+    assert f"copyHash('{full}')" in page, "复制按钮未携带完整哈希"
