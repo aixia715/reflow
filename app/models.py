@@ -114,6 +114,20 @@ def delete_change(conn, node_id, reference) -> None:
     conn.commit()
 
 
+def delete_node(conn, node_id) -> None:
+    """物理删除一个节点：把它的子节点重接到它的父节点，再删其 changeset、
+    审计日志、节点行本身。线性链中至多一个子节点；草稿也按子节点重接（4-A）。
+    审计的「删除事件 / 传播日志」由 propagation 层负责，这里只做结构删除。"""
+    node = get_node(conn, node_id)
+    conn.execute(
+        "UPDATE nodes SET parent_id=? WHERE parent_id=?", (node["parent_id"], node_id)
+    )
+    conn.execute("DELETE FROM node_changes WHERE node_id=?", (node_id,))
+    conn.execute("DELETE FROM edit_log WHERE node_id=?", (node_id,))
+    conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
+    conn.commit()
+
+
 def get_changeset(conn, node_id) -> list[dict]:
     rows = conn.execute(
         "SELECT reference, op, part FROM node_changes WHERE node_id=? ORDER BY id",
