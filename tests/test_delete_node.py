@@ -137,11 +137,49 @@ def test_keep_records_no_propagated_log(chain):
     assert props == []
 
 
-def test_deleted_node_edit_logs_removed(chain):
+def test_deleted_node_edit_logs_reattach_to_parent(chain):
+    """#1 append-only：被删节点自身历史日志重挂到父节点，而非抹掉。"""
     c, bid, n = chain
-    audit.record_edit(c, n["s2"], "R1", "10k", "47k", "modify", "direct")
+    audit.record_edit(c, n["s2"], "R1", "10k", "47k", "modify", "direct",
+                      note="S2 当初的编辑")
     propagation.delete_node(c, n["s2"], {"R1": "take"})
-    assert audit.list_log(c, n["s2"]) == []  # 被删节点自身日志清掉（FK）
+    assert audit.list_log(c, n["s2"]) == []  # 被删节点 id 下已无日志（节点不存在）
+    moved = [r for r in audit.list_log(c, n["s1"]) if r["note"] == "S2 当初的编辑"]
+    assert len(moved) == 1                    # 历史重挂到父节点 S1
+    assert moved[0]["old_part"] == "10k" and moved[0]["new_part"] == "47k"
+
+
+def test_keep_records_direct_materialize_log(chain):
+    """#4 keep 固化是一次直接数据变异，应留一条 direct 审计痕迹。"""
+    c, bid, n = chain
+    propagation.delete_node(c, n["s2"], {"R1": "keep"})
+    mats = [r for r in audit.list_log(c, n["s3"])
+            if r["source"] == "direct" and "固化" in (r["note"] or "")]
+    assert len(mats) == 1
+    assert mats[0]["reference"] == "R1"
+
+
+def test_take_op_is_add_when_downstream_was_absent(chain):
+    """#3 删前下游为「无该位号」、删后变为有值 → propagated 日志 op 记 add（下游视角）。"""
+    c, bid, n = chain
+    # S2 把 R1 设为不贴（下游 S3 继承后 R1 缺席）；删 S2 后 S3 继承 S1 的 47k...
+    # 改造：让 S2 remove R1，则 S3 删前 None、删后继承 S1（无显式）→ 初始 10k
+    models.delete_change(c, n["s2"], "R1")
+    models.set_change(c, n["s2"], "R1", "remove", None)
+    propagation.delete_node(c, n["s2"], {"R1": "take"})
+    prop = [r for r in audit.list_log(c, n["s3"]) if r["source"] == "propagated"][0]
+    assert prop["old_part"] is None        # 删前缺席
+    assert prop["new_part"] == "10k"        # 删后继承根
+    assert prop["op"] == "add"              # 下游视角＝新增
+
+
+def test_cannot_delete_root_at_logic_layer(chain):
+    """#2 纯逻辑层 fail-fast：根节点不可删。"""
+    c, bid, n = chain
+    with pytest.raises(AssertionError):
+        models.delete_node(c, n["root"])
+    with pytest.raises(AssertionError):
+        propagation.delete_node(c, n["root"])
 
 
 # ── 4-A：工作区草稿随链重建 ──────────────────────────────────────────
