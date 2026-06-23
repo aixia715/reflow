@@ -89,3 +89,13 @@ def test_bot_last_comment_skipped_without_waiting_label(tmp_path):
 def test_empty_returns_empty_array_and_zero(tmp_path):
     assert _run(tmp_path, [], {}) == "[]"
     assert _run(tmp_path, [], {}, mode="count-pending") == "0"
+
+
+def test_ai_ignore_label_excluded_from_candidates_and_pending(tmp_path):
+    """带「AI忽略」标签的 issue 被定时流程完全跳过：既不作候选，也不计入 pending。"""
+    issues = [
+        _issue(1, "2026-06-10T00:00:00Z"),                       # 普通 → 候选
+        _issue(7, "2026-06-11T00:00:00Z", labels=["AI忽略"]),     # 人工标记忽略 → 完全跳过
+    ]
+    assert [c["number"] for c in json.loads(_run(tmp_path, issues, {}))] == [1]
+    assert _run(tmp_path, issues, {}, mode="count-pending") == "0"

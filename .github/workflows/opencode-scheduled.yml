@@ -51,6 +51,8 @@ jobs:
             --description "opencode 已就该 issue 提问，等待人类答复" 2>/dev/null || true
           gh label create "已自动修复" --color 0E8A16 \
             --description "opencode 已为该 issue 开出修复 PR" 2>/dev/null || true
+          gh label create "AI忽略" --color D93F0B \
+            --description "人工标记：定时自动化流程跳过该 issue（手动触发 /oc 不受影响）" 2>/dev/null || true
 
       - name: 运行每日 triage
         run: bash scripts/opencode-triage.sh
