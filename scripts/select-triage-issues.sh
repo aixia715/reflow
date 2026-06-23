@@ -6,6 +6,8 @@
 #   select-triage-issues.sh count-pending    输出「待人工处理」issue 的条数（供 backlog 闸门）
 #
 # 分类规则（gh issue list 只列 open issue，故出现的都仍处于打开状态）：
+#   · 带「AI忽略」标签 —— 人工标记，让定时流程完全跳过：既不作候选、也不计入 pending。
+#     按需流程（/oc）直接针对指定 issue、不走本脚本，故天然无视此标签。
 #   · 带「已自动修复」标签 —— 已开过修复 PR、仍等人类审阅/合并，算作「未处理（pending）」；不作候选。
 #   · 最后一条评论作者是机器人 —— 我们（定时/按需任一流程）已回复、正在等人类答复，
 #     算作「未处理（pending）」；不作候选、不占当天名额。不依赖「等待回复」标签：/oc 等
@@ -14,11 +16,12 @@
 #
 # 候选输出（stdout）：JSON 数组 [{"number":N,"title":"...","body":"..."}]，按创建时间升序。
 # 依赖：gh（已登录，env GH_TOKEN）、jq。
-# 可选环境变量：LABEL_FIXED 覆盖标签名。
+# 可选环境变量：LABEL_FIXED / LABEL_IGNORE 覆盖标签名。
 set -euo pipefail
 
 MODE="${1:-candidates}"          # candidates | count-pending
 LABEL_FIXED="${LABEL_FIXED:-已自动修复}"
+LABEL_IGNORE="${LABEL_IGNORE:-AI忽略}"   # 人工标记，让定时流程完全跳过该 issue
 
 # 判断某个评论作者是否为「机器人」——其评论代表「我们已回复、在等人类」。
 is_bot() {
@@ -41,6 +44,11 @@ pending=0
 while IFS= read -r row; do
   number="$(jq -r '.number' <<<"$row")"
   labels="$(jq -r '.labels[].name' <<<"$row")"
+
+  # 「AI忽略」人工标记 → 定时流程完全跳过：不作候选、也不计入 pending（放在最前，省去取评论的开销）
+  if grep -qxF "$LABEL_IGNORE" <<<"$labels"; then
+    continue
+  fi
 
   # 已自动修复但 issue 仍开着（PR 待审/合并）→ 未处理（pending），不作候选
   if grep -qxF "$LABEL_FIXED" <<<"$labels"; then
