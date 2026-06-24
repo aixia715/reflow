@@ -14,7 +14,13 @@ jobs:
     # opencode 只为「对仓库有写权限的请求者」评审，而 bot 自己开的 PR 作者权限为 none，
     # 评审会在权限闸门处必然失败（见 PR #43），故 bot 开的 PR 直接跳过评审
     # 注意：真实机器人账号是裸 opencode-agent（CONTRIBUTOR，非 [bot] App），两种都要排除
-    if: github.actor != 'opencode-agent[bot]' && github.actor != 'opencode-agent' && github.event.action != 'synchronize'
+    # github-actions[bot] 是定时 triage / issue 自动修复经 GITHUB_TOKEN 开的 PR 的作者，
+    # 同样无写权限、提不出评审意见（见 issue #67），一并跳过
+    if: >-
+      github.actor != 'opencode-agent[bot]' &&
+      github.actor != 'opencode-agent' &&
+      github.actor != 'github-actions[bot]' &&
+      github.event.action != 'synchronize'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
