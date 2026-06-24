@@ -94,6 +94,14 @@ function bomPage(){
     fill(ref, op, part){
       window.dispatchEvent(new CustomEvent('fill-form', {detail: {ref, op, part}}));
     },
+    firstVisibleRow(){
+      const table = document.querySelector('#bom table.bom');
+      if (!table) return null;
+      for (const tr of table.querySelectorAll('tbody tr')) {
+        if (this.rowVisible(tr)) return tr;
+      }
+      return null;
+    },
     setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; },
   };
 }
