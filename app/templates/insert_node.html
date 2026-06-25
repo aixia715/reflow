@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}插入变更节点 · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a> /
+插入节点
+{% endblock %}
+{% block ctxlinks %}
+<a href="/board/{{ board_id }}">状态图</a>
+{% endblock %}
+{% block content %}
+<div x-data='insertPage({
+       placed: {{ placed | tojson }},
+       unplaced: {{ unplaced | tojson }},
+       prevTs: {{ prev_ts | tojson }},
+       nextTs: {{ next_ts | tojson }}
+     })' @fill-form.window="setFrom($event.detail)">
+  <div class="page-head">
+    <h1>在 #{{ parent.id }} 之后插入变更节点</h1>
+    <span class="badge badge-blue"><span x-text="pendingCount"></span> 条修改</span>
+  </div>
+
+  <div class="flash flash-info">
+    新节点将插入在 <b>#{{ parent.id }} {{ parent.message or '初始状态' }}</b> 与
+    <b>{% if child.parent_id is none %}{% endif %}#{{ child.id }} {{ child.message or '(无说明)' }}</b> 之间。
+    本页改动<b>暂存在浏览器</b>，点「保存插入」才会真正建立节点；未保存则什么都不会发生。
+  </div>
+
+  <form class="panel"
+        hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert"
+        hx-target="#form-error" hx-swap="innerHTML">
+    <label>节点时间（须在上一节点之后、下一节点之前）
+      <input class="input" type="datetime-local" name="_local" required x-ref="local"
+             x-init="
+               $el.min = toLocalInput('{{ prev_ts }}');
+               $el.max = toLocalInput('{{ next_ts }}');
+               $el.value = toLocalInput(new Date((Date.parse('{{ prev_ts }}')+Date.parse('{{ next_ts }}'))/2).toISOString());
+               sync();"
+             @input="sync()">
+      <input type="hidden" name="committed_at" x-ref="utc">
+    </label>
+    <label>标题（可选）
+      <input class="input" name="message" x-model="message"
+             placeholder="这次插入的说明" autocomplete="off">
+    </label>
+    <label>长文本说明（可选）
+      <textarea class="input" name="description" x-model="description" rows="2"
+                placeholder="背景、注意事项…"></textarea>
+    </label>
+    <input type="hidden" name="changes" :value="changesJson()">
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit" :disabled="pendingCount===0">保存插入</button>
+      <a class="btn btn-outline" href="/board/{{ board_id }}">取消</a>
+    </div>
+    <div id="form-error"></div>
+  </form>
+
+  <div class="two-col">
+    <div>
+      <div class="toolbar">
+        <span class="input-clearable">
+          <input class="input" placeholder="筛选位号 / Part…" x-model="q" x-ref="filterInput"
+                 @keydown.enter.prevent="if (q.trim()) { fill(q.trim(),'modify',''); $nextTick(() => $refs.partInput && $refs.partInput.focus()); }">
+          <button type="button" class="input-clear" x-show="q" x-cloak
+                  @click="q=''" title="清空" tabindex="-1">×</button>
+        </span>
+        <div class="seg">
+          <button type="button" :class="{on: tab==='all'}" @click="tab='all'">全部 <span x-text="rows().length"></span></button>
+          <button type="button" :class="{on: tab==='mine'}" @click="tab='mine'">本节点修改 <span x-text="pendingCount"></span></button>
+          <button type="button" :class="{on: tab==='removed'}" @click="tab='removed'">不贴 <span x-text="removedRows().length"></span></button>
+        </div>
+      </div>
+      <table class="bom">
+        <thead><tr><th>位号</th><th>Part</th><th>状态</th><th></th></tr></thead>
+        <tbody>
+          <template x-for="r in rows()" :key="'p-'+r.ref">
+            <tr x-show="(tab==='all' || tab==='mine' && r.state==='mine') && matchQ(r)"
+                :class="r.state==='mine' ? 'row-'+r.op : ''">
+              <td><code x-text="r.ref"></code></td>
+              <td><span x-text="r.part"></span><span class="old-val" x-show="r.op==='modify' && r.old" x-text="r.old"></span></td>
+              <td>
+                <template x-if="r.state==='mine'">
+                  <span class="badge" :class="r.op==='add' ? 'badge-green' : 'badge-yellow'"
+                        x-text="r.op==='add' ? '本节点 · 新增' : '本节点 · 修改'"></span>
+                </template>
+              </td>
+              <td class="row-actions">
+                <template x-if="r.state==='mine'">
+                  <button type="button" class="btn-link danger" @click="undo(r.ref)">↩ 撤销</button>
+                </template>
+                <template x-if="r.state!=='mine'">
+                  <span class="hover-only">
+                    <button type="button" class="btn-link" @click="fill(r.ref,'modify',r.part)">修改</button>
+                    <button type="button" class="btn-link danger" @click="fill(r.ref,'remove','')">不贴</button>
+                  </span>
+                </template>
+              </td>
+            </tr>
+          </template>
+          <template x-for="r in removedRows()" :key="'r-'+r.ref">
+            <tr x-show="(tab==='all' || tab==='removed') && matchQ(r)"
+                :class="r.state==='mine' ? 'row-remove' : ''">
+              <td><code x-text="r.ref"></code></td>
+              <td><span class="strike" x-text="r.part || '—'"></span></td>
+              <td>
+                <span class="badge" :class="r.state==='mine' ? 'badge-red' : ''"
+                      x-text="r.state==='mine' ? '本节点 · 不贴' : '上游 · 不贴'"></span>
+              </td>
+              <td class="row-actions">
+                <template x-if="r.state==='mine'">
+                  <button type="button" class="btn-link danger" @click="undo(r.ref)">↩ 撤销</button>
+                </template>
+                <template x-if="r.state!=='mine'">
+                  <button type="button" class="btn-link hover-only" @click="fill(r.ref,'add','')">恢复贴装</button>
+                </template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+    <aside>
+      <div class="panel">
+        <div class="panel-title">添加修改</div>
+        <div class="edit-form">
+          <input class="input" x-model="ref" list="refs"
+                 placeholder="位号（自动补全）" autocomplete="off">
+          <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
+          <div class="seg">
+            <label :class="{on: op==='modify'}"><input type="radio" value="modify" x-model="op">修改</label>
+            <label :class="{on: op==='add'}"><input type="radio" value="add" x-model="op">新增</label>
+            <label :class="{on: op==='remove'}"><input type="radio" value="remove" x-model="op">不贴</label>
+          </div>
+          <input class="input" x-model="part" x-ref="partInput"
+                 placeholder="新 Part 值" :disabled="op==='remove'"
+                 @keydown.enter.prevent="apply()">
+          <button type="button" class="btn btn-primary" @click="apply()">添加这条</button>
+          <div class="flash flash-error" x-show="editError" x-cloak x-text="editError"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">本次插入的修改（<span x-text="pendingCount"></span>）</div>
+        <p class="muted" x-show="pendingCount===0">还没有修改。至少添加一条才能保存。</p>
+        <template x-for="c in pendingList()" :key="c.reference">
+          <div class="change-row">
+            <span><code x-text="c.reference"></code>
+              <span x-show="c.op==='remove'">不贴</span>
+              <span x-show="c.op==='add'" x-text="'新增 → '+c.part"></span>
+              <span x-show="c.op==='modify'" x-text="'修改 → '+c.part"></span>
+            </span>
+            <button type="button" class="btn-link danger" title="撤销" @click="undo(c.reference)">↩</button>
+          </div>
+        </template>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+function insertPage(data){
+  return {
+    placed: data.placed, unplaced: data.unplaced,
+    q: '', tab: 'all', ref: '', op: 'modify', part: '',
+    message: '', description: '', editError: '',
+    pending: {},
+    get pendingCount(){ return Object.keys(this.pending).length; },
+    toLocalInput(iso){ if(!iso) return ''; const d = new Date(iso);
+      return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16); },
+    toUtc(v){ if(!v) return ''; const d = new Date(v); const p = n => String(n).padStart(2,'0');
+      return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}T`
+           + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:00+00:00`; },
+    sync(){ this.$refs.utc.value = this.toUtc(this.$refs.local.value); },
+    matchQ(r){
+      const q = this.q.trim().toLowerCase();
+      return !q || r.ref.toLowerCase().includes(q)
+                || (r.part || '').toLowerCase().includes(q);
+    },
+    rows(){
+      const out = [];
+      for (const ref of Object.keys(this.placed)){
+        const p = this.pending[ref];
+        if (p && p.op === 'remove') continue;
+        out.push({ref, part: (p && (p.op==='modify'||p.op==='add')) ? p.part : this.placed[ref],
+                   state: p ? 'mine' : null, op: p ? p.op : null,
+                   old: (p && p.op==='modify') ? this.placed[ref] : null});
+      }
+      for (const ref of Object.keys(this.pending)){
+        const p = this.pending[ref];
+        if (p.op === 'add' && !(ref in this.placed))
+          out.push({ref, part: p.part, state: 'mine', op: 'add', old: null});
+      }
+      out.sort((a,b)=>a.ref.localeCompare(b.ref));
+      return out;
+    },
+    removedRows(){
+      const out = [];
+      for (const ref of Object.keys(this.pending)){
+        if (this.pending[ref].op === 'remove')
+          out.push({ref, part: this.placed[ref] ?? null, state: 'mine'});
+      }
+      for (const ref of Object.keys(this.unplaced)){
+        const p = this.pending[ref];
+        if (p && p.op === 'add') continue;   // 已恢复贴装
+        out.push({ref, part: this.unplaced[ref], state: 'upstream'});
+      }
+      out.sort((a,b)=>a.ref.localeCompare(b.ref));
+      return out;
+    },
+    currentBom(){ const m = {}; for (const r of this.rows()) m[r.ref] = r.part; return m; },
+    validate(ref, op, part){
+      ref = (ref || '').trim();
+      if (!ref) return '位号不能为空';
+      const cur = this.currentBom();
+      const hasPart = !!(part || '').trim();
+      if (op === 'add'){
+        if (ref in cur) return `位号 ${ref} 已存在，请用「修改」`;
+        if (!hasPart) return '新增位号必须填写 Part';
+      } else if (op === 'modify'){
+        if (!(ref in cur)) return `位号 ${ref} 不存在，无法修改`;
+        if (!hasPart) return '修改必须填写新 Part 值';
+      } else if (op === 'remove'){
+        if (!(ref in cur)) return `位号 ${ref} 不存在或已是不贴状态`;
+      } else return '未知操作类型';
+      return null;
+    },
+    apply(){
+      const ref = (this.ref || '').trim();
+      const err = this.validate(ref, this.op, this.part);
+      if (err){ this.editError = err; return; }
+      this.editError = '';
+      const present = this.op !== 'remove';
+      const P = present ? this.part : null;
+      if (present){
+        if (ref in this.placed && this.placed[ref] === P) delete this.pending[ref];
+        else this.pending[ref] = {op: (ref in this.placed) ? 'modify' : 'add', part: P};
+      } else {
+        if (!(ref in this.placed)) delete this.pending[ref];
+        else this.pending[ref] = {op: 'remove', part: null};
+      }
+      this.ref = ''; this.part = ''; this.op = 'modify';
+      this.$nextTick(() => this.$refs.filterInput && this.$refs.filterInput.focus());
+    },
+    undo(ref){ delete this.pending[ref]; },
+    fill(ref, op, part){ this.ref = ref; this.op = op; this.part = part || '';
+      this.$nextTick(() => this.$refs.partInput && this.$refs.partInput.focus()); },
+    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; },
+    pendingList(){
+      return Object.keys(this.pending).sort()
+        .map(ref => ({reference: ref, op: this.pending[ref].op, part: this.pending[ref].part}));
+    },
+    changesJson(){ return JSON.stringify(this.pendingList()); },
+  };
+}
+</script>
+{% endblock %}

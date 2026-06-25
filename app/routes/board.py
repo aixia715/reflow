@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse, PlainTextResponse
 from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change
 from app.bom_engine import fold_bom
-from app.validation import validate_edit
+from app.validation import validate_edit, validate_insert_time
 from app import compare
 from app.models import _now
 
@@ -76,10 +76,19 @@ def state_graph(request: Request, board_id: int):
     timeline = hard_change.merge_timeline(nodes, hcs)
     initial_count = len(models.get_initial_bom(
         conn, board["board_name"], board["pcb_version"], board["bom_version"]))
+    # 可插入位置 = 已提交节点且其直接子节点也是已提交（即不是最后一个已提交节点）；
+    # 链末加变更直接用工作区，不走插入。
+    child_of = {n["parent_id"]: n for n in nodes if n["parent_id"] is not None}
+    insertable_ids = {
+        n["id"] for n in nodes
+        if n["is_committed"] and (child_of.get(n["id"]) is not None
+                                  and child_of[n["id"]]["is_committed"])
+    }
     return templates.TemplateResponse(
         request, "state_graph.html",
         {"board": board, "board_id": board_id, "timeline": timeline,
          "summaries": models.node_summaries(conn, board_id),
+         "insertable_ids": insertable_ids,
          "initial_count": initial_count})
 
 
@@ -197,6 +206,121 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     part_val = None if op == "remove" else part
     propagation.apply_node_edit(conn, ws["id"], reference, op, part_val)
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
+
+
+def _known_refs(initial, chain):
+    """链上出现过的全部位号（初始 + 任意 add/modify 引入的）。"""
+    known = set(initial)
+    for cs in chain:
+        for c in cs:
+            if c["op"] in ("add", "modify"):
+                known.add(c["reference"])
+    return known
+
+
+def _last_value(initial, chain, ref):
+    v = initial.get(ref)
+    for cs in chain:
+        for c in cs:
+            if c["reference"] == ref and c["op"] != "remove":
+                v = c["part"]
+    return v
+
+
+def _insert_child(conn, parent_id):
+    """parent 在链上的直接子节点（线性链至多一个）。"""
+    return conn.execute(
+        "SELECT * FROM nodes WHERE parent_id=?", (parent_id,)
+    ).fetchone()
+
+
+@router.get("/board/{board_id}/node/{parent_id}/insert")
+def insert_page(request: Request, board_id: int, parent_id: int):
+    """「在此节点后插入变更节点」的编辑界面：本地暂存，保存才落库建节点。"""
+    conn = get_conn()
+    parent = models.get_node(conn, parent_id)
+    if parent is None or parent["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    child = _insert_child(conn, parent_id)
+    if not parent["is_committed"] or child is None or not child["is_committed"]:
+        return RedirectResponse(
+            f"/board/{board_id}?flash=该位置不可插入（链末请直接用工作区编辑）",
+            status_code=303)
+    board = models.get_board(conn, board_id)
+    initial, chain = models.get_chain(conn, parent_id)
+    placed = fold_bom(initial, chain)
+    known = _known_refs(initial, chain)
+    unplaced = {ref: _last_value(initial, chain, ref)
+                for ref in sorted(known - set(placed))}
+    return templates.TemplateResponse(request, "insert_node.html", {
+        "board": board, "board_id": board_id, "parent": parent, "child": child,
+        "placed": placed, "unplaced": unplaced, "all_refs": sorted(known),
+        "prev_ts": parent["committed_at"], "next_ts": child["committed_at"],
+    })
+
+
+@router.post("/board/{board_id}/node/{parent_id}/insert")
+def insert_save(request: Request, board_id: int, parent_id: int,
+                committed_at: str = Form(""), message: str = Form(""),
+                description: str = Form(""), changes: str = Form("[]")):
+    conn = get_conn()
+    parent = models.get_node(conn, parent_id)
+    if parent is None or parent["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    child = _insert_child(conn, parent_id)
+
+    def _err(msg):
+        return templates.TemplateResponse(
+            request, "_form_error.html", {"message": msg},
+            headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
+
+    if not parent["is_committed"] or child is None or not child["is_committed"]:
+        return _err("该位置不可插入（链末请直接用工作区编辑）")
+    try:
+        chs = json.loads(changes)
+    except (ValueError, TypeError):
+        chs = []
+    if not chs:
+        return _err("请至少添加一条修改（不允许插入空节点）")
+    terr = validate_insert_time(parent["committed_at"], child["committed_at"], committed_at)
+    if terr:
+        return _err(terr)
+    # 落库前先在内存里逐条校验（含同一节点内重复/依赖前序改动）
+    initial, chain = models.get_chain(conn, parent_id)
+    sim = fold_bom(initial, chain)
+    for ch in chs:
+        ref = (ch.get("reference") or "").strip()
+        verr = validate_edit(sim, ref, ch.get("op"), ch.get("part"))
+        if verr:
+            return _err(verr)
+        if ch.get("op") == "remove":
+            sim.pop(ref, None)
+        else:
+            sim[ref] = ch.get("part")
+
+    new_id = models.insert_node_after(
+        conn, parent_id, committed_at, message.strip(), description.strip())
+    conflicts = []
+    for ch in chs:
+        ref = (ch.get("reference") or "").strip()
+        op = ch.get("op")
+        part_val = None if op == "remove" else ch.get("part")
+        conflicts += propagation.apply_node_edit(conn, new_id, ref, op, part_val)
+
+    if conflicts:
+        return templates.TemplateResponse(
+            request, "_insert_conflict_modal.html",
+            {"board_id": board_id, "node_id": new_id, "conflicts": conflicts},
+            headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
+
+    dest = f"/board/{board_id}/node/{new_id}?flash=✓ 已插入节点 #{new_id}"
+    if request.headers.get("HX-Request"):
+        from fastapi.responses import Response
+        from urllib.parse import quote
+        # HTTP 头只能是 latin-1，URL 编码后再放进 HX-Redirect
+        return Response(status_code=204,
+                        headers={"HX-Redirect": quote(dest, safe=":/?=#&")})
+    return RedirectResponse(dest, status_code=303)
 
 
 @router.post("/board/{board_id}/commit")

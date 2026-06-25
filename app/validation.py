@@ -1,5 +1,28 @@
 """位号编辑校验（纯逻辑，零 Web/DB 依赖）。"""
 
+from datetime import datetime
+
+
+def validate_insert_time(prev_ts: str, next_ts: str, chosen_ts: str | None) -> str | None:
+    """校验插入节点所选时间：须严格落在「上一节点之后、下一节点之前」（开区间）。
+
+    三个参数均为 ISO 8601 时间字符串（带时区偏移）；按时刻比较，不做字符串字面量比较。
+    合法返回 None，否则返回中文错误消息。
+    """
+    if not (chosen_ts or "").strip():
+        return "时间不能为空"
+    try:
+        prev = datetime.fromisoformat(prev_ts)
+        nxt = datetime.fromisoformat(next_ts)
+        chosen = datetime.fromisoformat(chosen_ts)
+    except ValueError:
+        return "时间格式无效"
+    if chosen <= prev:
+        return "时间必须晚于上一个节点"
+    if chosen >= nxt:
+        return "时间必须早于下一个节点"
+    return None
+
 
 def validate_edit(
     full_bom: dict[str, str], reference: str, op: str, part: str | None
