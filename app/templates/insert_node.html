@@ -14,7 +14,7 @@
        unplaced: {{ unplaced | tojson }},
        prevTs: {{ prev_ts | tojson }},
        nextTs: {{ next_ts | tojson }}
-     })' @fill-form.window="setFrom($event.detail)">
+     })'>
   <div class="page-head">
     <h1>在 #{{ parent.id }} 之后插入变更节点</h1>
     <span class="badge badge-blue"><span x-text="pendingCount"></span> 条修改</span>
@@ -22,7 +22,7 @@
 
   <div class="flash flash-info">
     新节点将插入在 <b>#{{ parent.id }} {{ parent.message or '初始状态' }}</b> 与
-    <b>{% if child.parent_id is none %}{% endif %}#{{ child.id }} {{ child.message or '(无说明)' }}</b> 之间。
+    <b>#{{ child.id }} {{ child.message or '(无说明)' }}</b> 之间。
     本页改动<b>暂存在浏览器</b>，点「保存插入」才会真正建立节点；未保存则什么都不会发生。
   </div>
 
@@ -243,7 +243,6 @@ function insertPage(data){
     undo(ref){ delete this.pending[ref]; },
     fill(ref, op, part){ this.ref = ref; this.op = op; this.part = part || '';
       this.$nextTick(() => this.$refs.partInput && this.$refs.partInput.focus()); },
-    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; },
     pendingList(){
       return Object.keys(this.pending).sort()
         .map(ref => ({reference: ref, op: this.pending[ref].op, part: this.pending[ref].part}));

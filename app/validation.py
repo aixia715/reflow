@@ -1,20 +1,26 @@
 """位号编辑校验（纯逻辑，零 Web/DB 依赖）。"""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def validate_insert_time(prev_ts: str, next_ts: str, chosen_ts: str | None) -> str | None:
     """校验插入节点所选时间：须严格落在「上一节点之后、下一节点之前」（开区间）。
 
-    三个参数均为 ISO 8601 时间字符串（带时区偏移）；按时刻比较，不做字符串字面量比较。
+    三个参数均为 ISO 8601 时间字符串；按时刻比较，不做字符串字面量比较。
+    无时区的时间一律按 UTC 处理（避免 aware/naive 混比抛 TypeError）。
     合法返回 None，否则返回中文错误消息。
     """
     if not (chosen_ts or "").strip():
         return "时间不能为空"
+
+    def _parse(s):
+        d = datetime.fromisoformat(s)
+        return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
+
     try:
-        prev = datetime.fromisoformat(prev_ts)
-        nxt = datetime.fromisoformat(next_ts)
-        chosen = datetime.fromisoformat(chosen_ts)
+        prev = _parse(prev_ts)
+        nxt = _parse(next_ts)
+        chosen = _parse(chosen_ts)
     except ValueError:
         return "时间格式无效"
     if chosen <= prev:

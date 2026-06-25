@@ -12,6 +12,26 @@ from app.models import _now
 router = APIRouter()
 
 
+def _known_refs(initial, chain):
+    """链上出现过的全部位号（初始 + 任意 add/modify 引入的）。"""
+    known = set(initial)
+    for cs in chain:
+        for c in cs:
+            if c["op"] in ("add", "modify"):
+                known.add(c["reference"])
+    return known
+
+
+def _last_value(initial, chain, ref):
+    """某位号沿链最后一次非 remove 的取值（用于「不贴」行展示其原值）。"""
+    v = initial.get(ref)
+    for cs in chain:
+        for c in cs:
+            if c["reference"] == ref and c["op"] != "remove":
+                v = c["part"]
+    return v
+
+
 def _node_context(conn, board_id: int, node) -> dict:
     """节点页/片段的完整渲染上下文：行数据（含旧值）、不贴行、修改面板、统计。"""
     board = models.get_board(conn, board_id)
@@ -31,22 +51,9 @@ def _node_context(conn, board_id: int, node) -> dict:
         })
 
     # 「不贴」行 = 出现过（初始或链上 add/modify）但不在折叠结果里的位号
-    known = set(initial)
-    for cs in chain:
-        for c in cs:
-            if c["op"] in ("add", "modify"):
-                known.add(c["reference"])
-
-    def _last_value(ref):
-        v = initial.get(ref)
-        for cs in chain:
-            for c in cs:
-                if c["reference"] == ref and c["op"] != "remove":
-                    v = c["part"]
-        return v
-
+    known = _known_refs(initial, chain)
     removed = [
-        {"reference": ref, "part": _last_value(ref),
+        {"reference": ref, "part": _last_value(initial, chain, ref),
          "state": "mine" if ref in changes else "upstream"}
         for ref in sorted(known - set(full))
     ]
@@ -208,25 +215,6 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
 
 
-def _known_refs(initial, chain):
-    """链上出现过的全部位号（初始 + 任意 add/modify 引入的）。"""
-    known = set(initial)
-    for cs in chain:
-        for c in cs:
-            if c["op"] in ("add", "modify"):
-                known.add(c["reference"])
-    return known
-
-
-def _last_value(initial, chain, ref):
-    v = initial.get(ref)
-    for cs in chain:
-        for c in cs:
-            if c["reference"] == ref and c["op"] != "remove":
-                v = c["part"]
-    return v
-
-
 def _insert_child(conn, parent_id):
     """parent 在链上的直接子节点（线性链至多一个）。"""
     return conn.execute(
@@ -313,13 +301,13 @@ def insert_save(request: Request, board_id: int, parent_id: int,
             {"board_id": board_id, "node_id": new_id, "conflicts": conflicts},
             headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
 
-    dest = f"/board/{board_id}/node/{new_id}?flash=✓ 已插入节点 #{new_id}"
+    from urllib.parse import quote
+    # flash 整体编码：含 # 与中文/✓，# 必须编码成 %23，否则被当作 URL fragment 截断
+    flash = quote(f"✓ 已插入节点 #{new_id}")
+    dest = f"/board/{board_id}/node/{new_id}?flash={flash}"
     if request.headers.get("HX-Request"):
         from fastapi.responses import Response
-        from urllib.parse import quote
-        # HTTP 头只能是 latin-1，URL 编码后再放进 HX-Redirect
-        return Response(status_code=204,
-                        headers={"HX-Redirect": quote(dest, safe=":/?=#&")})
+        return Response(status_code=204, headers={"HX-Redirect": dest})
     return RedirectResponse(dest, status_code=303)
 
 

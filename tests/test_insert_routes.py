@@ -17,11 +17,11 @@ def _resolved(conn, node_id, ref):
     return resolve_reference(initial, chain, ref)
 
 
-def _setup_chain(client):
+def _setup_chain(client, uid="3"):
     """建 root -> c1 -> c2 -> 草稿，c1/c2 的 committed_at 间隔开。返回 (board_id, root, c1, c2)。"""
     r = client.post("/board/new",
                     data={"board_name": "B", "pcb_version": "v1",
-                          "bom_version": "bomA", "board_uid": "3"},
+                          "bom_version": "bomA", "board_uid": uid},
                     files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
                     follow_redirects=False)
     board_id = int(r.headers["location"].split("?")[0].rsplit("/", 1)[-1])
@@ -77,6 +77,27 @@ def test_insert_creates_node_and_relinks(client):
     assert conn.execute("SELECT parent_id FROM nodes WHERE id=?",
                         (c2,)).fetchone()["parent_id"] == new["id"]
     assert _resolved(conn, c2, "D1") == "1uF"
+
+
+def test_insert_success_flash_keeps_node_number(client):
+    from urllib.parse import urlparse, parse_qs, unquote
+    board_id, root, c1, c2 = _setup_chain(client)
+    changes = json.dumps([{"reference": "D1", "op": "add", "part": "1uF"}])
+    # 非 HX：Location 头里的 flash 应保留节点号（# 不能被当作 fragment 截断）
+    r = client.post(f"/board/{board_id}/node/{c1}/insert",
+                    data={"committed_at": "2026-06-05T00:00:00+00:00",
+                          "message": "ins", "changes": changes},
+                    follow_redirects=False)
+    flash = unquote(parse_qs(urlparse(r.headers["location"]).query)["flash"][0])
+    assert "已插入节点" in flash and "#" in flash
+    # HX：HX-Redirect 头同样保留节点号
+    board_id, root, c1, c2 = _setup_chain(client, uid="4")
+    r = client.post(f"/board/{board_id}/node/{c1}/insert",
+                    data={"committed_at": "2026-06-05T00:00:00+00:00",
+                          "message": "ins", "changes": changes},
+                    headers={"HX-Request": "true"})
+    flash = unquote(parse_qs(urlparse(r.headers["HX-Redirect"]).query)["flash"][0])
+    assert "已插入节点" in flash and "#" in flash
 
 
 def test_insert_empty_changes_rejected(client):

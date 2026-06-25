@@ -14,7 +14,7 @@
       </fieldset>
       {% endfor %}
       <div class="modal-foot">
-        <a class="btn" href="/board/{{ board_id }}/node/{{ node_id }}?flash=✓ 已插入节点 #{{ node_id }}（下游保留原值）">取消（保留下游值）</a>
+        <a class="btn" href="/board/{{ board_id }}/node/{{ node_id }}?flash={{ ('✓ 已插入节点 #%s（下游保留原值）' % node_id) | urlencode }}">取消（保留下游值）</a>
         <button class="btn btn-primary">确认</button>
       </div>
     </form>
