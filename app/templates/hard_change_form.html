@@ -55,10 +55,60 @@
     {% endfor %}
   </div>
   {% endif %}
-  <label>{{ '追加附图' if mode == 'edit' else '附图（可多选）' }}
-    <input class="input" type="file" name="files" multiple
-           accept="image/png,image/jpeg,image/webp,image/gif">
-  </label>
+  <div x-data="{
+         pending: [], _k: 0,
+         mimeExt: {'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'},
+         addFiles(list){
+           for(const f of list){
+             this.pending.push({file: f, url: URL.createObjectURL(f), key: this._k++});
+           }
+           this.syncInput();
+         },
+         onPaste(e){
+           const items = e.clipboardData ? e.clipboardData.items : [];
+           const imgs = [];
+           for(const it of items){
+             if(it.kind === 'file' && it.type.startsWith('image/')){
+               const f = it.getAsFile();
+               if(f) imgs.push(this.ensureNamed(f));
+             }
+           }
+           if(!imgs.length) return;   // 没有图片：不拦截，文字等照常粘贴
+           e.preventDefault();
+           this.addFiles(imgs);
+         },
+         ensureNamed(f){
+           const dot = f.name ? f.name.lastIndexOf('.') : -1;
+           if(dot > 0 && dot < f.name.length - 1) return f;
+           const ext = this.mimeExt[f.type] || 'png';
+           return new File([f], `pasted-${Date.now()}-${this._k}.${ext}`, {type: f.type});
+         },
+         syncInput(){
+           const dt = new DataTransfer();
+           this.pending.forEach(it => dt.items.add(it.file));
+           this.$refs.fileInput.files = dt.files;
+         },
+         remove(i){
+           URL.revokeObjectURL(this.pending[i].url);
+           this.pending.splice(i, 1);
+           this.syncInput();
+         }
+       }" @paste.window="onPaste($event)">
+    <label>{{ '追加附图' if mode == 'edit' else '附图（可多选，可粘贴）' }}
+      <input class="input" type="file" name="files" multiple x-ref="fileInput"
+             accept="image/png,image/jpeg,image/webp,image/gif"
+             @change="addFiles($event.target.files)">
+    </label>
+    <div class="hc-gallery" x-show="pending.length">
+      <template x-for="(item, i) in pending" :key="item.key">
+        <div class="hc-thumb hc-pending-thumb">
+          <img :src="item.url" alt="待上传">
+          <button type="button" class="btn-link danger hc-pending-del"
+                  @click="remove(i)" title="移除这张待上传图片">移除</button>
+        </div>
+      </template>
+    </div>
+  </div>
   <div class="form-actions">
     <button class="btn btn-primary" type="submit">{{ '保存' if mode == 'edit' else '记录' }}</button>
     <a class="btn btn-outline" href="/board/{{ board_id }}">取消</a>

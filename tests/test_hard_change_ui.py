@@ -48,6 +48,88 @@ def test_record_hard_change_flow(live_server, page: Page):
     expect(page.locator(".hc-gallery img").first).to_be_visible()
 
 
+def test_picked_images_accumulate_across_dialogs(live_server, page: Page):
+    """多次「选择文件」应叠加，而非覆盖（issue #69 需求 1）。"""
+    bid = _make_board(live_server, uid="HC4")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.set_input_files("input[name=files]", files=[
+        {"name": "a.png", "mimeType": "image/png", "buffer": PNG_1PX}])
+    expect(page.locator(".hc-pending-thumb")).to_have_count(1)
+    # 第二次选择不同文件：应累积到 2 张，而不是被覆盖成 1 张
+    page.set_input_files("input[name=files]", files=[
+        {"name": "b.png", "mimeType": "image/png", "buffer": PNG_1PX}])
+    expect(page.locator(".hc-pending-thumb")).to_have_count(2)
+
+
+def test_pending_image_can_be_removed_before_submit(live_server, page: Page):
+    """提交前每张待上传图片可单独删除（issue #69 需求 3）。"""
+    bid = _make_board(live_server, uid="HC5")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.set_input_files("input[name=files]", files=[
+        {"name": "a.png", "mimeType": "image/png", "buffer": PNG_1PX},
+        {"name": "b.png", "mimeType": "image/png", "buffer": PNG_1PX}])
+    expect(page.locator(".hc-pending-thumb")).to_have_count(2)
+    page.locator(".hc-pending-del").first.click()
+    expect(page.locator(".hc-pending-thumb")).to_have_count(1)
+    # 隐藏 file input 也应同步只剩 1 个
+    assert page.evaluate(
+        "document.querySelector('input[name=files]').files.length") == 1
+
+
+def test_accumulated_images_are_all_submitted(live_server, page: Page):
+    """两次选择累积的图片，提交后应全部入库（验证 DataTransfer→multipart 端到端）。"""
+    bid = _make_board(live_server, uid="HC8")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.fill("input[name=title]", "累积上传")
+    page.set_input_files("input[name=files]", files=[
+        {"name": "a.png", "mimeType": "image/png", "buffer": PNG_1PX}])
+    page.set_input_files("input[name=files]", files=[
+        {"name": "b.png", "mimeType": "image/png", "buffer": PNG_1PX}])
+    page.click("button[type=submit]")
+    page.wait_for_load_state("networkidle")
+    page.locator(".tl-item.hard").first.click()
+    page.wait_for_load_state("networkidle")
+    expect(page.locator(".hc-gallery .hc-photo")).to_have_count(2)
+
+
+def _paste_event_js():
+    """构造一个携带 clipboardData 的 paste 事件并 dispatch；返回 dispatchEvent 结果
+    （false 表示被 preventDefault 拦截）。"""
+    return """({bytes, mime, name, target, text}) => {
+        const dt = new DataTransfer();
+        if (bytes) {
+          const file = new File([new Uint8Array(bytes)], name, {type: mime});
+          dt.items.add(file);
+        }
+        if (text) { dt.setData('text/plain', text); }
+        const el = target ? document.querySelector(target) : document;
+        const ev = new ClipboardEvent('paste',
+            {clipboardData: dt, bubbles: true, cancelable: true});
+        return el.dispatchEvent(ev);
+    }"""
+
+
+def test_paste_image_adds_to_pending(live_server, page: Page):
+    """粘贴图片应追加到待上传列表并拦截默认行为（issue #69 需求 2）。"""
+    bid = _make_board(live_server, uid="HC6")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    not_cancelled = page.evaluate(_paste_event_js(),
+        {"bytes": list(PNG_1PX), "mime": "image/png", "name": "clip.png"})
+    expect(page.locator(".hc-pending-thumb")).to_have_count(1)
+    assert not_cancelled is False, "抓到图片时应 preventDefault"
+
+
+def test_paste_text_into_textarea_not_swallowed(live_server, page: Page):
+    """纯文字粘贴不应被拦截，文本框照常接收（issue #69 需求 2：只对图片响应）。"""
+    bid = _make_board(live_server, uid="HC7")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.click("textarea[name=description]")
+    not_cancelled = page.evaluate(_paste_event_js(),
+        {"text": "纯文字", "target": "textarea[name=description]"})
+    assert not_cancelled is True, "纯文字粘贴不应被 preventDefault"
+    expect(page.locator(".hc-pending-thumb")).to_have_count(0)
+
+
 def test_new_form_time_is_browser_local(live_server, page: Page):
     bid = _make_board(live_server, uid="HC2")
 
