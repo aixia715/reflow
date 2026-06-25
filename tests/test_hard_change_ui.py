@@ -119,6 +119,33 @@ def test_paste_image_adds_to_pending(live_server, page: Page):
     assert not_cancelled is False, "抓到图片时应 preventDefault"
 
 
+def test_paste_multiple_images_get_distinct_names(live_server, page: Page):
+    """一次粘贴多张无扩展名图片，应分别得到不重复的文件名（issue #69 需求 2）。"""
+    bid = _make_board(live_server, uid="HC9")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.evaluate("""(bytes) => {
+        const dt = new DataTransfer();
+        for (let i = 0; i < 2; i++) {
+          dt.items.add(new File([new Uint8Array(bytes)], '', {type: 'image/png'}));
+        }
+        document.dispatchEvent(new ClipboardEvent('paste',
+            {clipboardData: dt, bubbles: true, cancelable: true}));
+    }""", list(PNG_1PX))
+    expect(page.locator(".hc-pending-thumb")).to_have_count(2)
+    names = page.evaluate(
+        "[...document.querySelector('input[name=files]').files].map(f => f.name)")
+    assert len(set(names)) == 2, f"粘贴的多张图片文件名重复：{names}"
+
+
+def test_paste_unsupported_image_type_rejected(live_server, page: Page):
+    """粘贴非允许格式（如 SVG）应被忽略，与 accept 四类对齐（issue #69）。"""
+    bid = _make_board(live_server, uid="HC10")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.evaluate(_paste_event_js(),
+        {"bytes": list(b"<svg/>"), "mime": "image/svg+xml", "name": "x.svg"})
+    expect(page.locator(".hc-pending-thumb")).to_have_count(0)
+
+
 def test_paste_text_into_textarea_not_swallowed(live_server, page: Page):
     """纯文字粘贴不应被拦截，文本框照常接收（issue #69 需求 2：只对图片响应）。"""
     bid = _make_board(live_server, uid="HC7")

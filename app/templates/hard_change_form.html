@@ -68,7 +68,7 @@
            const items = e.clipboardData ? e.clipboardData.items : [];
            const imgs = [];
            for(const it of items){
-             if(it.kind === 'file' && it.type.startsWith('image/')){
+             if(it.kind === 'file' && this.mimeExt[it.type]){
                const f = it.getAsFile();
                if(f) imgs.push(this.ensureNamed(f));
              }
@@ -81,7 +81,7 @@
            const dot = f.name ? f.name.lastIndexOf('.') : -1;
            if(dot > 0 && dot < f.name.length - 1) return f;
            const ext = this.mimeExt[f.type] || 'png';
-           return new File([f], `pasted-${Date.now()}-${this._k}.${ext}`, {type: f.type});
+           return new File([f], `pasted-${Date.now()}-${this._k++}.${ext}`, {type: f.type});
          },
          syncInput(){
            const dt = new DataTransfer();
@@ -99,7 +99,7 @@
              accept="image/png,image/jpeg,image/webp,image/gif"
              @change="addFiles($event.target.files)">
     </label>
-    <div class="hc-gallery" x-show="pending.length">
+    <div class="hc-gallery" x-cloak x-show="pending.length">
       <template x-for="(item, i) in pending" :key="item.key">
         <div class="hc-thumb hc-pending-thumb">
           <img :src="item.url" alt="待上传">
