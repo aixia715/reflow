@@ -1,7 +1,7 @@
 <div class="toolbar">
   <span class="input-clearable">
     <input class="input" placeholder="筛选位号 / Part…" x-model="q" x-ref="filterInput"
-           @keydown.enter.prevent="if (q.trim()) { const row = firstVisibleRow(); const ref = row ? row.dataset.ref : q.trim(); const part = row ? row.dataset.part : ''; fill(ref,'modify',part); $nextTick(() => $refs.partInput && $refs.partInput.focus()); }">
+           @keydown.enter.prevent="if (q.trim()) { const row = firstVisibleRow(); const ref = row ? row.dataset.ref : q.trim(); const part = row ? row.dataset.part : ''; fill(ref,'modify',part); $nextTick(() => $refs.partInput && $refs.partInput.select()); }">
     <button type="button" class="input-clear" x-show="q" x-cloak
             @click="q=''" title="清空" tabindex="-1">×</button>
   </span>
