@@ -38,6 +38,7 @@
     <span class="badge">{{ s|length }} 条修改</span>
     {% endif %}
     {% if n.is_committed %}<code class="muted" title="哈希 {{ node_hash(n.id) }}">{{ node_short(n.id) }}</code><button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ node_short(n.id) }}')">复制</button>{% endif %}
+    {% if n.id in insertable_ids %}<button type="button" class="btn-link" title="在此节点之后插入一个变更节点" onclick="event.preventDefault();event.stopPropagation();location.href='/board/{{ board_id }}/node/{{ n.id }}/insert'">＋在此后插入</button>{% endif %}
     <div class="muted">
       {%- for c in s[:4] -%}
         {{ c.reference }} {{ {'add': '新增', 'modify': '修改', 'remove': '不贴'}[c.op] }}{% if not loop.last %} · {% endif %}

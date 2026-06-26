@@ -32,6 +32,31 @@ def test_create_board_makes_root_and_empty_workspace(conn):
     assert nodes[1]["parent_id"] == nodes[0]["id"]
 
 
+def test_insert_node_after_relinks_child(conn):
+    from app.csv_import import CsvEntry
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid = models.create_board(conn, "B", "v1", "bomA", "3")
+    root = models.list_nodes(conn, bid)[0]["id"]
+    c1 = models.commit_workspace(conn, bid, "c1")  # 链：root -> c1 -> 草稿
+    draft = models.workspace_node(conn, bid)["id"]
+
+    new_id = models.insert_node_after(
+        conn, root, "2026-06-05T00:00:00+00:00", "ins", "说明")
+
+    n = models.get_node(conn, new_id)
+    assert n["parent_id"] == root
+    assert n["is_committed"] == 1
+    assert n["committed_at"] == "2026-06-05T00:00:00+00:00"
+    assert n["message"] == "ins"
+    assert n["description"] == "说明"
+    # 原 c1 改挂到新节点；草稿仍挂在 c1 之后（不受影响）
+    assert models.get_node(conn, c1)["parent_id"] == new_id
+    assert models.get_node(conn, draft)["parent_id"] == c1
+    # c1 的祖先链变为 root -> new -> c1（3 节点）
+    _, chain = models.get_chain(conn, c1)
+    assert len(chain) == 3
+
+
 def test_board_uid_exists(conn):
     models.create_board(conn, "B", "v1", "bomA", "3")
     assert models.board_uid_exists(conn, "B", "v1", "bomA", "3") is True

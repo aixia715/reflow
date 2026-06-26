@@ -53,6 +53,53 @@ def test_remove_ignores_spurious_part():
     assert validate_edit(BOM, "C1", "remove", "spurious") is None
 
 
+from app.validation import validate_insert_time
+
+PREV = "2026-06-01T00:00:00+00:00"
+NEXT = "2026-06-10T00:00:00+00:00"
+
+
+def test_insert_time_between_passes():
+    assert validate_insert_time(PREV, NEXT, "2026-06-05T00:00:00+00:00") is None
+
+
+def test_insert_time_equal_prev_rejected():
+    # 开区间：等于上一节点时间不允许
+    assert "上一个" in validate_insert_time(PREV, NEXT, PREV)
+
+
+def test_insert_time_equal_next_rejected():
+    assert "下一个" in validate_insert_time(PREV, NEXT, NEXT)
+
+
+def test_insert_time_before_prev_rejected():
+    assert "上一个" in validate_insert_time(PREV, NEXT, "2026-05-30T00:00:00+00:00")
+
+
+def test_insert_time_after_next_rejected():
+    assert "下一个" in validate_insert_time(PREV, NEXT, "2026-06-20T00:00:00+00:00")
+
+
+def test_insert_time_empty_rejected():
+    assert "不能为空" in validate_insert_time(PREV, NEXT, "")
+
+
+def test_insert_time_invalid_format_rejected():
+    assert "格式" in validate_insert_time(PREV, NEXT, "not-a-time")
+
+
+def test_insert_time_naive_chosen_treated_as_utc():
+    # 无时区的 chosen（直接构造请求时可能出现）不应抛异常，按 UTC 处理
+    assert validate_insert_time(PREV, NEXT, "2026-06-05T00:00:00") is None
+    assert "上一个" in validate_insert_time(PREV, NEXT, "2026-05-01T00:00:00")
+
+
+def test_insert_time_different_offset_compared_correctly():
+    # 选择值带 +08:00 偏移，应按时刻比较而非字符串字面量
+    # 2026-06-05T08:00:00+08:00 == 2026-06-05T00:00:00Z，落在区间内
+    assert validate_insert_time(PREV, NEXT, "2026-06-05T08:00:00+08:00") is None
+
+
 from app.validation import validate_new_name
 
 

@@ -351,6 +351,29 @@ def commit_workspace(conn, board_id, message, description="") -> int:
     return draft["id"]
 
 
+def insert_node_after(conn, parent_id, committed_at, message="", description="") -> int:
+    """在 parent_id 之后插入一个已提交节点，把 parent 原来的直接子节点改挂到新节点。
+
+    用于「在此节点后插入变更节点」：新节点 committed_at 由调用方给定（须落在
+    上一节点之后、下一节点之前，校验见 validation.validate_insert_time）。返回新节点 id。
+    """
+    parent = get_node(conn, parent_id)
+    old_child = conn.execute(
+        "SELECT id FROM nodes WHERE parent_id=?", (parent_id,)
+    ).fetchone()
+    new_id = conn.execute(
+        "INSERT INTO nodes(board_id,parent_id,message,description,created_at,is_committed,committed_at)"
+        " VALUES(?,?,?,?,?,1,?)",
+        (parent["board_id"], parent_id, message, description, _now(), committed_at),
+    ).lastrowid
+    if old_child is not None:
+        conn.execute(
+            "UPDATE nodes SET parent_id=? WHERE id=?", (new_id, old_child["id"])
+        )
+    conn.commit()
+    return new_id
+
+
 def update_node_info(conn, node_id, message, description) -> None:
     """更新节点的标题（提交说明）与长文本说明。不改 BOM 内容，不记审计日志。"""
     conn.execute(
