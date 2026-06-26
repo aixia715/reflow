@@ -131,7 +131,7 @@ async def hc_edit(request: Request, board_id: int, hc_id: int,
     if saved:
         models.add_hard_change_images(conn, hc_id, saved)
     models.update_hard_change(conn, hc_id, title, description.strip(),
-                              occurred_at.strip() or hc["occurred_at"])
+                              occurred_at.strip() or models._now())
     return RedirectResponse(
         f"/board/{board_id}/hard-change/{hc_id}?flash=✓ 已更新硬更改", status_code=303)
 

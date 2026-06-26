@@ -14,33 +14,44 @@
     <input class="input" name="title" required
            value="{{ form.title if form.title is defined else (hc.title if hc else '') }}">
   </label>
-  <label x-data="{
+  <div x-data="{
+             specify: {{ 'true' if mode == 'edit' else 'false' }},
              toLocalInput(iso){
                if(!iso) return '';
                const d = new Date(iso);
-               return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+               return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,19);
              },
              toUtc(localVal){
                if(!localVal) return '';
                const d = new Date(localVal);
                const pad = n => String(n).padStart(2,'0');
                return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T`
-                    + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00+00:00`;
+                    + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}+00:00`;
              },
-             sync(){ this.$refs.utc.value = this.toUtc(this.$refs.local.value); }
-           }">发生时间
-    <input class="input" type="datetime-local" name="occurred_at_local" required
-           x-ref="local"
-           x-init="
-             $el.value = '{{ default_time }}'
-               ? ('{{ default_time }}'.includes('+') || '{{ default_time }}'.endsWith('Z')
-                   ? toLocalInput('{{ default_time }}') : '{{ default_time }}')
-               : toLocalInput(new Date().toISOString());
-             sync();
-           "
-           @input="sync()">
-    <input type="hidden" name="occurred_at" x-ref="utc">
-  </label>
+             sync(){ this.$refs.utc.value = this.specify ? this.toUtc(this.$refs.local.value) : ''; },
+             onToggle(){
+               if(this.specify && !this.$refs.local.value){
+                 this.$refs.local.value = this.toLocalInput(new Date().toISOString());
+               }
+               this.sync();
+             }
+           }">
+    <label><input type="checkbox" name="specify_time" x-model="specify" @change="onToggle()"> 指定时间</label>
+    <label>发生时间
+      <input class="input" type="datetime-local" name="occurred_at_local" step="1"
+             x-ref="local" :disabled="!specify" :required="specify"
+             x-init="
+               $el.value = '{{ default_time }}'
+                 ? ('{{ default_time }}'.includes('+') || '{{ default_time }}'.endsWith('Z')
+                     ? toLocalInput('{{ default_time }}') : '{{ default_time }}')
+                 : '';
+               sync();
+             "
+             @input="sync()">
+      <input type="hidden" name="occurred_at" x-ref="utc">
+    </label>
+    <div class="muted">未勾选时用提交时间（精确到秒）</div>
+  </div>
   <label>文字说明
     <textarea class="input" name="description" rows="4">{{ form.description if form.description is defined else (hc.description if hc else '') }}</textarea>
   </label>
