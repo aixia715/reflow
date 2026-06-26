@@ -114,6 +114,27 @@ def test_edit_ignores_foreign_image_ids(client):
     assert img_b_after == img_b
 
 
+def test_create_error_rerender_keeps_specified_time(client):
+    """新建校验失败重渲染：若用户已指定时间（occurred_at 非空），'指定时间'
+    应保持勾选、时间不丢（issue #74 问题一）。"""
+    bid = _new_board(client)
+    # title 为空触发校验失败，但带了 occurred_at
+    r = client.post(f"/board/{bid}/hard-change",
+                    data={"title": "", "occurred_at": "2026-06-01T02:30:00+00:00",
+                          "description": "x"})
+    assert r.status_code == 200          # 错误就地重渲染
+    assert "specify: true" in r.text     # 勾选状态保留 → 时间不会被 sync() 清空
+
+
+def test_create_error_rerender_no_time_stays_unchecked(client):
+    """新建校验失败重渲染：未指定时间时，'指定时间'保持未勾选。"""
+    bid = _new_board(client)
+    r = client.post(f"/board/{bid}/hard-change",
+                    data={"title": "", "occurred_at": "", "description": "x"})
+    assert r.status_code == 200
+    assert "specify: false" in r.text
+
+
 def test_create_hard_change_empty_occurred_at_uses_canonical_utc(client):
     """POST 硬更改时若 occurred_at 为空，服务端兜底应使用 canonical UTC (+00:00)。"""
     bid = _new_board(client)
