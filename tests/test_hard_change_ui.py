@@ -185,7 +185,7 @@ def test_new_form_specify_time_fills_input(live_server, page: Page):
         "document.querySelector('input[name=occurred_at_local]').value !== ''")
     expect(page.locator("input[name=occurred_at_local]")).to_be_enabled()
     local_val = page.input_value("input[name=occurred_at_local]")
-    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", local_val), local_val
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$", local_val), local_val
     browser_now = page.evaluate(
         "() => { const d = new Date();"
         " return new Date(d.getTime() - d.getTimezoneOffset()*60000)"
@@ -194,19 +194,19 @@ def test_new_form_specify_time_fills_input(live_server, page: Page):
     assert local_val[:13] == browser_now[:13], f"{local_val} vs {browser_now}"
     # 隐藏字段应已被 sync() 转成 canonical UTC 格式
     utc_val = page.evaluate("document.querySelector('input[name=occurred_at]').value")
-    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\+00:00$", utc_val), utc_val
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$", utc_val), utc_val
     # 再次取消勾选：occurred_at 应清空（回退为提交时间）
     page.uncheck("input[name=specify_time]")
     assert page.evaluate("document.querySelector('input[name=occurred_at]').value") == ""
 
 
 def test_edit_form_specify_time_checked_with_existing(live_server, page: Page):
-    """编辑表单：已有 occurred_at 时，'指定时间'默认勾选并展示原时间。"""
+    """编辑表单：已有 occurred_at 时，'指定时间'默认勾选并准确展示原时间（含秒）。"""
     bid = _make_board(live_server, uid="HC2C")
-    # 先建一条硬更改（指定时间为 2026-06-01T10:30 本地）
+    # 先建一条硬更改（指定时间含非零秒：2026-06-01T10:30:45 UTC）
     with httpx.Client(base_url=live_server, follow_redirects=False) as c:
         c.post(f"/board/{bid}/hard-change",
-               data={"title": "原记录", "occurred_at": "2026-06-01T10:30:00+00:00",
+               data={"title": "原记录", "occurred_at": "2026-06-01T10:30:45+00:00",
                      "description": ""})
     import re as _re
     with httpx.Client(base_url=live_server) as c:
@@ -217,9 +217,36 @@ def test_edit_form_specify_time_checked_with_existing(live_server, page: Page):
     cb = page.locator("input[name=specify_time]")
     expect(cb).to_be_checked()
     expect(page.locator("input[name=occurred_at_local]")).to_be_enabled()
-    # 隐藏 occurred_at 应已填入原 UTC 值
+    # 可见输入应保留原时间的秒（不被抹成 00）
+    local_val = page.input_value("input[name=occurred_at_local]")
+    assert local_val.endswith(":45"), local_val
+    # 隐藏 occurred_at 应回填原 UTC 值（含秒），证明往返不丢秒
     utc_val = page.evaluate("document.querySelector('input[name=occurred_at]').value")
-    assert utc_val == "2026-06-01T10:30:00+00:00", utc_val
+    assert utc_val == "2026-06-01T10:30:45+00:00", utc_val
+
+
+def test_edit_uncheck_specify_uses_submit_time(live_server, page: Page):
+    """编辑时取消'指定时间'：occurred_at 清空，服务端改用提交时刻（方案1）。"""
+    bid = _make_board(live_server, uid="HC2D")
+    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+        c.post(f"/board/{bid}/hard-change",
+               data={"title": "原记录", "occurred_at": "2020-01-01T00:00:00+00:00",
+                     "description": ""})
+    import re as _re
+    with httpx.Client(base_url=live_server) as c:
+        rg = c.get(f"/board/{bid}").text
+    hid = _re.search(rf"/board/{bid}/hard-change/(\d+)", rg).group(1)
+
+    page.goto(f"{live_server}/board/{bid}/hard-change/{hid}/edit")
+    page.uncheck("input[name=specify_time]")
+    # 取消勾选后隐藏字段应清空
+    assert page.evaluate("document.querySelector('input[name=occurred_at]').value") == ""
+    page.click("button[type=submit]")
+    page.wait_for_url(f"{live_server}/board/{bid}/hard-change/{hid}*")
+    # 存库时间不再是 2020 的旧值，而是提交时刻（>= 当前年份）
+    with httpx.Client(base_url=live_server) as c:
+        detail = c.get(f"/board/{bid}/hard-change/{hid}").text
+    assert "2020-01-01" not in detail
 
 
 def test_detail_image_lightbox(live_server, page: Page):

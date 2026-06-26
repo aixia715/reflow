@@ -19,14 +19,14 @@
              toLocalInput(iso){
                if(!iso) return '';
                const d = new Date(iso);
-               return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+               return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,19);
              },
              toUtc(localVal){
                if(!localVal) return '';
                const d = new Date(localVal);
                const pad = n => String(n).padStart(2,'0');
                return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T`
-                    + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:00+00:00`;
+                    + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}+00:00`;
              },
              sync(){ this.$refs.utc.value = this.specify ? this.toUtc(this.$refs.local.value) : ''; },
              onToggle(){
@@ -38,7 +38,7 @@
            }">
     <label><input type="checkbox" name="specify_time" x-model="specify" @change="onToggle()"> 指定时间</label>
     <label>发生时间
-      <input class="input" type="datetime-local" name="occurred_at_local"
+      <input class="input" type="datetime-local" name="occurred_at_local" step="1"
              x-ref="local" :disabled="!specify" :required="specify"
              x-init="
                $el.value = '{{ default_time }}'
