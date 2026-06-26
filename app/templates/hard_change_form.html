@@ -15,7 +15,7 @@
            value="{{ form.title if form.title is defined else (hc.title if hc else '') }}">
   </label>
   <div x-data="{
-             specify: {{ 'true' if mode == 'edit' else 'false' }},
+             specify: {{ 'true' if specify_default else 'false' }},
              toLocalInput(iso){
                if(!iso) return '';
                const d = new Date(iso);

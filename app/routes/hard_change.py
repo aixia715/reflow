@@ -40,7 +40,7 @@ def hc_new_form(request: Request, board_id: int):
     return templates.TemplateResponse(request, "hard_change_form.html", {
         "board": board, "board_id": board_id, "mode": "new",
         "hc": None, "images": [], "form": {}, "error": None,
-        "default_time": "",
+        "default_time": "", "specify_default": False,
     })
 
 
@@ -60,6 +60,7 @@ async def hc_create(request: Request, board_id: int,
         return templates.TemplateResponse(request, "hard_change_form.html", {
             "board": board, "board_id": board_id, "mode": "new", "hc": None,
             "images": [], "error": err, "default_time": occurred_at,
+            "specify_default": bool(occurred_at.strip()),
             "form": {"title": title, "occurred_at": occurred_at, "description": description},
         }, status_code=200)
     saved = []
@@ -91,7 +92,7 @@ def hc_edit_form(request: Request, board_id: int, hc_id: int):
     return templates.TemplateResponse(request, "hard_change_form.html", {
         "board": board, "board_id": board_id, "mode": "edit", "hc": hc,
         "images": models.list_hard_change_images(conn, hc_id), "form": {}, "error": None,
-        "default_time": hc["occurred_at"],
+        "default_time": hc["occurred_at"], "specify_default": True,
     })
 
 
@@ -117,6 +118,7 @@ async def hc_edit(request: Request, board_id: int, hc_id: int,
         return templates.TemplateResponse(request, "hard_change_form.html", {
             "board": board, "board_id": board_id, "mode": "edit", "hc": hc,
             "images": existing, "error": err, "default_time": occurred_at or hc["occurred_at"],
+            "specify_default": bool(occurred_at.strip()),
             "form": {"title": title, "occurred_at": occurred_at, "description": description},
         }, status_code=200)
     own_ids = {im["id"] for im in existing}
