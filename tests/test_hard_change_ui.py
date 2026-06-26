@@ -158,8 +158,8 @@ def test_paste_text_into_textarea_not_swallowed(live_server, page: Page):
 
 
 def test_new_form_defaults_to_submit_time(live_server, page: Page):
-    """新建表单默认用提交时间（issue #74）：'指定时间'未勾选，occurred_at 为空，
-    时间输入禁用——服务端将用提交时刻（精确到秒）。"""
+    """新建表单默认用提交时间（issue #74, #80）：'指定'未勾选，occurred_at 为空，
+    时间输入禁用并呈灰色——服务端将用提交时刻（精确到秒）。"""
     bid = _make_board(live_server, uid="HC2")
 
     # 服务器侧 HTML：仍含 occurred_at_local 可见输入与 occurred_at 隐藏字段
@@ -167,13 +167,21 @@ def test_new_form_defaults_to_submit_time(live_server, page: Page):
         html = c.get(f"/board/{bid}/hard-change/new").text
     assert 'name="occurred_at_local"' in html, "未找到 occurred_at_local 可见输入"
     assert 'name="occurred_at"' in html, "未找到 occurred_at 隐藏字段"
-    assert "指定时间" in html, "未找到 '指定时间' 复选框"
+    assert 'name="specify_time"' in html, "未找到 specify_time 复选框"
+    # issue #80：标题由「指定时间 发生时间」改为「时间 ✅指定」
+    assert "指定</label>" in html, "未找到 '指定' 复选框文案（issue #80）"
+    assert "指定时间" not in html, "旧文案 '指定时间' 应拆为 '时间'+'指定'（issue #80）"
 
     # 浏览器加载后：复选框未勾选、隐藏 occurred_at 为空、可见输入禁用
     page.goto(f"{live_server}/board/{bid}/hard-change/new")
     expect(page.locator("input[name=specify_time]")).not_to_be_checked()
     assert page.evaluate("document.querySelector('input[name=occurred_at]').value") == ""
     expect(page.locator("input[name=occurred_at_local]")).to_be_disabled()
+    # issue #80 需求 2：未勾选时时间输入框应呈灰色 disable 视觉
+    opacity = page.evaluate(
+        "parseFloat(getComputedStyle("
+        "document.querySelector('input[name=occurred_at_local]')).opacity)")
+    assert opacity < 1, f"未勾选时时间输入应半透明灰色，实际 opacity={opacity}"
 
 
 def test_new_form_specify_time_fills_input(live_server, page: Page):
