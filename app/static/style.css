@@ -71,8 +71,10 @@ main{max-width:1100px;margin:0 auto;padding:20px 24px}
   font-size:13px;font-family:inherit;width:100%;
   background:var(--surface);color:var(--fg)}
 .input::placeholder{color:var(--muted)}
+.input:disabled{background:var(--surface-2);color:var(--muted);opacity:.6;cursor:not-allowed}
 input[type=file]{font-size:13px}
 label{font-size:13px}
+.hc-time-head{display:flex;align-items:center;gap:14px;margin-bottom:6px}
 
 .flash{border-radius:var(--radius);padding:8px 12px;font-size:13px;margin:8px 0;border:1px solid}
 .flash-error{background:var(--red-bg);border-color:#cf222e66;color:var(--red)}

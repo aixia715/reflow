@@ -36,20 +36,21 @@
                this.sync();
              }
            }">
-    <label><input type="checkbox" name="specify_time" x-model="specify" @change="onToggle()"> 指定时间</label>
-    <label>发生时间
-      <input class="input" type="datetime-local" name="occurred_at_local" step="1"
-             x-ref="local" :disabled="!specify" :required="specify"
-             x-init="
-               $el.value = '{{ default_time }}'
-                 ? ('{{ default_time }}'.includes('+') || '{{ default_time }}'.endsWith('Z')
-                     ? toLocalInput('{{ default_time }}') : '{{ default_time }}')
-                 : '';
-               sync();
-             "
-             @input="sync()">
-      <input type="hidden" name="occurred_at" x-ref="utc">
-    </label>
+    <div class="hc-time-head">
+      <span>时间</span>
+      <label><input type="checkbox" name="specify_time" x-model="specify" @change="onToggle()"> 指定</label>
+    </div>
+    <input class="input" type="datetime-local" name="occurred_at_local" step="1"
+           x-ref="local" :disabled="!specify" :required="specify"
+           x-init="
+             $el.value = '{{ default_time }}'
+               ? ('{{ default_time }}'.includes('+') || '{{ default_time }}'.endsWith('Z')
+                   ? toLocalInput('{{ default_time }}') : '{{ default_time }}')
+               : '';
+             sync();
+           "
+           @input="sync()">
+    <input type="hidden" name="occurred_at" x-ref="utc">
     <div class="muted">未勾选时用提交时间（精确到秒）</div>
   </div>
   <label>文字说明
