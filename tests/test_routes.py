@@ -273,7 +273,9 @@ def test_state_graph_shows_summary(client):
                 data={"reference": "R1", "op": "modify", "part": "47k"})
     r = client.get(f"/board/{board_id}")
     assert "工作区草稿" in r.text
-    assert "R1" in r.text and "修改" in r.text
+    # issue #79：草稿卡片第二行只展示时间+哈希（草稿无哈希），修改项摘要不再常驻卡片；
+    # 仅用「N 条未提交」badge 表明尚有未提交修改。
+    assert "条未提交" in r.text
     assert "初始状态" in r.text
 
 
