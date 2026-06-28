@@ -193,7 +193,8 @@ def test_new_form_specify_time_fills_input(live_server, page: Page):
         "document.querySelector('input[name=occurred_at_local]').value !== ''")
     expect(page.locator("input[name=occurred_at_local]")).to_be_enabled()
     local_val = page.input_value("input[name=occurred_at_local]")
-    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$", local_val), local_val
+    # datetime-local 在秒为 00 时会规整掉秒部分（仅剩到分钟），故秒可选
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$", local_val), local_val
     browser_now = page.evaluate(
         "() => { const d = new Date();"
         " return new Date(d.getTime() - d.getTimezoneOffset()*60000)"
