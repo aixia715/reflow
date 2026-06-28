@@ -22,6 +22,8 @@ LABEL_WAITING="等待回复"
 BASE_BRANCH="master"
 DRY_RUN="${DRY_RUN:-false}"
 PENDING_LIMIT=3   # 待人工处理的 issue 达到此数即本次不再继续，避免问题积压
+# 提问评论里埋的隐藏标记：预筛脚本据此数「已问轮数」守回合上限，二者必须一致
+QUESTION_MARKER="<!-- triage:question -->"
 
 # 早失败：确认 opencode CLI 与必需环境变量就绪
 opencode --version >/dev/null 2>&1 || { echo "未找到 opencode CLI" >&2; exit 1; }
@@ -79,17 +81,31 @@ while IFS= read -r item; do
   if [ "$complexity" = "complex" ]; then
     body="$(jq -r '.comment_body // ""' <<<"$item")"
     if [ -z "$body" ]; then echo "  复杂但无评论草稿，跳过 #$number"; continue; fi
-    gh issue comment "$number" --body "$body"
+    # 评论末尾埋隐藏提问标记：预筛脚本据此累计「已问轮数」，到上限即不再追问
+    gh issue comment "$number" --body "$body
+
+$QUESTION_MARKER"
     gh issue edit "$number" --add-label "$LABEL_WAITING"
     echo "  已评论并打标签「$LABEL_WAITING」"
     continue
   fi
 
-  # ---- simple：实现修复 ----
+  # ---- simple / ready：实现修复 ----
+  # ready = 此前问过且人类已答、答复充分（或已达回合上限带假设推进）：
+  #   阶段A 给出 implementation_notes（方案映射），实现时连同问答记录一起喂给阶段B。
+  notes=""
+  if [ "$complexity" = "ready" ]; then
+    notes="$(jq -r '.implementation_notes // ""' <<<"$item")"
+    ready_comment="$(jq -r '.comment_body // ""' <<<"$item")"
+    # ready 若带说明（通常是达上限后采用的假设），先贴出来让人类知情、可事后纠正
+    [ -n "$ready_comment" ] && gh issue comment "$number" --body "$ready_comment"
+  fi
+
   # 人类此前回复过的话，先摘掉「等待回复」标签
   gh issue edit "$number" --remove-label "$LABEL_WAITING" 2>/dev/null || true
 
-  issue_json="$(gh issue view "$number" --json title,body)"
+  # ready 需要把问答记录喂给阶段B，故连 comments 一并取
+  issue_json="$(gh issue view "$number" --json title,body,comments)"
   title="$(jq -r '.title' <<<"$issue_json")"
 
   # 干净起点：强制切回基线分支并清掉任何残留（含上一轮模型可能留下的改动）
@@ -99,7 +115,18 @@ while IFS= read -r item; do
   git clean -fd >/dev/null
 
   echo "  阶段B：实现修复"
-  if ! { cat "$PROMPT_DIR/stage-b.md"; echo "#$number $title"; echo; jq -r '.body // ""' <<<"$issue_json"; } | run_opencode; then
+  if ! {
+        cat "$PROMPT_DIR/stage-b.md"
+        echo "#$number $title"
+        echo
+        jq -r '.body // ""' <<<"$issue_json"
+        # ready：补上阶段A 定下的实现要点 + 此前完整问答记录，让阶段B 照人类已确认的方案做
+        if [ "$complexity" = "ready" ]; then
+          echo; echo "## 实现要点（阶段A 据人类答复确定，务必照此实现）"; echo "$notes"
+          echo; echo "## 此前问答记录"
+          jq -r '.comments[] | "【\(.author.login)】\(.body)"' <<<"$issue_json"
+        fi
+      } | run_opencode; then
     echo "  阶段B 运行失败，跳过 #$number"; continue
   fi
 
