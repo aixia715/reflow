@@ -29,6 +29,15 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+      # 统一评审标准抽到 .github/review-prompt.md，自动评审与 /review-oc、/review-cc 共用
+      - name: 载入评审 prompt
+        id: review_prompt
+        run: |
+          {
+            echo 'text<<REVIEW_PROMPT_EOF'
+            cat .github/review-prompt.md
+            echo REVIEW_PROMPT_EOF
+          } >> "$GITHUB_OUTPUT"
       - uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -36,4 +45,4 @@ jobs:
           OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
         with:
           model: ${{ vars.OPENCODE_MODEL }}
-          prompt: "审阅这个 PR 的改动：聚焦正确性、潜在 bug、与本仓库约定（见 CLAUDE.md）的一致性。用中文把结论作为评论发表。"
+          prompt: ${{ steps.review_prompt.outputs.text }}

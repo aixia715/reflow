@@ -59,3 +59,39 @@ jobs:
           #       "NODE_ENV": "test"
           #     }
           #   }
+
+  # PR 评论触发 /review-cc：用统一评审 prompt（.github/review-prompt.md）唤起 Claude Code 评审。
+  # 与上面的 @claude 通用唤起分开：这里注入固定评审 prompt，自动套用仓库评审标准（含文档同步检查），
+  # 无需每次手写要求。与 ci.yml 自动评审、opencode 的 /review-oc 共用同一份评审标准。
+  review:
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+        contains(github.event.comment.body, '/review-cc')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/review-cc'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # 评审作为 PR 评论发表
+      id-token: write
+      actions: read          # 让 Claude 能读 PR 上的 CI 结果
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      # 统一评审标准抽到 .github/review-prompt.md，自动评审与 /review-oc、/review-cc 共用
+      - name: 载入评审 prompt
+        id: review_prompt
+        run: |
+          {
+            echo 'text<<REVIEW_PROMPT_EOF'
+            cat .github/review-prompt.md
+            echo REVIEW_PROMPT_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.review_prompt.outputs.text }}

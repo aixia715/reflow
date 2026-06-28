@@ -53,6 +53,45 @@ jobs:
             --description "opencode 已就该 issue 提问，等待人类答复" 2>/dev/null || true
           gh issue edit "${{ github.event.issue.number }}" --add-label "等待回复"
 
+  # 1.5) PR 评论触发 /review-oc：用统一评审 prompt（.github/review-prompt.md）按需评审
+  #      与 ci.yml 自动评审共用同一套标准；只对 PR 评论生效，纯只读评审不改代码
+  review:
+    if: |
+      github.actor != 'opencode-agent[bot]' && github.actor != 'opencode-agent' &&
+      (
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+          contains(github.event.comment.body, '/review-oc')) ||
+        (github.event_name == 'pull_request_review_comment' &&
+          contains(github.event.comment.body, '/review-oc'))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read         # 与 claude.yml review job 对齐：checkout 读仓库内容
+      pull-requests: write   # 评审作为 PR 评论发表
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      # 统一评审标准抽到 .github/review-prompt.md，自动评审与 /review-oc、/review-cc 共用
+      - name: 载入评审 prompt
+        id: review_prompt
+        run: |
+          {
+            echo 'text<<REVIEW_PROMPT_EOF'
+            cat .github/review-prompt.md
+            echo REVIEW_PROMPT_EOF
+          } >> "$GITHUB_OUTPUT"
+      - uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # 放行访问仓库目录外的路径，避免 CI 里 opencode 卡在 external_directory 权限确认
+          OPENCODE_CONFIG: ${{ github.workspace }}/.github/opencode-ci.json
+        with:
+          model: ${{ vars.OPENCODE_MODEL }}
+          prompt: ${{ steps.review_prompt.outputs.text }}
+
   # 2) Issue 触发：门控关键词（复刻 @claude 语义）；issues 必须带 prompt
   issue:
     if: |
