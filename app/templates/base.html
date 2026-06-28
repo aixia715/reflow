@@ -48,6 +48,12 @@
   }
   renderLocalDates();
   document.body.addEventListener('htmx:afterSwap', e => renderLocalDates(e.target));
+  // 任意点击都在捕获阶段广播 close-menus（先于按钮上 @click.stop / stopPropagation 执行），
+  // 让所有展开的弹出菜单据此判断点击是否落在自身之外来决定关闭——
+  // 修复点击其他卡片的三点/复制按钮时菜单不消失的问题（这些按钮会阻止冒泡，使 @click.outside 失效）。
+  document.addEventListener('click', function(e){
+    window.dispatchEvent(new CustomEvent('close-menus', { detail: e.target }));
+  }, true);
   function copyHash(text){
     var done = function(){ showToast('已复制哈希值'); };
     if (navigator.clipboard && navigator.clipboard.writeText) {

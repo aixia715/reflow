@@ -36,3 +36,31 @@ def test_menu_closes_on_clicking_other_card(live_server, page: Page):
     hard = page.locator(".tl-item.hard", has_text="返修 U1")
     hard.locator(".tl-card").first.click()
     expect(menu).to_be_hidden()
+
+
+def test_menu_closes_on_clicking_other_card_menu_btn(live_server, page: Page):
+    """复测：弹出菜单后点击另一张卡片的三点按钮（其 @click.stop 会阻止冒泡），原菜单仍应关闭。"""
+    bid = _make_chain(live_server)
+    page.goto(f"{live_server}/board/{bid}")
+    opener = _c1(page)
+    opener.locator(".menu-btn").click()
+    menu = opener.locator(".menu-pop")
+    expect(menu).to_be_visible()
+    other = page.locator(".tl-item.node", has_text="加 C9")
+    other.locator(".menu-btn").click()
+    expect(menu).to_be_hidden()
+    # 同时另一张卡片的菜单应已展开
+    expect(other.locator(".menu-pop")).to_be_visible()
+
+
+def test_menu_closes_on_clicking_other_card_copy_btn(live_server, page: Page):
+    """复测：弹出菜单后点击另一张卡片的复制按钮（其 stopPropagation 会阻止冒泡），原菜单仍应关闭。"""
+    bid = _make_chain(live_server)
+    page.goto(f"{live_server}/board/{bid}")
+    opener = _c1(page)
+    opener.locator(".menu-btn").click()
+    menu = opener.locator(".menu-pop")
+    expect(menu).to_be_visible()
+    other = page.locator(".tl-item.node", has_text="加 C9")
+    other.locator(".copy-hash").click()
+    expect(menu).to_be_hidden()

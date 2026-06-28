@@ -43,7 +43,7 @@
     </div>
   </a>
   {% if show_menu %}
-  <span class="menu tl-actions" x-data="{ open:false }" @click.outside="open=false">
+  <span class="menu tl-actions" x-data="{ open:false }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
     <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       {% if n.id in insertable_ids %}
@@ -72,7 +72,7 @@
       <button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ hard_short(h.id) }}')">复制</button>
     </div>
   </a>
-  <span class="menu tl-actions" x-data="{ open:false }" @click.outside="open=false">
+  <span class="menu tl-actions" x-data="{ open:false }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
     <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       <button type="button" class="del"
