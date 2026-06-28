@@ -67,6 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      contents: read         # 与 claude.yml review job 对齐：checkout 读仓库内容
       pull-requests: write   # 评审作为 PR 评论发表
     steps:
       - uses: actions/checkout@v6
