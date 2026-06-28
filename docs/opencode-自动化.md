@@ -2,21 +2,27 @@
 
 仓库有两类 opencode 自动化，共享同一套模型配置与标签语义：
 
-- **事件驱动（按需）**：人在 issue / PR 里用 `/opencode`、`/oc` 触发，或开 PR 自动触发评审。
+- **事件驱动（按需）**：人在 issue / PR 里用 `/opencode`、`/oc` 触发；开 PR 自动触发评审；在 PR 评论里用 `/review-oc`（opencode）或 `/review-cc`（Claude Code）按需触发一次评审。
 - **每日定时扫描**：每天定时遍历 open issue，自动挑选并处理，最多 3 个。
 
 两者都用 `anomalyco/opencode` 这套 CLI / action，模型由仓库变量 `OPENCODE_MODEL` 指定，鉴权用 secret `OPENCODE_API_KEY`，CI 内统一加载 `.github/opencode-ci.json`（放行仓库目录外访问，避免卡在权限确认）。
 
+> **统一评审标准**：自动评审与 `/review-oc`、`/review-cc` 三处共用同一份评审 prompt `.github/review-prompt.md`（聚焦正确性 / bug、与 `CLAUDE.md` 约定一致性，并检查**相关说明文档是否随代码同步更新**——`docs/superpowers/` 除外）。改评审标准只改这一个文件即可。
+
 ---
 
-## 1. 事件驱动（`.github/workflows/opencode.yml` + `ci.yml`）
+## 1. 事件驱动（`.github/workflows/opencode.yml` + `ci.yml` + `claude.yml`）
 
 | 触发 | 行为 | 结束后打的标签 |
 |---|---|---|
 | issue **正文/标题**含 `/opencode`、`/oc`（`issues: opened/edited`） | 读 issue 需求/缺陷 → 新分支实现/修复 → 开 PR | 新开了 PR → `已自动修复`；否则（仅回复/失败）→ `等待回复` |
 | **issue 评论**含 `/opencode`、`/oc`（`issue_comment: created`） | 执行评论里的指令（不预设 prompt，避免覆盖） | `等待回复`（仅对 issue，PR 评论不打） |
-| **PR review 评论**含 `/opencode`、`/oc` | 执行评论指令 | —（PR 上不打 issue 标签） |
-| 开 / 重开 PR（`ci.yml` 的 `review` job） | 测试 + 冒烟通过后，自动中文评审，聚焦正确性/bug/约定一致性 | —（评审为评论） |
+| **PR 评论**含 `/opencode`、`/oc` | 执行评论指令 | —（PR 上不打 issue 标签） |
+| 开 / 重开 PR（`ci.yml` 的 `review` job） | 测试 + 冒烟通过后，自动中文评审（统一 prompt） | —（评审为评论） |
+| **PR 评论**含 `/review-oc`（`opencode.yml` 的 `review` job） | opencode 按统一 prompt 做一次只读评审，按需重复触发 | —（评审为评论） |
+| **PR 评论**含 `/review-cc`（`claude.yml` 的 `review` job） | Claude Code 按统一 prompt 做一次评审，按需重复触发 | —（评审为评论） |
+
+> `/review-oc`、`/review-cc` 与 `/opencode`、`/oc`、`@claude` 触发串互不包含，互不误触；`/review-*` 仅对 **PR 评论**生效（`issue_comment` 上用 `github.event.issue.pull_request` 过滤，叠加 `pull_request_review_comment`），且为**只读评审不改代码**，故不装 Python / Playwright。
 
 要点：
 
@@ -121,8 +127,10 @@ flowchart TD
 
 | 文件 | 职责 |
 |---|---|
-| `.github/workflows/opencode.yml` | 事件驱动：`/oc`、`/opencode` 触发的评论 / issue 处理 |
+| `.github/workflows/opencode.yml` | 事件驱动：`/oc`、`/opencode` 触发的评论 / issue 处理；`/review-oc` PR 评论评审 |
+| `.github/workflows/claude.yml` | `@claude` 通用唤起；`/review-cc` PR 评论用 Claude Code 评审 |
 | `.github/workflows/ci.yml` | PR 测试（含 `_checks.yml`）+ `review` job 自动评审 |
+| `.github/review-prompt.md` | 统一评审 prompt（自动评审 / `/review-oc` / `/review-cc` 共用） |
 | `.github/workflows/opencode-scheduled.yml` | 每日定时 triage 的工作流外壳 |
 | `.github/opencode-ci.json` | CI 专用 opencode 配置（放行非交互工具 / 外部目录） |
 | `scripts/opencode-triage.sh` | 定时 triage 主流程（闸门→预筛→阶段A→执行） |
