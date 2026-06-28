@@ -24,6 +24,7 @@ DRY_RUN="${DRY_RUN:-false}"
 PENDING_LIMIT=3   # 待人工处理的 issue 达到此数即本次不再继续，避免问题积压
 # 提问评论里埋的隐藏标记：预筛脚本据此数「已问轮数」守回合上限，二者必须一致
 QUESTION_MARKER="<!-- triage:question -->"
+MAX_QUESTION_ROUNDS=2   # 最多提问轮数，与 stage-a.md 内的上限保持一致
 
 # 早失败：确认 opencode CLI 与必需环境变量就绪
 opencode --version >/dev/null 2>&1 || { echo "未找到 opencode CLI" >&2; exit 1; }
@@ -81,12 +82,23 @@ while IFS= read -r item; do
   if [ "$complexity" = "complex" ]; then
     body="$(jq -r '.comment_body // ""' <<<"$item")"
     if [ -z "$body" ]; then echo "  复杂但无评论草稿，跳过 #$number"; continue; fi
+    # 本轮轮次 = 已有提问标记数 + 1；在评论开头注明第几轮，让开发者心里有数
+    prior_q="$(gh issue view "$number" --json comments \
+      -q "[.comments[] | select(.body | contains(\"$QUESTION_MARKER\"))] | length")"
+    round=$((prior_q + 1))
+    if [ "$round" -ge "$MAX_QUESTION_ROUNDS" ]; then
+      header="> 🔁 第 $round 轮提问（最后一轮，若仍不明确我会按合理假设直接实现）"
+    else
+      header="> 🔁 第 $round 轮提问（最多 $MAX_QUESTION_ROUNDS 轮）"
+    fi
     # 评论末尾埋隐藏提问标记：预筛脚本据此累计「已问轮数」，到上限即不再追问
-    gh issue comment "$number" --body "$body
+    gh issue comment "$number" --body "$header
+
+$body
 
 $QUESTION_MARKER"
     gh issue edit "$number" --add-label "$LABEL_WAITING"
-    echo "  已评论并打标签「$LABEL_WAITING」"
+    echo "  已评论（第 $round 轮）并打标签「$LABEL_WAITING」"
     continue
   fi
 
