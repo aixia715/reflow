@@ -89,7 +89,9 @@ jobs:
           {
             echo 'text<<REVIEW_PROMPT_EOF'
             echo "REPO: ${{ github.repository }}"
-            echo "PR NUMBER: ${{ github.event.issue.number }}"
+            # 两种触发事件取 PR 号字段不同：issue_comment 用 issue.number，
+            # pull_request_review_comment payload 无 issue 字段、只有 pull_request.number，故兜底
+            echo "PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}"
             echo ""
             cat .github/review-prompt.md
             echo REVIEW_PROMPT_EOF
