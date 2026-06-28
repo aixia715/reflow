@@ -24,41 +24,62 @@
 {% for it in timeline %}
 {% if it.kind == 'node' %}
 {% set n = it.obj %}{% set s = summaries[n.id] %}
-<div class="tl-item node {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}">
+{% set show_menu = n.is_committed and (n.id in insertable_ids or n.parent_id is not none) %}
+<div class="tl-item node {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}"
+     x-data="{ open:false }" @click.outside="open=false">
   <span class="dot"></span>
   <a class="tl-card" href="/board/{{ board_id }}/node/{{ n.id }}"
      :class="{ 'selected': sel.includes({{ n.id }}) }"
      @click="if (cmp) { $event.preventDefault(); toggle({{ n.id }}); }">
-    <b>{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}</b>
+    <b>{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}📦 {{ n.message or '(无说明)' }}{% endif %}</b>
     {% if n.parent_id is none %}
     <span class="badge badge-purple">初始 BOM · {{ initial_count }} 位号</span>
     {% elif not n.is_committed %}
     <span class="badge badge-blue">{{ s|length }} 条未提交</span>
-    {% else %}
-    <span class="badge">{{ s|length }} 条修改</span>
     {% endif %}
-    {% if n.is_committed %}<code class="muted" title="哈希 {{ node_hash(n.id) }}">{{ node_short(n.id) }}</code><button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ node_short(n.id) }}')">复制</button>{% endif %}
-    {% if n.id in insertable_ids %}<button type="button" class="btn-link" title="在此节点之后插入一个变更节点" onclick="event.preventDefault();event.stopPropagation();location.href='/board/{{ board_id }}/node/{{ n.id }}/insert'">＋在此后插入</button>{% endif %}
     <div class="muted">
-      {%- for c in s[:4] -%}
-        {{ c.reference }} {{ {'add': '新增', 'modify': '修改', 'remove': '不贴'}[c.op] }}{% if not loop.last %} · {% endif %}
-      {%- endfor -%}
-      {%- if s|length > 4 %} …{% endif -%}
-      {%- if s %} · {% endif %}<time class="local-dt" datetime="{{ n.committed_at or n.created_at }}">{{ n.committed_at or n.created_at }}</time>
+      <time class="local-dt" datetime="{{ n.committed_at or n.created_at }}">{{ n.committed_at or n.created_at }}</time>
+      {%- if n.is_committed %} · <code title="哈希 {{ node_hash(n.id) }}">{{ node_short(n.id) }}</code>
+      <button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ node_short(n.id) }}')">复制</button>{% endif -%}
     </div>
   </a>
+  {% if show_menu %}
+  <span class="menu tl-actions">
+    <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
+    <div class="menu-pop" x-show="open" x-cloak>
+      {% if n.id in insertable_ids %}
+      <button type="button" title="在此节点之后插入一个变更节点"
+              onclick="location.href='/board/{{ board_id }}/node/{{ n.id }}/insert'">＋在此后插入</button>
+      {% endif %}
+      {% if n.parent_id is not none %}
+      <button type="button" class="del"
+              hx-post="/board/{{ board_id }}/node/{{ n.id }}/delete"
+              hx-confirm="确认删除节点 #{{ n.id }}「{{ n.message or '(无说明)' }}」？其下游将重接到上一节点，提交记录不可恢复。">🗑 删除节点</button>
+      {% endif %}
+    </div>
+  </span>
+  {% endif %}
 </div>
 {% else %}
 {% set h = it.obj %}
-<a class="tl-item hard" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
+<div class="tl-item hard" x-data="{ open:false }" @click.outside="open=false">
   <span class="dot"></span>
-  <div class="tl-card">
+  <a class="tl-card" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
     <b>🔧 {{ h.title }}</b>
-    <span class="badge badge-yellow">硬更改</span>
-    <code class="muted" title="哈希 {{ hard_hash(h.id) }}">{{ hard_short(h.id) }}</code><button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ hard_short(h.id) }}')">复制</button>
-    <div class="muted"><time class="local-dt" datetime="{{ h.occurred_at }}">{{ h.occurred_at }}</time>{% if h.description %} · {{ h.description[:40] }}{% endif %}</div>
-  </div>
-</a>
+    <div class="muted">
+      <time class="local-dt" datetime="{{ h.occurred_at }}">{{ h.occurred_at }}</time> · <code title="哈希 {{ hard_hash(h.id) }}">{{ hard_short(h.id) }}</code>
+      <button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ hard_short(h.id) }}')">复制</button>
+    </div>
+  </a>
+  <span class="menu tl-actions">
+    <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
+    <div class="menu-pop" x-show="open" x-cloak>
+      <button type="button" class="del"
+              hx-post="/board/{{ board_id }}/hard-change/{{ h.id }}/delete"
+              hx-confirm="确认删除硬更改「{{ h.title }}」？此操作将一并删除其所有附图，不可恢复。">🗑 删除</button>
+    </div>
+  </span>
+</div>
 {% endif %}
 {% endfor %}
 <div class="compare-bar" data-testid="compare-bar" x-show="cmp && sel.length === 2" x-cloak>

@@ -130,7 +130,11 @@ details.panel summary{cursor:pointer;font-weight:600}
 .tl-item.draft .dot{background:var(--surface);border-color:var(--blue)}
 .tl-item.root .dot{background:var(--purple)}
 .tl-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px}
-.tl-item.draft .tl-card{border-color:var(--accent-soft)}
+/* 卡片内印章色与正文色一致，避免锚点蓝叠加到标题 */
+a.tl-card{color:var(--fg);text-decoration:none}
+a.tl-card:hover{text-decoration:none}
+.tl-item.node .tl-card{border-left:3px solid var(--blue)}
+.tl-item.draft .tl-card{border-color:var(--accent-soft);border-left:3px solid var(--accent-soft)}
 .tl-item:hover .tl-card{border-color:var(--blue)}
 /* 硬更改时间线卡片：黄色圆点 + 左缘强调，区分 BOM 节点 */
 .tl-item.hard .dot{background:var(--yellow-fg)}
@@ -176,6 +180,10 @@ details.panel summary{cursor:pointer;font-weight:600}
 
 /* 对比入口 */
 a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持块级排版 */
+/* 时间线卡片右上的 ⋯ 操作菜单：默认隐藏，悬浮整个项时露出（issue #79） */
+/* 用 .menu.tl-actions 提高特异性，压过 .menu 的 position:relative，才能真正绝对定位到右上角 */
+.menu.tl-actions{position:absolute;right:6px;top:6px;z-index:10}
+.tl-card{padding-right:30px}
 .compare-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:.75rem;
   padding:.6rem .9rem;margin-top:1rem;border-radius:var(--radius);
   background:var(--surface);border:1px solid var(--border)}
@@ -230,7 +238,8 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
   padding:2px 6px;border-radius:3px;line-height:1;opacity:0;transition:opacity .15s,color .15s}
 .group-title:hover .menu-btn,
 .version-head:hover .menu-btn,
-.chip-wrap:hover .menu-btn{opacity:.45}
+.chip-wrap:hover .menu-btn,
+.tl-item:hover .menu-btn{opacity:.45}
 .menu-btn:hover,.menu-btn:focus-visible{opacity:1;color:var(--fg)}
 .menu-pop{position:absolute;right:0;top:100%;z-index:20;min-width:128px;margin-top:2px;
   background:var(--surface);border:1px solid var(--border);border-radius:6px;
