@@ -80,12 +80,19 @@ jobs:
         with:
           fetch-depth: 1
 
-      # 统一评审标准抽到 .github/review-prompt.md，自动评审与 /review-oc、/review-cc 共用
+      # 统一评审标准抽到 .github/review-prompt.md，自动评审与 /review-oc、/review-cc 共用。
+      # 顶部额外注入 REPO / PR 编号：PR 评论触发走 agent 模式，Claude 默认不带 PR 上下文，
+      # 显式给出仓库与 PR 号，便于它用 gh 读 diff、发评论（对照官方 pr-review 示例）。
       - name: 载入评审 prompt
         id: review_prompt
         run: |
           {
             echo 'text<<REVIEW_PROMPT_EOF'
+            echo "REPO: ${{ github.repository }}"
+            # 两种触发事件取 PR 号字段不同：issue_comment 用 issue.number，
+            # pull_request_review_comment payload 无 issue 字段、只有 pull_request.number，故兜底
+            echo "PR NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}"
+            echo ""
             cat .github/review-prompt.md
             echo REVIEW_PROMPT_EOF
           } >> "$GITHUB_OUTPUT"
@@ -94,4 +101,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # PR 评论触发会被识别为 agent 模式，默认不创建/更新 PR 评论，结论只进日志（见排查）。
+          # track_progress 强制走 tag 模式：建一条 tracking 评论并把评审结论更新进去，同时注入 PR 上下文。
+          track_progress: true
           prompt: ${{ steps.review_prompt.outputs.text }}
+          # 放行发 PR 评论 / 行内评论、读 diff 与 PR 信息所需工具（对照官方 PR 评审示例）
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
