@@ -106,11 +106,13 @@ $QUESTION_MARKER"
   # ready = 此前问过且人类已答、答复充分（或已达回合上限带假设推进）：
   #   阶段A 给出 implementation_notes（方案映射），实现时连同问答记录一起喂给阶段B。
   notes=""
+  ready_comment=""
   if [ "$complexity" = "ready" ]; then
     notes="$(jq -r '.implementation_notes // ""' <<<"$item")"
+    # ready 若带说明（通常是达上限后采用的假设），留到 PR 成功开出后再贴：
+    # 否则一旦阶段B/门禁失败，末评论就变成机器人，预筛会把该 issue 永久判为 pending、
+    # 不再自动重试——与 simple 路径（失败后末评论仍是人类、下轮会重试）保持一致。
     ready_comment="$(jq -r '.comment_body // ""' <<<"$item")"
-    # ready 若带说明（通常是达上限后采用的假设），先贴出来让人类知情、可事后纠正
-    [ -n "$ready_comment" ] && gh issue comment "$number" --body "$ready_comment"
   fi
 
   # 人类此前回复过的话，先摘掉「等待回复」标签
@@ -188,6 +190,8 @@ resolve #${number}
     echo "  开 PR 失败，已留言并跳过 #$number"; continue
   fi
   gh issue edit "$number" --add-label "$LABEL_FIXED"
+  # ready 的假设说明：PR 成功开出后才贴，确保仅在真正实现后才留下机器人末评论
+  [ -n "$ready_comment" ] && gh issue comment "$number" --body "$ready_comment"
   git checkout "$BASE_BRANCH" >/dev/null
   echo "  已开 PR 并打标签「$LABEL_FIXED」"
 done < <(jq -c '.[]' <<<"$plan")

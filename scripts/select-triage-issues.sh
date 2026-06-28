@@ -76,8 +76,8 @@ while IFS= read -r row; do
     continue
   fi
 
-  question_rounds="$(jq "[.comments[] | select(.body | contains(\"$QUESTION_MARKER\"))] | length" \
-    <<<"$comments_json")"
+  question_rounds="$(jq --arg marker "$QUESTION_MARKER" \
+    '[.comments[] | select(.body | contains($marker))] | length' <<<"$comments_json")"
   log_pick "  预筛入选 #$number（纳入候选，已问 $question_rounds 轮）"
   candidates="$(jq -c \
     --argjson c "$candidates" \
