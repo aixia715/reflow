@@ -22,6 +22,9 @@ LABEL_WAITING="等待回复"
 BASE_BRANCH="master"
 DRY_RUN="${DRY_RUN:-false}"
 PENDING_LIMIT=3   # 待人工处理的 issue 达到此数即本次不再继续，避免问题积压
+# 提问评论里埋的隐藏标记：预筛脚本据此数「已问轮数」守回合上限，二者必须一致
+QUESTION_MARKER="<!-- triage:question -->"
+MAX_QUESTION_ROUNDS=2   # 最多提问轮数，与 stage-a.md 内的上限保持一致
 
 # 早失败：确认 opencode CLI 与必需环境变量就绪
 opencode --version >/dev/null 2>&1 || { echo "未找到 opencode CLI" >&2; exit 1; }
@@ -79,17 +82,44 @@ while IFS= read -r item; do
   if [ "$complexity" = "complex" ]; then
     body="$(jq -r '.comment_body // ""' <<<"$item")"
     if [ -z "$body" ]; then echo "  复杂但无评论草稿，跳过 #$number"; continue; fi
-    gh issue comment "$number" --body "$body"
+    # 本轮轮次 = 已有提问标记数 + 1；在评论开头注明第几轮，让开发者心里有数
+    prior_q="$(gh issue view "$number" --json comments \
+      -q "[.comments[] | select(.body | contains(\"$QUESTION_MARKER\"))] | length")"
+    round=$((prior_q + 1))
+    if [ "$round" -ge "$MAX_QUESTION_ROUNDS" ]; then
+      header="> 🔁 第 $round 轮提问（最后一轮，若仍不明确我会按合理假设直接实现）"
+    else
+      header="> 🔁 第 $round 轮提问（最多 $MAX_QUESTION_ROUNDS 轮）"
+    fi
+    # 评论末尾埋隐藏提问标记：预筛脚本据此累计「已问轮数」，到上限即不再追问
+    gh issue comment "$number" --body "$header
+
+$body
+
+$QUESTION_MARKER"
     gh issue edit "$number" --add-label "$LABEL_WAITING"
-    echo "  已评论并打标签「$LABEL_WAITING」"
+    echo "  已评论（第 $round 轮）并打标签「$LABEL_WAITING」"
     continue
   fi
 
-  # ---- simple：实现修复 ----
+  # ---- simple / ready：实现修复 ----
+  # ready = 此前问过且人类已答、答复充分（或已达回合上限带假设推进）：
+  #   阶段A 给出 implementation_notes（方案映射），实现时连同问答记录一起喂给阶段B。
+  notes=""
+  ready_comment=""
+  if [ "$complexity" = "ready" ]; then
+    notes="$(jq -r '.implementation_notes // ""' <<<"$item")"
+    # ready 若带说明（通常是达上限后采用的假设），留到 PR 成功开出后再贴：
+    # 否则一旦阶段B/门禁失败，末评论就变成机器人，预筛会把该 issue 永久判为 pending、
+    # 不再自动重试——与 simple 路径（失败后末评论仍是人类、下轮会重试）保持一致。
+    ready_comment="$(jq -r '.comment_body // ""' <<<"$item")"
+  fi
+
   # 人类此前回复过的话，先摘掉「等待回复」标签
   gh issue edit "$number" --remove-label "$LABEL_WAITING" 2>/dev/null || true
 
-  issue_json="$(gh issue view "$number" --json title,body)"
+  # ready 需要把问答记录喂给阶段B，故连 comments 一并取
+  issue_json="$(gh issue view "$number" --json title,body,comments)"
   title="$(jq -r '.title' <<<"$issue_json")"
 
   # 干净起点：强制切回基线分支并清掉任何残留（含上一轮模型可能留下的改动）
@@ -99,7 +129,18 @@ while IFS= read -r item; do
   git clean -fd >/dev/null
 
   echo "  阶段B：实现修复"
-  if ! { cat "$PROMPT_DIR/stage-b.md"; echo "#$number $title"; echo; jq -r '.body // ""' <<<"$issue_json"; } | run_opencode; then
+  if ! {
+        cat "$PROMPT_DIR/stage-b.md"
+        echo "#$number $title"
+        echo
+        jq -r '.body // ""' <<<"$issue_json"
+        # ready：补上阶段A 定下的实现要点 + 此前完整问答记录，让阶段B 照人类已确认的方案做
+        if [ "$complexity" = "ready" ]; then
+          echo; echo "## 实现要点（阶段A 据人类答复确定，务必照此实现）"; echo "$notes"
+          echo; echo "## 此前问答记录"
+          jq -r '.comments[] | "【\(.author.login)】\(.body)"' <<<"$issue_json"
+        fi
+      } | run_opencode; then
     echo "  阶段B 运行失败，跳过 #$number"; continue
   fi
 
@@ -149,6 +190,8 @@ resolve #${number}
     echo "  开 PR 失败，已留言并跳过 #$number"; continue
   fi
   gh issue edit "$number" --add-label "$LABEL_FIXED"
+  # ready 的假设说明：PR 成功开出后才贴，确保仅在真正实现后才留下机器人末评论
+  [ -n "$ready_comment" ] && gh issue comment "$number" --body "$ready_comment"
   git checkout "$BASE_BRANCH" >/dev/null
   echo "  已开 PR 并打标签「$LABEL_FIXED」"
 done < <(jq -c '.[]' <<<"$plan")

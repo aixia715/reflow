@@ -22,6 +22,8 @@ set -euo pipefail
 MODE="${1:-candidates}"          # candidates | count-pending
 LABEL_FIXED="${LABEL_FIXED:-已自动修复}"
 LABEL_IGNORE="${LABEL_IGNORE:-AI忽略}"   # 人工标记，让定时流程完全跳过该 issue
+# 提问评论里埋的隐藏标记：据此数「已问轮数」，与 opencode-triage.sh 内常量保持一致
+QUESTION_MARKER="<!-- triage:question -->"
 
 # 逐条诊断日志走 stderr（stdout 是被调用方 $(...) 捕获的 JSON/数字，不能混入）。
 # 只在 candidates 这一遍打印：count-pending 遍同样遍历全部 issue，若两遍都打会重复刷屏。
@@ -61,19 +63,29 @@ while IFS= read -r row; do
     continue
   fi
 
+  # 取该 issue 完整评论线程：末评论作者用于 pending 判定，整段 comments 与已问轮数
+  # （含隐藏提问标记的评论条数）随候选输出，供阶段A 读问答历史并守回合上限。
+  comments_json="$(gh issue view "$number" --json comments)"
+  last_author="$(jq -r '.comments[-1].author.login // ""' <<<"$comments_json")"
+
   # 末条评论作者是机器人 → 我们已回复、在等人类 → 未处理（pending），不作候选。
   # 不依赖「等待回复」标签：/oc 等按需流程回复后即便没打标签也能被正确跳过。
-  last_author="$(gh issue view "$number" --json comments \
-    -q '.comments[-1].author.login // ""')"
   if [ -n "$last_author" ] && is_bot "$last_author"; then
     pending=$((pending + 1))
     log_pick "  预筛跳过 #$number（末评论作者为机器人：$last_author，等待人类答复）"
     continue
   fi
 
-  log_pick "  预筛入选 #$number（纳入候选）"
-  candidates="$(jq -c --argjson c "$candidates" \
-    '$c + [{number, title, body}]' <<<"$row")"
+  question_rounds="$(jq --arg marker "$QUESTION_MARKER" \
+    '[.comments[] | select(.body | contains($marker))] | length' <<<"$comments_json")"
+  log_pick "  预筛入选 #$number（纳入候选，已问 $question_rounds 轮）"
+  candidates="$(jq -c \
+    --argjson c "$candidates" \
+    --argjson cm "$comments_json" \
+    --argjson qr "$question_rounds" \
+    '$c + [{number, title, body,
+            comments: ($cm.comments | map({author: .author.login, body: .body})),
+            question_rounds: $qr}]' <<<"$row")"
 done < <(jq -c 'sort_by(.createdAt) | .[]' <<<"$issues_json")
 
 case "$MODE" in

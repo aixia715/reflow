@@ -48,7 +48,7 @@ flowchart TD
 
     cand --> count{候选数 = 0 ?}
     count -- 是 --> stop2([结束：无候选])
-    count -- 否 --> stageA["阶段 A · opencode 模型只读评估<br/>(triage-prompts/stage-a.md)<br/>按依赖排序→再按由简到繁→取前 3<br/>判定 simple / complex，complex 起草中文评论<br/>输出严格 JSON 计划"]
+    count -- 否 --> stageA["阶段 A · opencode 模型只读评估<br/>(triage-prompts/stage-a.md)<br/>读 issue 正文 + 完整问答线程<br/>按依赖排序→再按由简到繁→取前 3<br/>判定 simple / complex / ready<br/>（已答复且充分→ready；不充分→complex 追问；最多 2 轮）<br/>输出严格 JSON 计划"]
 
     stageA --> dry{DRY_RUN = true ?}
     dry -- 是 --> stop3([打印计划后退出 · 不做任何写操作])
@@ -56,9 +56,9 @@ flowchart TD
 
     loop --> kind{complexity ?}
 
-    kind -- complex --> cmt[在 issue 下发中文评论<br/>每个待定点给 2~3 备选项] --> lblw[打「等待回复」标签] --> nextc[下一个]
+    kind -- complex --> cmt["在 issue 下发中文评论<br/>开头标「第 N 轮提问」· 每点 2~3 备选项<br/>末尾埋隐藏提问标记（计回合数用）"] --> lblw[打「等待回复」标签] --> nextc[下一个]
 
-    kind -- simple --> rm[摘除「等待回复」标签<br/>切回 master · reset --hard · clean] --> stageB["阶段 B · opencode 模型实现修复<br/>(triage-prompts/stage-b.md)"]
+    kind -- "simple / ready" --> rm["摘除「等待回复」标签<br/>切回 master · reset --hard · clean"] --> stageB["阶段 B · opencode 模型实现修复<br/>(triage-prompts/stage-b.md)<br/>ready 额外喂入问答记录 + implementation_notes"]
     stageB --> chk{自检闸门}
     chk -- 无改动 --> skip[跳过] --> nexts[下一个]
     chk -- 改到 .github/workflows/ --> wfskip[留言：GITHUB_TOKEN 无权推送工作流文件 · 回滚跳过] --> nexts
@@ -66,7 +66,7 @@ flowchart TD
     chk -- 全部通过 --> branch["建分支 opencode/issue<N>-<时间戳><br/>commit（resolve #N）→ push"]
     branch --> pushok{push / 开 PR 成功 ?}
     pushok -- 失败 --> pferr[留言说明 · 跳过] --> nexts
-    pushok -- 成功 --> pr[gh pr create resolve #N] --> lblf[打「已自动修复」标签] --> nexts
+    pushok -- 成功 --> pr[gh pr create resolve #N] --> lblf["打「已自动修复」标签<br/>ready 若有假设说明 · 此时才贴评论"] --> nexts
 
     nextc --> done
     nexts --> done([全部处理完成])
@@ -78,14 +78,21 @@ flowchart TD
    「待人工处理（pending）」= 满足任一：
    - 带 `已自动修复` 标签且 issue 仍打开（PR 等人类审阅/合并）；
    - **最后一条评论作者是机器人**（定时 / 按需任一流程已回复，在等人类答复）。
-1. **预筛**（同一脚本，默认 `candidates` 模式，**纯脚本无 AI**）：遍历全部 open issue，按上面同一规则剔除两类 pending，其余为候选，按创建时间升序输出 `[{number,title,body}]`。
+1. **预筛**（同一脚本，默认 `candidates` 模式，**纯脚本无 AI**）：遍历全部 open issue，按上面同一规则剔除两类 pending，其余为候选，按创建时间升序输出 `[{number,title,body,comments,question_rounds}]`。
+   - **每个候选带完整评论线程 `comments`（`{author,body}` 顺序数组）与 `question_rounds`**（评论里含隐藏提问标记 `<!-- triage:question -->` 的条数）——供阶段 A 读问答历史、按人类答复判断，并据已问轮数守回合上限。
    - 判定「等人类」**只看末条评论作者是不是机器人，不依赖 `等待回复` 标签**——这样 `/oc` 等按需流程即便没打标签也能被正确跳过；人类回复后（末评论变人类）自动重新纳入候选。
    - 机器人账号：`opencode-agent` / `opencode-agent[bot]` / `github-actions` / `github-actions[bot]`，以及任意 `*[bot]` App。
    - 脚本对每个 issue 的「跳过 / 入选」决定**逐条打 stderr 诊断日志**（进 workflow 日志），便于事后确认是哪个 issue、因哪条规则被拦在 AI 之前。
-2. **阶段 A**（只读模型评估，`scripts/triage-prompts/stage-a.md`）：通读全部候选，**先按技术依赖关系排序（前置项在前），再在此前提下按从简单到复杂排序**，取前 3，逐个判 `simple` / `complex`，并为 `complex` 起草中文评论（每个待定点给 2~3 个备选项）。输出严格 JSON；解析失败则当天跳过、不写。
+2. **阶段 A**（只读模型评估，`scripts/triage-prompts/stage-a.md`）：通读全部候选（**含 `comments` 问答线程**），**先按技术依赖关系排序（前置项在前），再在此前提下按从简单到复杂排序**，取前 3，逐个判 `simple` / `complex` / `ready`：
+   - `simple`：需求本就明确，直接实现；
+   - `complex`：需先澄清——首次提问列出待定点，或在人类已答但仍有点没说清时**只追问未决点**（每个待定点给 2~3 个备选项）；
+   - `ready`：此前问过、人类已答且**答复足以动手**（或已达回合上限带合理假设推进），产出 `implementation_notes`（方案映射）交给阶段 B。
+
+   **「是否已问过/已答」以 `comments` 实际内容为准、不只看 `question_rounds`（旧 issue 的历史提问可能无标记）；最多问 2 轮，到上限即带合理假设转 `ready`。** 输出严格 JSON；解析失败则当天跳过、不写。
 3. **执行**（`scripts/opencode-triage.sh`）：
-   - `complex` → 在 issue 下发评论 + 打 `等待回复` 标签；
-   - `simple` → 先摘 `等待回复` 标签 → 切回干净 `master` → 模型实现修复（阶段 B，`stage-b.md`）→ **三道自检闸门**（无改动 / 改到 `.github/workflows/` / `pytest` 不过 → 各自回滚+留言+跳过）→ 建 `opencode/issue<N>-<时间戳>` 分支 + commit + push → 开 PR（`resolve #N`）→ 打 `已自动修复` 标签。push / 开 PR 失败都只留言+跳过，不让整轮崩。
+   - `complex` → 在 issue 下发评论（**开头标「第 N 轮提问」、末尾埋隐藏标记 `<!-- triage:question -->` 供计回合数**）+ 打 `等待回复` 标签；
+   - `simple` / `ready` → 先摘 `等待回复` 标签 → 切回干净 `master` → 模型实现修复（阶段 B，`stage-b.md`；**`ready` 额外喂入问答记录 + `implementation_notes`，要求严格照人类已确认的方案实现**）→ **三道自检闸门**（无改动 / 改到 `.github/workflows/` / `pytest` 不过 → 各自回滚+留言+跳过）→ 建 `opencode/issue<N>-<时间戳>` 分支 + commit + push → 开 PR（`resolve #N`）→ 打 `已自动修复` 标签。push / 开 PR 失败都只留言+跳过，不让整轮崩。
+   - **`ready` 若带「假设说明」评论，待 PR 成功开出后才贴**——否则实现失败会让末评论变机器人，使该 issue 被预筛永久判为 pending、不再自动重试（与 `simple` 失败后仍会重试保持一致）。
 
 手动测试：Actions → `opencode-scheduled` → Run workflow，勾选 `dry_run` 只跑到阶段 A 并打印计划，不做任何写操作。
 
@@ -127,5 +134,5 @@ flowchart TD
 | `.github/opencode-ci.json` | CI 专用 opencode 配置（放行非交互工具 / 外部目录） |
 | `scripts/opencode-triage.sh` | 定时 triage 主流程（闸门→预筛→阶段A→执行） |
 | `scripts/select-triage-issues.sh` | 预筛 / count-pending（纯脚本分类，逐条诊断日志） |
-| `scripts/triage-prompts/stage-a.md` | 阶段 A：评估 + 排序 + 起草评论的 prompt |
-| `scripts/triage-prompts/stage-b.md` | 阶段 B：实现修复的 prompt |
+| `scripts/triage-prompts/stage-a.md` | 阶段 A：读问答线程 + 评估排序 + 三态判定（simple/complex/ready）+ 起草评论的 prompt |
+| `scripts/triage-prompts/stage-b.md` | 阶段 B：按 implementation_notes / 已确认方案实现修复的 prompt |
