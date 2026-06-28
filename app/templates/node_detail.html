@@ -8,6 +8,9 @@
 <a href="/board/{{ board_id }}">状态图</a>
 <a href="/board/{{ board_id }}/log">审计日志</a>
 {% if node.is_committed and node.parent_id is not none %}
+<button type="button" class="btn btn-outline"
+        hx-post="/board/{{ board_id }}/node/{{ node.id }}/copy-to-draft"
+        title="将此节点的修改一键复制到工作区草稿">📥 添加到草稿</button>
 <button type="button" class="btn-link danger" data-testid="delete-node"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/delete"
         hx-confirm="确定删除此节点？下游将重接到上一个节点，删除后不可恢复。"

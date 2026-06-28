@@ -366,6 +366,49 @@ def insert_save(request: Request, board_id: int, parent_id: int,
     return RedirectResponse(dest, status_code=303)
 
 
+@router.post("/board/{board_id}/node/{node_id}/copy-to-draft")
+def copy_to_draft(board_id: int, node_id: int):
+    """一键复制某节点全部 changeset 到工作区草稿（覆盖合并），标题/说明仅当草稿为空时填入。
+
+    策略（issue #57 实现要点）：
+    · 复制范围 A：复制源节点 changeset（位号+op+part），不复制折叠后的继承值；
+    · 撞车合并 B（覆盖）：草稿已有同位号 op 时以复制值覆盖，草稿独有修改保留；
+    · 标题/说明 A：仅当草稿标题/说明为空时才填入源节点的标题与长文本说明。
+    """
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    if node["parent_id"] is None:
+        return PlainTextResponse("根节点没有修改可复制", status_code=400)
+    ws = models.workspace_node(conn, board_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
+    if ws["id"] == node_id:
+        return PlainTextResponse("不能复制草稿到自身", status_code=400)
+
+    changes = models.get_changeset(conn, node_id)
+    for ch in changes:
+        part_val = None if ch["op"] == "remove" else ch["part"]
+        propagation.apply_node_edit(
+            conn, ws["id"], ch["reference"], ch["op"], part_val)
+
+    # 标题/说明：仅当草稿对应字段为空时才填入（各自独立判断）
+    cur_msg = (ws["message"] or "").strip()
+    cur_desc = (ws["description"] or "").strip()
+    src_msg = (node["message"] or "").strip()
+    src_desc = (node["description"] or "").strip()
+    new_msg = cur_msg if cur_msg else src_msg
+    new_desc = cur_desc if cur_desc else src_desc
+    if new_msg != cur_msg or new_desc != cur_desc:
+        models.update_node_info(conn, ws["id"], new_msg, new_desc)
+
+    flash = quote(f"✓ 已复制 {len(changes)} 条修改到草稿", safe="")
+    resp = PlainTextResponse("")
+    resp.headers["HX-Redirect"] = f"/board/{board_id}/node/{ws['id']}?flash={flash}"
+    return resp
+
+
 @router.post("/board/{board_id}/commit")
 def commit(board_id: int, message: str = Form(...), description: str = Form("")):
     conn = get_conn()

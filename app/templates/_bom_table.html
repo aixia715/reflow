@@ -27,6 +27,10 @@
     </td>
     <td class="row-actions">
       {% if r.state == 'mine' and not node.is_committed %}
+      <span class="hover-only">
+        <button type="button" class="btn-link" @click='fill({{ r.reference | tojson }}, "modify", {{ r.part | tojson }})'>修改</button>
+        <button type="button" class="btn-link danger" @click='fill({{ r.reference | tojson }}, "remove", "")'>不贴</button>
+      </span>
       <button class="btn-link danger"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
               hx-vals='{{ {"reference": r.reference} | tojson }}'
