@@ -52,6 +52,8 @@
               onclick="location.href='/board/{{ board_id }}/node/{{ n.id }}/insert'">＋在此后插入</button>
       {% endif %}
       {% if n.parent_id is not none %}
+      <button type="button" title="将此节点的修改一键复制到工作区草稿"
+              hx-post="/board/{{ board_id }}/node/{{ n.id }}/copy-to-draft">📥 添加到草稿</button>
       <button type="button" class="del"
               hx-post="/board/{{ board_id }}/node/{{ n.id }}/delete"
               hx-confirm="确认删除节点 #{{ n.id }}「{{ n.message or '(无说明)' }}」？其下游将重接到上一节点，提交记录不可恢复。">🗑 删除节点</button>
