@@ -86,13 +86,14 @@
               </td>
               <td class="row-actions">
                 <template x-if="r.state==='mine'">
-                  <button type="button" class="btn-link danger" @click="undo(r.ref)">↩ 撤销</button>
+                  <button type="button" class="icon-btn danger" title="撤销" @click="undo(r.ref)">
+                    <svg class="ico"><use href="#icon-undo"></use></svg>
+                  </button>
                 </template>
                 <template x-if="r.state!=='mine'">
-                  <span class="hover-only">
-                    <button type="button" class="btn-link" @click="fill(r.ref,'modify',r.part)">修改</button>
-                    <button type="button" class="btn-link danger" @click="fill(r.ref,'remove','')">不贴</button>
-                  </span>
+                  <button type="button" class="icon-btn hover-only" title="修改" @click="fill(r.ref,'modify',r.part)">
+                    <svg class="ico"><use href="#icon-pencil"></use></svg>
+                  </button>
                 </template>
               </td>
             </tr>
@@ -108,7 +109,9 @@
               </td>
               <td class="row-actions">
                 <template x-if="r.state==='mine'">
-                  <button type="button" class="btn-link danger" @click="undo(r.ref)">↩ 撤销</button>
+                  <button type="button" class="icon-btn danger" title="撤销" @click="undo(r.ref)">
+                    <svg class="ico"><use href="#icon-undo"></use></svg>
+                  </button>
                 </template>
                 <template x-if="r.state!=='mine'">
                   <button type="button" class="btn-link hover-only" @click="fill(r.ref,'add','')">恢复贴装</button>
@@ -148,7 +151,14 @@
               <span x-show="c.op==='add'" x-text="'新增 → '+c.part"></span>
               <span x-show="c.op==='modify'" x-text="'修改 → '+c.part"></span>
             </span>
-            <button type="button" class="btn-link danger" title="撤销" @click="undo(c.reference)">↩</button>
+            <span class="row-icons">
+              <button type="button" class="icon-btn" title="修改" @click="fill(c.reference, c.op, c.part)">
+                <svg class="ico"><use href="#icon-pencil"></use></svg>
+              </button>
+              <button type="button" class="icon-btn danger" title="撤销" @click="undo(c.reference)">
+                <svg class="ico"><use href="#icon-undo"></use></svg>
+              </button>
+            </span>
           </div>
         </template>
       </div>

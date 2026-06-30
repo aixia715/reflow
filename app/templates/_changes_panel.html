@@ -6,10 +6,18 @@
     {% if c.op == 'remove' %}不贴{% elif c.op == 'add' %}新增 → {{ c.part }}{% else %}修改 → {{ c.part }}{% endif %}
   </span>
   {% if not node.is_committed %}
-  <button class="btn-link danger" title="撤销"
-          hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
-          hx-vals='{{ {"reference": c.reference} | tojson }}'
-          hx-target="#bom" hx-swap="innerHTML">↩</button>
+  <span class="row-icons">
+    <button type="button" class="icon-btn" title="修改"
+            @click='fill({{ c.reference | tojson }}, {{ c.op | tojson }}, {{ c.part | tojson }})'>
+      <svg class="ico"><use href="#icon-pencil"></use></svg>
+    </button>
+    <button class="icon-btn danger" title="撤销"
+            hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
+            hx-vals='{{ {"reference": c.reference} | tojson }}'
+            hx-target="#bom" hx-swap="innerHTML">
+      <svg class="ico"><use href="#icon-undo"></use></svg>
+    </button>
+  </span>
   {% endif %}
 </div>
 {% endfor %}

@@ -26,20 +26,17 @@
       {% endif %}
     </td>
     <td class="row-actions">
+      <button type="button" class="icon-btn hover-only" title="修改"
+              @click='fill({{ r.reference | tojson }}, "modify", {{ r.part | tojson }})'>
+        <svg class="ico"><use href="#icon-pencil"></use></svg>
+      </button>
       {% if r.state == 'mine' and not node.is_committed %}
-      <span class="hover-only">
-        <button type="button" class="btn-link" @click='fill({{ r.reference | tojson }}, "modify", {{ r.part | tojson }})'>修改</button>
-        <button type="button" class="btn-link danger" @click='fill({{ r.reference | tojson }}, "remove", "")'>不贴</button>
-      </span>
-      <button class="btn-link danger"
+      <button class="icon-btn danger" title="撤销"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
               hx-vals='{{ {"reference": r.reference} | tojson }}'
-              hx-target="#bom" hx-swap="innerHTML">↩ 撤销</button>
-      {% else %}
-      <span class="hover-only">
-        <button type="button" class="btn-link" @click='fill({{ r.reference | tojson }}, "modify", {{ r.part | tojson }})'>修改</button>
-        <button type="button" class="btn-link danger" @click='fill({{ r.reference | tojson }}, "remove", "")'>不贴</button>
-      </span>
+              hx-target="#bom" hx-swap="innerHTML">
+        <svg class="ico"><use href="#icon-undo"></use></svg>
+      </button>
       {% endif %}
     </td>
   </tr>
@@ -59,10 +56,12 @@
     </td>
     <td class="row-actions">
       {% if r.state == 'mine' and not node.is_committed %}
-      <button class="btn-link danger"
+      <button class="icon-btn danger" title="撤销"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
               hx-vals='{{ {"reference": r.reference} | tojson }}'
-              hx-target="#bom" hx-swap="innerHTML">↩ 撤销</button>
+              hx-target="#bom" hx-swap="innerHTML">
+        <svg class="ico"><use href="#icon-undo"></use></svg>
+      </button>
       {% else %}
       <button type="button" class="btn-link hover-only" @click='fill({{ r.reference | tojson }}, "add", "")'>恢复贴装</button>
       {% endif %}
