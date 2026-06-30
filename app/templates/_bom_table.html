@@ -26,12 +26,12 @@
       {% endif %}
     </td>
     <td class="row-actions">
-      <button type="button" class="icon-btn hover-only" title="修改"
+      <button type="button" class="icon-btn hover-only" title="修改" aria-label="修改"
               @click='fill({{ r.reference | tojson }}, "modify", {{ r.part | tojson }})'>
         <svg class="ico"><use href="#icon-pencil"></use></svg>
       </button>
       {% if r.state == 'mine' and not node.is_committed %}
-      <button class="icon-btn danger" title="撤销"
+      <button class="icon-btn danger" title="撤销" aria-label="撤销"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
               hx-vals='{{ {"reference": r.reference} | tojson }}'
               hx-target="#bom" hx-swap="innerHTML">
@@ -56,7 +56,7 @@
     </td>
     <td class="row-actions">
       {% if r.state == 'mine' and not node.is_committed %}
-      <button class="icon-btn danger" title="撤销"
+      <button class="icon-btn danger" title="撤销" aria-label="撤销"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
               hx-vals='{{ {"reference": r.reference} | tojson }}'
               hx-target="#bom" hx-swap="innerHTML">

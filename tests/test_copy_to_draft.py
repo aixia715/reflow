@@ -275,4 +275,7 @@ def test_draft_mine_add_row_has_pencil_icon(client):
     page = client.get(f"/board/{board_id}/node/{ws}").text
     assert 'fill("C9", "modify"' in page
     assert 'fill("C9", "remove"' not in page
+    # 「本节点修改」面板的笔图标对 add 修改也须回填为 modify——
+    # 否则再点「应用」会撞 validate_edit 的「位号已存在」（折叠后 BOM 已含该位号）。
+    assert 'fill("C9", "add"' not in page
     assert "#icon-pencil" in page
