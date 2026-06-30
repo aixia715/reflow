@@ -245,27 +245,37 @@ def test_node_detail_no_copy_button_on_draft(client):
     assert "copy-to-draft" not in page
 
 
-# ── 草稿修改行补齐「修改」「不贴」按钮 ────────────────────────────
+# ── 草稿修改行：笔图标回填编辑表单 + 撤销纯图标（issue 92）────────────
 
-def test_draft_mine_modify_row_has_modify_and_dnp_buttons(client):
-    """草稿修改行（mine+modify）有「修改」「不贴」按钮回填编辑表单。"""
+def test_draft_mine_modify_row_has_pencil_and_undo_icons(client):
+    """草稿修改行（mine+modify）：笔图标回填编辑表单（合并原「修改」「不贴」、默认 modify），
+    撤销改为纯箭头图标、去掉「撤销」二字，两个图标按钮都带 title。"""
     board_id = _setup_board(client)
     client.post(f"/board/{board_id}/workspace/edit",
                 data={"reference": "R1", "op": "modify", "part": "47k"})
     ws = _workspace_id(board_id)
     page = client.get(f"/board/{board_id}/node/{ws}").text
+    # 笔图标：点击回填，默认 modify；不再有独立「不贴」回填按钮
     assert 'fill("R1", "modify"' in page
-    assert 'fill("R1", "remove"' in page
-    # 仍保留撤销
-    assert "↩ 撤销" in page
+    assert 'fill("R1", "remove"' not in page
+    assert "#icon-pencil" in page
+    assert 'title="修改"' in page
+    # 撤销改为纯箭头图标，去掉「撤销」二字
+    assert "↩ 撤销" not in page
+    assert "#icon-undo" in page
+    assert 'title="撤销"' in page
 
 
-def test_draft_mine_add_row_has_modify_and_dnp_buttons(client):
-    """草稿新增行（mine+add）有「修改」「不贴」按钮回填编辑表单。"""
+def test_draft_mine_add_row_has_pencil_icon(client):
+    """草稿新增行（mine+add）：笔图标回填编辑表单（默认 modify）。"""
     board_id = _setup_board(client)
     client.post(f"/board/{board_id}/workspace/edit",
                 data={"reference": "C9", "op": "add", "part": "1uF"})
     ws = _workspace_id(board_id)
     page = client.get(f"/board/{board_id}/node/{ws}").text
     assert 'fill("C9", "modify"' in page
-    assert 'fill("C9", "remove"' in page
+    assert 'fill("C9", "remove"' not in page
+    # 「本节点修改」面板的笔图标对 add 修改也须回填为 modify——
+    # 否则再点「应用」会撞 validate_edit 的「位号已存在」（折叠后 BOM 已含该位号）。
+    assert 'fill("C9", "add"' not in page
+    assert "#icon-pencil" in page
