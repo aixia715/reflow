@@ -7,6 +7,8 @@
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}">状态图</a>
 <a href="/board/{{ board_id }}/log">审计日志</a>
+<a class="btn btn-outline" href="/board/{{ board_id }}/node/{{ node.id }}/download"
+   title="下载当前节点的完整 BOM 为 CSV（不贴位号不导出）">⬇ 下载 CSV</a>
 {% if node.is_committed and node.parent_id is not none %}
 <button type="button" class="btn btn-outline"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/copy-to-draft"

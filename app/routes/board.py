@@ -1,11 +1,13 @@
 import json
+import re
 from urllib.parse import quote
 from fastapi import APIRouter, Request, Form, HTTPException
-from fastapi.responses import RedirectResponse, PlainTextResponse
+from fastapi.responses import RedirectResponse, PlainTextResponse, Response
 
 from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change
 from app.bom_engine import fold_bom
+from app.bom_export import bom_to_csv
 from app.validation import validate_edit, validate_insert_time
 from app import compare
 from app.models import _now
@@ -108,6 +110,45 @@ def node_detail(request: Request, board_id: int, node_id: int):
         raise HTTPException(status_code=404, detail="节点不存在")
     return templates.TemplateResponse(
         request, "node_detail.html", _node_context(conn, board_id, node))
+
+
+def _download_filename(board, node) -> str:
+    """下载文件名：含定位信息，去掉文件系统/HTTP 头敏感字符。"""
+    if node["is_committed"]:
+        label = node["message"] or f"节点{node['id']}"
+    else:
+        label = "工作区草稿"
+    parts = [board["board_name"], board["pcb_version"], board["bom_version"], label]
+    raw = "_".join(p for p in parts if p)
+    # 去掉路径分隔符与控制字符，空白折叠为下划线
+    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", raw)
+    safe = re.sub(r"\s+", "_", safe).strip("_")
+    return (safe or "bom") + ".csv"
+
+
+@router.get("/board/{board_id}/node/{node_id}/download")
+def download_node_bom(board_id: int, node_id: int):
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    board = models.get_board(conn, board_id)
+    initial, chain = models.get_chain(conn, node_id)
+    csv_text = bom_to_csv(fold_bom(initial, chain))
+    # UTF-8 带 BOM，Excel/WPS 打开中文不乱码
+    body = ("﻿" + csv_text).encode("utf-8")
+    filename = _download_filename(board, node)
+    # ASCII fallback + RFC 5987，兼顾各浏览器与中文文件名
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", filename)
+    disposition = (
+        f"attachment; filename=\"{ascii_name}\"; "
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": disposition},
+    )
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit-info")
