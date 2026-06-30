@@ -78,13 +78,48 @@ def test_download_bad_node_404(client):
     assert r.status_code == 404
 
 
+def test_download_root_node(client):
+    board_id = _setup_board(client)
+    from app import models
+    from app.main import get_conn
+    root = [n for n in models.list_nodes(get_conn(), board_id)
+            if n["parent_id"] is None][0]
+    r = client.get(f"/board/{board_id}/node/{root['id']}/download")
+    assert r.status_code == 200
+    assert "R1,10k" in r.text
+
+
 def test_download_filename_present(client):
+    from urllib.parse import unquote
     board_id = _setup_board(client)
     ws = _workspace_id(client, board_id)
     cd = client.get(f"/board/{board_id}/node/{ws}/download").headers["content-disposition"]
-    # 文件名含定位信息且以 .csv 结尾
-    assert ".csv" in cd
-    assert "filename" in cd
+    # ASCII 回退 + RFC 5987 两段都在，且 filename* 用 UTF-8 编码、解码后以 .csv 结尾
+    assert "filename=" in cd
+    assert "filename*=UTF-8''" in cd
+    star = cd.split("filename*=UTF-8''", 1)[1]
+    assert unquote(star).endswith(".csv")
+
+
+def test_download_filename_sanitizes_unsafe_chars():
+    from app.routes.board import _download_filename
+    board = {"board_name": "主/板", "pcb_version": 'v"1', "bom_version": "B\x01"}
+    node = {"is_committed": 1, "message": "改 R1", "id": 5}
+    name = _download_filename(board, node)
+    # 路径分隔符/引号/控制字符不应出现，且以 .csv 结尾
+    for bad in '/\\:*?"<>|\x01':
+        assert bad not in name
+    assert name.endswith(".csv")
+
+
+def test_download_filename_empty_fallback():
+    from app.routes.board import _download_filename
+    board = {"board_name": "", "pcb_version": "", "bom_version": ""}
+    node = {"is_committed": 1, "message": "", "id": 7}
+    # 全空时退回节点标签，至少不为空 .csv
+    name = _download_filename(board, node)
+    assert name.endswith(".csv")
+    assert name != ".csv"
 
 
 def test_node_page_has_download_button(client):
