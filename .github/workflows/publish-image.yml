@@ -4,6 +4,12 @@ on:
   push:
     tags: ["v*.*.*"]
 
+# 同一 tag 重推或短时间连发多个 tag 时串行执行，避免并发 push 导致
+# 旧版本覆盖新版本的浮动 latest
+concurrency:
+  group: publish-image
+  cancel-in-progress: false
+
 jobs:
   checks:
     uses: ./.github/workflows/_checks.yml
@@ -14,14 +20,15 @@ jobs:
     permissions:
       contents: read
       packages: write
-    env:
-      IMAGE: ghcr.io/${{ github.repository }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: 解析版本号
+      - name: 解析版本号与镜像名
         id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          # GHCR 镜像名必须全小写；github.repository 归属组织/用户改名或大小写变化时也不受影响
+          echo "image=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: 登录 GHCR
         uses: docker/login-action@v3
@@ -33,11 +40,9 @@ jobs:
       - name: 构建镜像
         run: |
           docker build \
-            -t "${IMAGE}:${{ steps.version.outputs.tag }}" \
-            -t "${IMAGE}:latest" \
+            -t "${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}" \
+            -t "${{ steps.version.outputs.image }}:latest" \
             .
 
       - name: 推送镜像
-        run: |
-          docker push "${IMAGE}:${{ steps.version.outputs.tag }}"
-          docker push "${IMAGE}:latest"
+        run: docker push --all-tags "${{ steps.version.outputs.image }}"
