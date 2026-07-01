@@ -1,7 +1,7 @@
 import sqlite3
 from typing import NamedTuple
 
-from app import models, audit
+from app import models, audit, storage
 from app.bom_engine import resolve_reference
 
 
@@ -106,7 +106,9 @@ def delete_node(conn, node_id, choices: dict | None = None) -> None:
         conn, parent_id, "", None, None, "delete_node", "direct",
         note=f"删除节点 #{node_id}「{node['message'] or '无说明'}」",
     )
-    models.delete_node(conn, node_id)
+    paths = models.delete_node(conn, node_id)
+    if paths:
+        storage.delete_files(paths)
 
     for cf in conflicts:
         old, new = cf.downstream_value, cf.corrected_value

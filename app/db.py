@@ -68,6 +68,14 @@ CREATE TABLE IF NOT EXISTS hard_change_images (
     sort_order     INTEGER NOT NULL DEFAULT 0,
     created_at     TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS node_attachments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id      INTEGER NOT NULL REFERENCES nodes(id),
+    filename     TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
 """
 
 

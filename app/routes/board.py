@@ -1,11 +1,11 @@
 import json
 import re
 from urllib.parse import quote
-from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse, Response
 
 from app.main import templates, get_conn
-from app import models, propagation, audit, hard_change
+from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
 from app.validation import validate_edit, validate_insert_time
@@ -66,6 +66,7 @@ def _node_context(conn, board_id: int, node) -> dict:
         "changes": list(changes.values()),
         "all_refs": sorted(known),
         "total": len(full), "mine_count": len(changes), "removed_count": len(removed),
+        "attachments": models.list_node_attachments(conn, node["id"]),
     }
 
 
@@ -495,3 +496,92 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
         "diff_rows": diff_rows, "same_rows": same_rows,
         "counts": counts, "hard_changes": between,
     })
+
+
+# ---------- 节点附件 ----------
+
+def _require_node(conn, board_id, node_id):
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return node
+
+
+def _attach_ctx(conn, board_id, node):
+    return {
+        "board": models.get_board(conn, board_id), "board_id": board_id, "node": node,
+        "attachments": models.list_node_attachments(conn, node["id"]),
+    }
+
+
+@router.get("/board/{board_id}/node/{node_id}/attachments")
+def attachments_list(request: Request, board_id: int, node_id: int):
+    """附件区域局部片段（HTMX 局部刷新返回）。"""
+    conn = get_conn()
+    node = _require_node(conn, board_id, node_id)
+    return templates.TemplateResponse(request, "_attachments.html", _attach_ctx(conn, board_id, node))
+
+
+@router.post("/board/{board_id}/node/{node_id}/attachments")
+async def attachments_upload(request: Request, board_id: int, node_id: int,
+                              files: list[UploadFile] = File(default=[])):
+    """上传一个或多个附件，落盘到 uploads/<board>/<node>/ 并刷新附件区域。"""
+    conn = get_conn()
+    node = _require_node(conn, board_id, node_id)
+    node_id = node["id"]
+    reals = [f for f in files if f.filename]
+    blobs = [(f.filename, await f.read()) for f in reals]
+    saved = 0
+    for name, data in blobs:
+        stored = attachments.make_stored_name(name)
+        rel = attachments.rel_path(board_id, node_id, stored)
+        storage.save_attachment(rel, data)
+        models.add_node_attachment(conn, node_id, name, rel)
+        saved += 1
+    msg = f"✓ 已上传 {saved} 个附件" if saved else "未选择文件"
+    return templates.TemplateResponse(
+        request, "_attachments.html", _attach_ctx(conn, board_id, node),
+        headers={"HX-Trigger": json.dumps({"showToast": msg})})
+
+
+@router.get("/board/{board_id}/node/{node_id}/attachments/{aid}/download")
+def attachments_download(board_id: int, node_id: int, aid: int):
+    conn = get_conn()
+    node = _require_node(conn, board_id, node_id)
+    row = models.get_node_attachment(conn, aid)
+    if row is None or row["node_id"] != node["id"]:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    import os
+    full = os.path.join(storage.upload_dir(), row["storage_path"])
+    if not os.path.exists(full):
+        raise HTTPException(status_code=404, detail="附件文件缺失")
+    with open(full, "rb") as f:
+        body = f.read()
+    fname = attachments.safe_filename(row["filename"])
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", fname)
+    disposition = (
+        f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
+    )
+    return Response(
+        content=body,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@router.post("/board/{board_id}/node/{node_id}/attachments/{aid}/delete")
+def attachments_delete(request: Request, board_id: int, node_id: int, aid: int):
+    """删除一个附件（DB 行 + 磁盘文件），刷新附件区域。"""
+    conn = get_conn()
+    node = _require_node(conn, board_id, node_id)
+    row = models.get_node_attachment(conn, aid)
+    if row is None or row["node_id"] != node["id"]:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    fname = row["filename"]
+    path = models.delete_node_attachment(conn, aid)
+    if path:
+        storage.delete_files([path])
+    msg = f"✓ 已删除附件 {fname}"
+    return templates.TemplateResponse(
+        request, "_attachments.html", _attach_ctx(conn, board_id, node),
+        headers={"HX-Trigger": json.dumps({"showToast": msg})})

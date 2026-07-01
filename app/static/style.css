@@ -263,3 +263,12 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 .rename-input{border:1px solid var(--blue);border-radius:5px;padding:1px 6px;
   font:inherit;color:var(--fg);background:var(--surface);outline:none;
   box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* 节点附件列表 */
+.attach-list{margin-bottom:8px}
+.attach-row{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px;gap:8px}
+.attach-row:first-of-type{border-top:none}
+.attach-name{min-width:0;word-break:break-all}
+.attach-form{display:flex;gap:8px;align-items:flex-start;margin-top:4px}
+.attach-form .input{flex:1;min-width:0}
