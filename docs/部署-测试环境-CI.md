@@ -49,3 +49,23 @@ gh variable set TEST_DATA_VOLUME    --body "reflow-test-data"
 
 远端"先 stop/rm 旧容器再 run 新容器"，若 `docker run` 失败容器会处于停止态（测试环境可接受）。
 零停机/回滚自动化非本期目标。
+
+# 发版镜像 CI（推送到 GHCR）
+
+`publish-image.yml` 与上面的 `deploy-test` 是独立流水线：推 `v*.*.*` 格式的 git tag（如
+`v1.2.0`）时触发，跑通 `_checks.yml`（pytest + docker 冒烟测试）后构建镜像并推送到
+GitHub Container Registry，产物为 `ghcr.io/aixia715/reflow:<tag>` 与浮动的
+`ghcr.io/aixia715/reflow:latest`。同一 tag 重推或短时间连发多个 tag 时靠
+`concurrency` 串行执行，避免旧版本覆盖新版本的 `latest`。
+
+登录用内置 `GITHUB_TOKEN`（`packages: write` 权限），不需要额外配置 Secrets/Variables。
+
+发版方式：
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+GHCR 包默认 private，仓库协作者可直接 `docker pull`；若要让外部匿名 `docker pull`，
+需去仓库 Packages 页面把该包手动设为 public。
