@@ -69,3 +69,21 @@ git push origin v1.2.0
 
 GHCR 包默认 private，仓库协作者可直接 `docker pull`；若要让外部匿名 `docker pull`，
 需去仓库 Packages 页面把该包手动设为 public。
+
+## 确认拉到的镜像对应哪个版本
+
+`latest` 是浮动 tag，光看这个名字不知道对应的是哪次发版。构建时通过
+`--build-arg VERSION=<tag>` 把版本号烘焙进镜像（`ARG VERSION=dev` 放在
+`RUN pip install` 之后，不影响依赖层缓存；未传该参数的构建——如 `_checks.yml`
+的冒烟测试、`deploy.yml` 的测试构建——落回 `dev`），运行时可查：
+
+```bash
+curl http://<host>:<port>/version   # {"version": "v1.2.0"}
+```
+
+镜像 metadata 里也带了 `org.opencontainers.image.version` label，命令行或
+GHCR 网页均可查看：
+
+```bash
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' ghcr.io/aixia715/reflow:latest
+```

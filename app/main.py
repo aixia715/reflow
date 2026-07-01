@@ -53,6 +53,10 @@ def create_app() -> FastAPI:
     def healthz():
         return {"ok": True}
 
+    @app.get("/version")
+    def version():
+        return {"version": os.environ.get("REFLOW_VERSION", "dev")}
+
     return app
 
 

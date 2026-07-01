@@ -40,6 +40,9 @@ jobs:
       - name: 构建镜像
         run: |
           docker build \
+            --build-arg VERSION="${{ steps.version.outputs.tag }}" \
+            --label org.opencontainers.image.version="${{ steps.version.outputs.tag }}" \
+            --label org.opencontainers.image.revision="${{ github.sha }}" \
             -t "${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}" \
             -t "${{ steps.version.outputs.image }}:latest" \
             .
