@@ -15,10 +15,8 @@ def test_version_defaults_to_dev(client):
     assert r.json() == {"version": "dev"}
 
 
-def test_version_reads_from_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
+def test_version_reads_from_env(client, monkeypatch):
     monkeypatch.setenv("REFLOW_VERSION", "v0.1.0")
-    from app.main import create_app
-    r = TestClient(create_app()).get("/version")
+    r = client.get("/version")
     assert r.status_code == 200
     assert r.json() == {"version": "v0.1.0"}
