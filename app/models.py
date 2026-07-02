@@ -573,3 +573,14 @@ def board_attachment_paths(conn, board_id) -> list[str]:
         " WHERE n.board_id=? ORDER BY a.id",
         (board_id,)
     ).fetchall()]
+
+
+def board_attachment_paths_by_name(conn, board_name) -> list[str]:
+    """单板名称下所有节点附件的 storage_path（供删整个单板名称时刷盘）。"""
+    return [r["storage_path"] for r in conn.execute(
+        "SELECT a.storage_path FROM node_attachments a"
+        " JOIN nodes n ON n.id = a.node_id"
+        " JOIN boards_hierarchy b ON b.id = n.board_id"
+        " WHERE b.board_name=? ORDER BY a.id",
+        (board_name,)
+    ).fetchall()]

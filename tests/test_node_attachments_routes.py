@@ -116,3 +116,19 @@ def test_attachment_files_dropped_when_board_deleted(client, tmp_path):
     assert os.path.exists(p)
     client.delete(f"/board/{bid}")
     assert not os.path.exists(p)
+
+
+def test_upload_oversized_file_rejected(client, monkeypatch):
+    from app import attachments
+    monkeypatch.setattr(attachments, "MAX_ATTACHMENT_BYTES", 4)
+    bid = _new_board(client)
+    nid = _workspace_node(client, bid)
+    r = client.post(f"/board/{bid}/node/{nid}/attachments",
+                    files=[("files", ("big.bin", b"12345", "application/octet-stream"))])
+    assert r.status_code == 200
+    import json
+    toast = json.loads(r.headers["HX-Trigger"])["showToast"]
+    assert "超过" in toast and "big.bin" in toast
+    from app import models
+    from app.main import get_conn
+    assert models.list_node_attachments(get_conn(), int(nid)) == []  # 未写入 DB

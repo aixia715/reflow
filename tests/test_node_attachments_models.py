@@ -72,3 +72,18 @@ def test_delete_board_cleans_attachment_rows(conn):
     models.add_node_attachment(conn, ws["id"], "a.sch", "1/2/a.sch")
     models.delete_board(conn, bid)
     assert conn.execute("SELECT COUNT(*) FROM node_attachments").fetchone()[0] == 0
+
+
+def test_board_attachment_paths_by_name_collects_across_versions(conn):
+    from app.csv_import import CsvEntry
+    bid1 = _mk_board(conn)  # board_name="B", pcb="v1", bom="bomA"
+    models.create_bom_version(conn, "B", "v2", "bomA", [CsvEntry("R1", "10k")])
+    bid2 = models.create_board(conn, "B", "v2", "bomA", "SN2")
+    ws1 = models.workspace_node(conn, bid1)
+    ws2 = models.workspace_node(conn, bid2)
+    models.add_node_attachment(conn, ws1["id"], "a.sch", "x/1/a.sch")
+    models.add_node_attachment(conn, ws2["id"], "b.sch", "x/2/b.sch")
+    paths = models.board_attachment_paths_by_name(conn, "B")
+    assert sorted(paths) == ["x/1/a.sch", "x/2/b.sch"]
+    # 不同单板名称的附件不应被收进来
+    assert models.board_attachment_paths_by_name(conn, "其它单板") == []

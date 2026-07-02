@@ -150,12 +150,7 @@ def bom_version_delete(
 @router.delete("/board-group")
 def board_group_delete(board_name: str = Query(...)):
     conn = get_conn()
-    versions = models.list_bom_versions(conn)
-    att_paths = []
-    for v in versions:
-        if v["board_name"] == board_name:
-            for b in models.list_boards(conn, v["board_name"], v["pcb_version"], v["bom_version"]):
-                att_paths += models.board_attachment_paths(conn, b["id"])
+    att_paths = models.board_attachment_paths_by_name(conn, board_name)
     storage.delete_images(models.delete_board_name(conn, board_name))
     storage.delete_files(att_paths)
     return _hx_redirect("/")

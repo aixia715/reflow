@@ -1,8 +1,9 @@
 import json
+import os
 import re
 from urllib.parse import quote
 from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
-from fastapi.responses import RedirectResponse, PlainTextResponse, Response
+from fastapi.responses import RedirectResponse, PlainTextResponse, Response, FileResponse
 
 from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
@@ -113,6 +114,12 @@ def node_detail(request: Request, board_id: int, node_id: int):
         request, "node_detail.html", _node_context(conn, board_id, node))
 
 
+def _content_disposition(filename: str) -> str:
+    """ASCII fallback + RFC 5987，兼顾各浏览器与中文文件名。"""
+    ascii_name = re.sub(r"[^\x20-\x7e]", "_", filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
 def _download_filename(board, node) -> str:
     """下载文件名：含定位信息，去掉文件系统/HTTP 头敏感字符。"""
     if node["is_committed"]:
@@ -139,16 +146,10 @@ def download_node_bom(board_id: int, node_id: int):
     # UTF-8 带 BOM，Excel/WPS 打开中文不乱码
     body = ("﻿" + csv_text).encode("utf-8")
     filename = _download_filename(board, node)
-    # ASCII fallback + RFC 5987，兼顾各浏览器与中文文件名
-    ascii_name = re.sub(r"[^\x20-\x7e]", "_", filename)
-    disposition = (
-        f"attachment; filename=\"{ascii_name}\"; "
-        f"filename*=UTF-8''{quote(filename)}"
-    )
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": disposition},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 
@@ -532,13 +533,27 @@ async def attachments_upload(request: Request, board_id: int, node_id: int,
     reals = [f for f in files if f.filename]
     blobs = [(f.filename, await f.read()) for f in reals]
     saved = 0
+    oversized = []
     for name, data in blobs:
+        if len(data) > attachments.MAX_ATTACHMENT_BYTES:
+            oversized.append(name)
+            continue
         stored = attachments.make_stored_name(name)
         rel = attachments.rel_path(board_id, node_id, stored)
         storage.save_attachment(rel, data)
-        models.add_node_attachment(conn, node_id, name, rel)
+        try:
+            models.add_node_attachment(conn, node_id, name, rel)
+        except Exception:
+            # DB 行没写成功，已落盘的文件不能孤儿地留在磁盘上
+            storage.delete_files([rel])
+            raise
         saved += 1
-    msg = f"✓ 已上传 {saved} 个附件" if saved else "未选择文件"
+    if oversized:
+        limit_mb = attachments.MAX_ATTACHMENT_BYTES // (1024 * 1024)
+        msg = (f"✓ 已上传 {saved} 个；{len(oversized)} 个超过 {limit_mb}MB 未上传："
+               f"{', '.join(oversized)}")
+    else:
+        msg = f"✓ 已上传 {saved} 个附件" if saved else "未选择文件"
     return templates.TemplateResponse(
         request, "_attachments.html", _attach_ctx(conn, board_id, node),
         headers={"HX-Trigger": json.dumps({"showToast": msg})})
@@ -551,21 +566,15 @@ def attachments_download(board_id: int, node_id: int, aid: int):
     row = models.get_node_attachment(conn, aid)
     if row is None or row["node_id"] != node["id"]:
         raise HTTPException(status_code=404, detail="附件不存在")
-    import os
     full = os.path.join(storage.upload_dir(), row["storage_path"])
     if not os.path.exists(full):
         raise HTTPException(status_code=404, detail="附件文件缺失")
-    with open(full, "rb") as f:
-        body = f.read()
     fname = attachments.safe_filename(row["filename"])
-    ascii_name = re.sub(r"[^\x20-\x7e]", "_", fname)
-    disposition = (
-        f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(fname)}"
-    )
-    return Response(
-        content=body,
+    # 流式返回，避免大文件被整份读进内存
+    return FileResponse(
+        full,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": disposition},
+        headers={"Content-Disposition": _content_disposition(fname)},
     )
 
 

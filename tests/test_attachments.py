@@ -20,6 +20,19 @@ def test_make_stored_name_empty_filename():
     assert "." not in name
 
 
+def test_make_stored_name_trailing_dot_treated_as_no_ext():
+    """文件名以裸点结尾（如「notes.」）时 os.path.splitext 返回的 ext=='.' 是真值，
+    早期实现直接判断 `if ext` 会误入「有扩展名」分支，拼出末尾多一个点的畸形存盘名。"""
+    name = attachments.make_stored_name("notes.")
+    assert "." not in name
+    assert len(name) == 32
+
+
+def test_make_stored_name_lowercases_extension():
+    a = attachments.make_stored_name("原理图.SCH")
+    assert a.endswith(".sch")
+
+
 def test_rel_path_joins_board_node_name():
     p = attachments.rel_path(7, 12, "abc.sch")
     assert p == os.path.join("7", "12", "abc.sch")
