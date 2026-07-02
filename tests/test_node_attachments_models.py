@@ -74,6 +74,20 @@ def test_delete_board_cleans_attachment_rows(conn):
     assert conn.execute("SELECT COUNT(*) FROM node_attachments").fetchone()[0] == 0
 
 
+def test_node_ids_with_attachments_returns_only_attached(conn):
+    bid = _mk_board(conn)
+    ws = models.workspace_node(conn, bid)
+    nid = models.commit_workspace(conn, bid, "第一次")
+    # 初始无附件
+    assert models.node_ids_with_attachments(conn, bid) == set()
+    # 给已提交节点加一个附件
+    models.add_node_attachment(conn, nid, "a.sch", "x/y/a.sch")
+    assert models.node_ids_with_attachments(conn, bid) == {nid}
+    # 草稿也加一个 → 两个节点都进入集合
+    models.add_node_attachment(conn, ws["id"], "b.sch", "x/z/b.sch")
+    assert models.node_ids_with_attachments(conn, bid) == {nid, ws["id"]}
+
+
 def test_board_attachment_paths_by_name_collects_across_versions(conn):
     from app.csv_import import CsvEntry
     bid1 = _mk_board(conn)  # board_name="B", pcb="v1", bom="bomA"

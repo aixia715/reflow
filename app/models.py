@@ -575,6 +575,16 @@ def board_attachment_paths(conn, board_id) -> list[str]:
     ).fetchall()]
 
 
+def node_ids_with_attachments(conn, board_id) -> set[int]:
+    """该单板下含有附件的节点 id 集合（供状态图卡片标记回形针，避免逐节点查询）。"""
+    return {r["node_id"] for r in conn.execute(
+        "SELECT DISTINCT a.node_id FROM node_attachments a"
+        " JOIN nodes n ON n.id = a.node_id"
+        " WHERE n.board_id=?",
+        (board_id,)
+    ).fetchall()}
+
+
 def board_attachment_paths_by_name(conn, board_name) -> list[str]:
     """单板名称下所有节点附件的 storage_path（供删整个单板名称时刷盘）。"""
     return [r["storage_path"] for r in conn.execute(

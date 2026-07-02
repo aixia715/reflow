@@ -118,6 +118,24 @@ def test_attachment_files_dropped_when_board_deleted(client, tmp_path):
     assert not os.path.exists(p)
 
 
+def test_state_graph_shows_paperclip_for_nodes_with_attachments(client):
+    """issue #104：含附件的节点卡片上显示回形针标志，无附件的节点不显示。"""
+    bid = _new_board(client)
+    nid = _workspace_node(client, bid)
+    # 无附件时不应出现回形针标记（sprite 定义不算使用）
+    r0 = client.get(f"/board/{bid}")
+    assert r0.status_code == 200
+    assert 'href="#icon-paperclip"' not in r0.text
+    # 给草稿节点上传一个附件
+    client.post(f"/board/{bid}/node/{nid}/attachments",
+                files=[("files", ("schematic.sch", b"SCH", "application/octet-stream"))])
+    r = client.get(f"/board/{bid}")
+    assert r.status_code == 200
+    # 恰好一处使用回形针图标（只有带附件的草稿节点）
+    assert r.text.count('href="#icon-paperclip"') == 1
+    assert "含附件" in r.text
+
+
 def test_upload_oversized_file_rejected(client, monkeypatch):
     from app import attachments
     monkeypatch.setattr(attachments, "MAX_ATTACHMENT_BYTES", 4)
