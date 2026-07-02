@@ -11,11 +11,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-tag-on-master:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: 校验 tag 是否已合入 master
+        run: |
+          git fetch origin master
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/master; then
+            echo "::error::tag ${GITHUB_REF#refs/tags/} 指向的提交（${{ github.sha }}）不在 master 分支历史中，请先合并到 master 再打 tag"
+            exit 1
+          fi
+
   checks:
+    needs: verify-tag-on-master
     uses: ./.github/workflows/_checks.yml
 
   publish:
-    needs: checks
+    needs: [verify-tag-on-master, checks]
     runs-on: ubuntu-latest
     permissions:
       contents: read
