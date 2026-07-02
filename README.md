@@ -71,6 +71,9 @@ curl http://<部署机IP>:8000/version   # {"version": "v0.1.2"}
 docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' ghcr.io/aixia715/reflow:v0.1.2
 ```
 
+升级版本、数据卷位置、备份方式和下面「部署（离线导入）」小节一致（`docker run` 换成
+`ghcr.io/aixia715/reflow:<新 tag>` 即可，`-v reflow-data:/data` 照用），不重复贴一遍。
+
 ## 打包成 Docker 镜像（离线环境，无镜像仓库时用）
 
 仓库根目录有 `Dockerfile`，前端依赖（htmx / Alpine.js）已内置在 `app/static/vendor/`，镜像**完全自包含，运行时不需要外网**。
