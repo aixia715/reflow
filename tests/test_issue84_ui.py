@@ -39,10 +39,15 @@ def test_menu_closes_on_clicking_other_card(live_server, page: Page):
 
 
 def test_menu_closes_on_clicking_other_card_menu_btn(live_server, page: Page):
-    """复测：弹出菜单后点击另一张卡片的三点按钮（其 @click.stop 会阻止冒泡），原菜单仍应关闭。"""
+    """复测：弹出菜单后点击另一张卡片的三点按钮（其 @click.stop 会阻止冒泡），原菜单仍应关闭。
+
+    这里改在根节点（链底）上展开菜单：根节点在下，其下拉菜单落入下方空白，
+    不会覆盖上方「加 C9」节点的三点按钮——issue #105 修复后，被菜单遮挡的按钮
+    不再可点击，故需选一个未被遮挡的「其它卡片」按钮来验证关闭机制。
+    """
     bid = _make_chain(live_server)
     page.goto(f"{live_server}/board/{bid}")
-    opener = _c1(page)
+    opener = page.locator(".tl-item.node.root")
     opener.locator(".menu-btn").click()
     menu = opener.locator(".menu-pop")
     expect(menu).to_be_visible()

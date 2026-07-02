@@ -193,6 +193,8 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 /* 时间线卡片右上的 ⋯ 操作菜单：默认隐藏，悬浮整个项时露出（issue #79） */
 /* 用 .menu.tl-actions 提高特异性，压过 .menu 的 position:relative，才能真正绝对定位到右上角 */
 .menu.tl-actions{position:absolute;right:6px;top:6px;z-index:10}
+/* 菜单展开时抬高自身层叠上下文，压过下方相邻项的三点按钮，避免按钮穿透菜单（issue #105） */
+.menu.tl-actions.menu-open{z-index:30}
 .tl-card{padding-right:30px}
 .compare-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:.75rem;
   padding:.6rem .9rem;margin-top:1rem;border-radius:var(--radius);
