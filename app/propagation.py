@@ -1,7 +1,7 @@
 import sqlite3
 from typing import NamedTuple
 
-from app import models, audit
+from app import models, audit, storage
 from app.bom_engine import resolve_reference
 
 
@@ -106,7 +106,7 @@ def delete_node(conn, node_id, choices: dict | None = None) -> None:
         conn, parent_id, "", None, None, "delete_node", "direct",
         note=f"删除节点 #{node_id}「{node['message'] or '无说明'}」",
     )
-    models.delete_node(conn, node_id)
+    paths = models.delete_node(conn, node_id)
 
     for cf in conflicts:
         old, new = cf.downstream_value, cf.corrected_value
@@ -125,6 +125,11 @@ def delete_node(conn, node_id, choices: dict | None = None) -> None:
                 conn, cf.downstream_node_id, cf.reference, old, new, op, "propagated",
                 note=f"因删除节点 #{node_id} 重新继承",
             )
+
+    # 文件清理放最后：DB 侧的冲突固化/传播已全部落定，磁盘文件删除失败
+    # （权限、磁盘故障等）只影响附件残留，不应阻断上面的核心传播逻辑。
+    if paths:
+        storage.delete_files(paths)
 
 
 def resolve_conflict(conn, conflict: Conflict, choice: str) -> None:

@@ -114,24 +114,31 @@ def delete_change(conn, node_id, reference) -> None:
     conn.commit()
 
 
-def delete_node(conn, node_id) -> None:
-    """物理删除一个节点：把它的子节点重接到它的父节点，再删其 changeset、节点行本身。
+def delete_node(conn, node_id) -> list[str]:
+    """物理删除一个节点：把它的子节点重接到它的父节点，再删其 changeset、附件、节点行本身。
     线性链中至多一个子节点；草稿也按子节点重接（4-A）。
 
     被删节点自身的历史审计日志**重挂到父节点而非删除**（append-only）：受
     `edit_log.node_id NOT NULL` + 外键所限不能悬挂，重挂到父节点后与同样挂在父节点的
     `delete_node` 事件相邻，仍可追溯。审计的「删除事件 / 传播日志」由 propagation 层负责，
-    这里只做结构删除。根节点不可删（无父节点），调用前应已校验，这里再 fail-fast。"""
+    这里只做结构删除。根节点不可删（无父节点），调用前应已校验，这里再 fail-fast。
+
+    返回被删节点附件的 storage_path 列表（供调用方删除磁盘文件）。"""
     node = get_node(conn, node_id)
     assert node["parent_id"] is not None, "不能删除根节点（无父节点）"
     parent_id = node["parent_id"]
+    paths = [r["storage_path"] for r in conn.execute(
+        "SELECT storage_path FROM node_attachments WHERE node_id=?", (node_id,)
+    ).fetchall()]
     conn.execute(
         "UPDATE nodes SET parent_id=? WHERE parent_id=?", (parent_id, node_id)
     )
     conn.execute("DELETE FROM node_changes WHERE node_id=?", (node_id,))
+    conn.execute("DELETE FROM node_attachments WHERE node_id=?", (node_id,))
     conn.execute("UPDATE edit_log SET node_id=? WHERE node_id=?", (parent_id, node_id))
     conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
     conn.commit()
+    return paths
 
 
 def get_changeset(conn, node_id) -> list[dict]:
@@ -193,6 +200,7 @@ def delete_board(conn, board_id) -> list[str]:
         ph = ",".join("?" * len(node_ids))
         conn.execute(f"DELETE FROM edit_log WHERE node_id IN ({ph})", node_ids)
         conn.execute(f"DELETE FROM node_changes WHERE node_id IN ({ph})", node_ids)
+        conn.execute(f"DELETE FROM node_attachments WHERE node_id IN ({ph})", node_ids)
         conn.execute("DELETE FROM nodes WHERE board_id=?", (board_id,))
     hc_ids = [r["id"] for r in conn.execute(
         "SELECT id FROM hard_changes WHERE board_id=?", (board_id,)
@@ -519,3 +527,60 @@ def delete_hard_change(conn, hc_id) -> list[str]:
     conn.execute("DELETE FROM hard_changes WHERE id=?", (hc_id,))
     conn.commit()
     return [r["filename"] for r in rows]
+
+
+# ---------- 节点附件 ----------
+
+def add_node_attachment(conn, node_id, filename, storage_path) -> int:
+    """记录一个附件元数据（不写文件，文件由 storage 层负责）。返回新行 id。"""
+    cur = conn.execute(
+        "INSERT INTO node_attachments(node_id,filename,storage_path,created_at)"
+        " VALUES(?,?,?,?)",
+        (node_id, filename, storage_path, _now()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_node_attachments(conn, node_id) -> list[sqlite3.Row]:
+    """按上传顺序返回某节点的附件元数据。"""
+    return conn.execute(
+        "SELECT * FROM node_attachments WHERE node_id=? ORDER BY id", (node_id,)
+    ).fetchall()
+
+
+def get_node_attachment(conn, attachment_id) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM node_attachments WHERE id=?", (attachment_id,)
+    ).fetchone()
+
+
+def delete_node_attachment(conn, attachment_id) -> str | None:
+    """删除一个附件行，返回其 storage_path（供刷盘）；不存在返回 None。"""
+    row = get_node_attachment(conn, attachment_id)
+    if row is None:
+        return None
+    conn.execute("DELETE FROM node_attachments WHERE id=?", (attachment_id,))
+    conn.commit()
+    return row["storage_path"]
+
+
+def board_attachment_paths(conn, board_id) -> list[str]:
+    """单板下所有节点附件的 storage_path（供删单板时刷盘）。"""
+    return [r["storage_path"] for r in conn.execute(
+        "SELECT a.storage_path FROM node_attachments a"
+        " JOIN nodes n ON n.id = a.node_id"
+        " WHERE n.board_id=? ORDER BY a.id",
+        (board_id,)
+    ).fetchall()]
+
+
+def board_attachment_paths_by_name(conn, board_name) -> list[str]:
+    """单板名称下所有节点附件的 storage_path（供删整个单板名称时刷盘）。"""
+    return [r["storage_path"] for r in conn.execute(
+        "SELECT a.storage_path FROM node_attachments a"
+        " JOIN nodes n ON n.id = a.node_id"
+        " JOIN boards_hierarchy b ON b.id = n.board_id"
+        " WHERE b.board_name=? ORDER BY a.id",
+        (board_name,)
+    ).fetchall()]
