@@ -101,6 +101,7 @@ def state_graph(request: Request, board_id: int):
         {"board": board, "board_id": board_id, "timeline": timeline,
          "summaries": models.node_summaries(conn, board_id),
          "insertable_ids": insertable_ids,
+         "attach_node_ids": models.node_ids_with_attachments(conn, board_id),
          "initial_count": initial_count})
 
 

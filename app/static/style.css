@@ -140,6 +140,8 @@ details.panel summary{cursor:pointer;font-weight:600}
 .tl-item.draft .dot{background:var(--surface);border-color:var(--blue)}
 .tl-item.root .dot{background:var(--purple)}
 .tl-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px}
+/* 节点卡片上的回形针标志：表示该节点含附件（issue #104） */
+.attach-mark{color:var(--muted);margin-left:4px;vertical-align:-3px}
 /* 卡片内印章色与正文色一致，避免锚点蓝叠加到标题 */
 a.tl-card{color:var(--fg);text-decoration:none}
 a.tl-card:hover{text-decoration:none}
