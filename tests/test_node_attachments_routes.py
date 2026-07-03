@@ -127,8 +127,9 @@ def test_state_graph_shows_paperclip_for_nodes_with_attachments(client):
     assert r0.status_code == 200
     assert 'href="#icon-paperclip"' not in r0.text
     # 给草稿节点上传一个附件
-    client.post(f"/board/{bid}/node/{nid}/attachments",
-                files=[("files", ("schematic.sch", b"SCH", "application/octet-stream"))])
+    up = client.post(f"/board/{bid}/node/{nid}/attachments",
+                     files=[("files", ("schematic.sch", b"SCH", "application/octet-stream"))])
+    assert up.status_code == 200
     r = client.get(f"/board/{bid}")
     assert r.status_code == 200
     # 恰好一处使用回形针图标（只有带附件的草稿节点）
