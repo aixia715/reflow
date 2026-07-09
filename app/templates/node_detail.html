@@ -73,6 +73,18 @@
     </details>
     {% endif %}
     {% if not node.is_committed %}
+    <details class="panel">
+      <summary>从 CSV 导入修改…</summary>
+      <form class="edit-form" hx-post="/board/{{ board_id }}/node/{{ node.id }}/import/preview"
+            hx-target="#import-preview" hx-swap="innerHTML"
+            hx-encoding="multipart/form-data" hx-trigger="change">
+        <label>修改清单 CSV
+          <input name="file" type="file" accept=".csv"></label>
+        <p class="muted">表头需含 Reference 与 Part；可选 OP 列（add / modify / remove）。
+          不写 OP 时按位号是否已存在自动判为新增或修改。</p>
+      </form>
+      <div id="import-preview"></div>
+    </details>
     <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit">
       <div class="panel-title">提交为新节点</div>
       <input class="input" name="message" placeholder="commit 说明" required>

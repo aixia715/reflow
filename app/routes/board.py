@@ -9,6 +9,7 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
+from app.csv_import import ChangeEntry, parse_change_csv, plan_changes
 from app.validation import validate_edit, validate_insert_time
 from app import compare
 from app.models import _now
@@ -312,6 +313,117 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     part_val = None if op == "remove" else part
     propagation.apply_node_edit(conn, ws["id"], reference, op, part_val)
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
+
+
+async def _read_upload(file) -> tuple[str, str | None]:
+    """读取上传的 CSV 文本，返回 (text, error_message)。"""
+    if file is None or not file.filename:
+        return "", "请选择 CSV 文件"
+    try:
+        return (await file.read()).decode("utf-8"), None
+    except UnicodeDecodeError:
+        return "", "文件不是 UTF-8 编码"
+
+
+def _import_draft(conn, board_id: int, node_id: int):
+    """导入只允许对工作区草稿做。返回草稿节点行；非草稿返回 None。"""
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return None if node["is_committed"] else node
+
+
+@router.post("/board/{board_id}/node/{node_id}/import/preview")
+async def import_preview(request: Request, board_id: int, node_id: int,
+                         file: UploadFile | None = File(None)):
+    """解析上传的修改清单 CSV，渲染预览；不写库。有任一问题行则不给应用按钮。"""
+    conn = get_conn()
+    if _import_draft(conn, board_id, node_id) is None:
+        return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
+
+    ctx = {"board_id": board_id, "node_id": node_id, "message": "",
+           "changes": [], "problems": [], "ready": False,
+           "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
+
+    text, err = await _read_upload(file)
+    if err:
+        ctx["message"] = err
+        return templates.TemplateResponse(request, "_import_preview.html", ctx)
+    try:
+        entries, problems = parse_change_csv(text)
+    except ValueError as e:
+        ctx["message"] = str(e)
+        return templates.TemplateResponse(request, "_import_preview.html", ctx)
+
+    initial, chain = models.get_chain(conn, node_id)
+    changes, invalid = plan_changes(fold_bom(initial, chain), entries)
+    problems = problems + invalid
+    dicts = [c._asdict() for c in changes]
+    ctx.update(
+        changes=dicts, problems=problems,
+        ready=bool(changes) and not problems,
+        counts={op: sum(1 for c in changes if c.op == op)
+                for op in ("add", "modify", "remove")},
+        changes_json=json.dumps(dicts, ensure_ascii=False),
+    )
+    return templates.TemplateResponse(request, "_import_preview.html", ctx)
+
+
+@router.post("/board/{board_id}/node/{node_id}/import")
+def import_apply(request: Request, board_id: int, node_id: int,
+                 changes: str = Form("[]")):
+    """应用预览过的修改清单。落库前重新校验（草稿可能已变），全有或全无。"""
+    conn = get_conn()
+    if _import_draft(conn, board_id, node_id) is None:
+        return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
+
+    def _err(msg):
+        return templates.TemplateResponse(
+            request, "_form_error.html", {"message": msg},
+            headers={"HX-Retarget": "#import-error", "HX-Reswap": "innerHTML"})
+
+    try:
+        payload = json.loads(changes)
+    except (ValueError, TypeError, RecursionError):
+        payload = []
+    if not payload:
+        return _err("没有可导入的修改")
+    # 形状校验：必须是数组，元素为对象，且 reference 是字符串、
+    # part/op 是字符串或 None（下游 validate_edit 对 part 会 .strip()，
+    # 非字符串真值会打穿；op 也一并收紧防御性校验）。
+    # 正常 UI 走 |tojson 生成不会触发；防的是被人手工拼接的畸形请求体。
+    if (not isinstance(payload, list)
+            or not all(isinstance(c, dict) for c in payload)
+            or not all(isinstance(c.get("reference"), str) for c in payload)
+            or not all(c.get("part") is None or isinstance(c.get("part"), str)
+                       for c in payload)
+            or not all(c.get("op") is None or isinstance(c.get("op"), str)
+                       for c in payload)):
+        return _err("导入被拒绝：数据格式不正确")
+
+    entries = [ChangeEntry(c.get("reference").strip(),
+                           c.get("op"), c.get("part") or "")
+               for c in payload]
+    # 位号唯一性：parse_change_csv 保证 CSV 内不重复，plan_changes 才敢对静态 BOM
+    # 逐条独立校验。手搓的 payload 绕过这个不变量时，两条 add 都会通过校验，
+    # upsert 让后者覆盖前者，但审计日志会多出一条从未生效的记录。
+    refs = [e.reference for e in entries]
+    if len(set(refs)) != len(refs):
+        return _err("导入被拒绝：位号重复")
+
+    initial, chain = models.get_chain(conn, node_id)
+    planned, problems = plan_changes(fold_bom(initial, chain), entries)
+    if problems:
+        # 不归因「草稿已变化」——非法 op 等结构性问题并非草稿变化所致；
+        # detail 取自 validate_edit，本身已说明具体原因。
+        return _err(f"导入被拒绝：{problems[0].reference} {problems[0].detail}")
+
+    for c in planned:
+        propagation.apply_node_edit(conn, node_id, c.reference, c.op, c.part)
+
+    flash = quote(f"✓ 已导入 {len(planned)} 条修改", safe="")
+    return Response(status_code=204, headers={
+        "HX-Redirect": f"/board/{board_id}/node/{node_id}?flash={flash}"})
 
 
 def _insert_child(conn, parent_id):

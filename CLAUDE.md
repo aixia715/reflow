@@ -18,7 +18,7 @@ pytest                        # 全部测试（当前 222 passed）
 
 | 文件 | 职责 |
 |---|---|
-| `app/csv_import.py` | ★CSV 解析、拆分合并位号、校验报告（纯逻辑） |
+| `app/csv_import.py` | ★CSV 解析、拆分合并位号、校验报告；工作区导入的修改清单解析 + op 推断（纯逻辑） |
 | `app/validation.py` | ★位号编辑校验（纯逻辑） |
 | `app/bom_engine.py` | ★折叠引擎：`fold_bom` / `resolve_reference` 沿差量链求解（纯逻辑） |
 | `app/propagation.py` | ★传播 & 冲突检测/确认（核心算法） |
@@ -65,7 +65,6 @@ pytest                        # 全部测试（当前 222 passed）
 - 前端风格指南：`docs/前端风格指南.md`（改前端必读）
 - 设计 spec：`docs/superpowers/specs/2026-06-09-reflow-bom-tool-design.md`（另有 HTML 版）
 - 实现计划：`docs/superpowers/plans/2026-06-09-reflow-bom-tool.md`
-- 需求文档：`docs/Reflow-需求文档.md`
 
 ## MVP 边界（暂不做）
 

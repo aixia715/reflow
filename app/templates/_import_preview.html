@@ -1,0 +1,35 @@
+{% if message %}
+<div class="flash flash-error">✕ {{ message }}</div>
+{% else %}
+  {% if problems %}
+  <div class="flash flash-error">✕ 发现 {{ problems|length }} 个问题，修正 CSV 后重新选择文件</div>
+  <ul class="problem-list">
+    {% for p in problems %}
+    <li>{% if p.reference %}<code>{{ p.reference }}</code> {% endif %}{{ p.detail }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if changes %}
+  <div class="flash flash-info">
+    共 {{ changes|length }} 条修改：新增 {{ counts.add }} · 修改 {{ counts.modify }} · 不贴 {{ counts.remove }}
+  </div>
+  {% for c in changes %}
+  <div class="change-row">
+    <span><code>{{ c.reference }}</code>
+      {% if c.op == 'remove' %}不贴{% elif c.op == 'add' %}新增 → {{ c.part }}{% else %}修改 → {{ c.part }}{% endif %}
+    </span>
+  </div>
+  {% endfor %}
+  {% elif not problems %}
+  <div class="flash flash-warn">⚠ CSV 里没有可导入的修改</div>
+  {% endif %}
+{% endif %}
+<div id="import-error"></div>
+{% if ready %}
+<button type="button" class="btn btn-outline"
+        hx-post="/board/{{ board_id }}/node/{{ node_id }}/import"
+        hx-vals='{{ {"changes": changes_json} | tojson }}'
+        hx-target="#import-error" hx-swap="innerHTML">
+  应用这 {{ changes|length }} 条修改
+</button>
+{% endif %}
