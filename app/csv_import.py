@@ -11,7 +11,7 @@ class CsvEntry(NamedTuple):
 
 
 class CsvProblem(NamedTuple):
-    kind: str        # "duplicate" | "empty_part" | "empty_reference"
+    kind: str        # "duplicate" | "empty_part" | "empty_reference" | "bad_op" | "invalid"
     reference: str
     detail: str
 

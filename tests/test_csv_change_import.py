@@ -44,7 +44,8 @@ def test_op_column_read_case_insensitively():
 def test_blank_op_cell_falls_back_to_inference():
     """有 OP 列但某行留空 → 该行 op=None，交给 plan_changes 推断。"""
     csv = "Reference,Part,Op\nR1,10k,\nC1,,remove\n"
-    entries, _ = parse_change_csv(csv)
+    entries, problems = parse_change_csv(csv)
+    assert problems == []
     assert entries[0] == ChangeEntry("R1", None, "10k")
     assert entries[1] == ChangeEntry("C1", "remove", "")
 
