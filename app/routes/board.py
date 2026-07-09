@@ -10,7 +10,7 @@ from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
 from app.csv_import import ChangeEntry, parse_change_csv, plan_changes
-from app.validation import validate_edit, validate_insert_time
+from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
 from app.models import _now
 
@@ -333,36 +333,6 @@ def _import_draft(conn, board_id: int, node_id: int):
     return None if node["is_committed"] else node
 
 
-def _parse_changes_payload(changes: str) -> tuple[list[dict], str | None]:
-    """解析前端提交的 changes JSON：语法、形状、字段类型、位号唯一性。
-
-    返回 (payload, error)；error 非 None 时 payload 为空。空数组不算错误，
-    「空修改」的文案各路由不同，由调用方判断。
-
-    正常界面走 |tojson / JSON.stringify 生成，形状必然正确；本函数防的是手工
-    拼接的畸形请求体——下游 validate_edit 会对 part 调 .strip()，非字符串真值
-    会打穿；RecursionError 是 RuntimeError 的子类，深嵌套 JSON 能绕过对
-    ValueError / TypeError 的捕获。位号重复则会让 set_change 的 upsert 后者
-    覆盖前者，审计日志留下一条从未生效的记录。
-    """
-    try:
-        payload = json.loads(changes)
-    except (ValueError, TypeError, RecursionError):
-        return [], "数据格式不正确"
-    if not isinstance(payload, list) or not all(isinstance(c, dict) for c in payload):
-        return [], "数据格式不正确"
-    for c in payload:
-        if not isinstance(c.get("reference"), str):
-            return [], "数据格式不正确"
-        for field in ("part", "op"):
-            if not (c.get(field) is None or isinstance(c.get(field), str)):
-                return [], "数据格式不正确"
-    refs = [c["reference"].strip() for c in payload]
-    if len(set(refs)) != len(refs):
-        return [], "位号重复"
-    return payload, None
-
-
 @router.post("/board/{board_id}/node/{node_id}/import/preview")
 async def import_preview(request: Request, board_id: int, node_id: int,
                          file: UploadFile | None = File(None)):
@@ -412,7 +382,7 @@ def import_apply(request: Request, board_id: int, node_id: int,
             request, "_form_error.html", {"message": msg},
             headers={"HX-Retarget": "#import-error", "HX-Reswap": "innerHTML"})
 
-    payload, perr = _parse_changes_payload(changes)
+    payload, perr = validate_changes_payload(changes)
     if perr:
         return _err(f"导入被拒绝：{perr}")
     if not payload:
@@ -484,7 +454,7 @@ def insert_save(request: Request, board_id: int, parent_id: int,
 
     if not parent["is_committed"] or child is None or not child["is_committed"]:
         return _err("该位置不可插入（链末请直接用工作区编辑）")
-    chs, perr = _parse_changes_payload(changes)
+    chs, perr = validate_changes_payload(changes)
     if perr:
         return _err(perr)
     if not chs:

@@ -122,3 +122,62 @@ def test_valid_new_name_passes():
 def test_new_name_not_stripped_in_return():
     # 契约：只判断 trim 后非空，不负责裁剪；裁剪由调用方（路由）负责
     assert validate_new_name("  v2  ") is None
+
+
+# ── changes 载荷校验（issue #110：手搓的畸形 payload 不该打成 500）────────
+
+import json
+import pytest
+from app.validation import validate_changes_payload
+
+
+def test_changes_payload_accepts_well_formed():
+    payload = [{"reference": "R1", "op": "modify", "part": "47k"},
+               {"reference": "C1", "op": "remove", "part": None}]
+    got, err = validate_changes_payload(json.dumps(payload))
+    assert err is None
+    assert got == payload
+
+
+def test_changes_payload_accepts_empty_array():
+    """空数组不是格式错误——「空修改」的文案各路由不同，由调用方判断。"""
+    assert validate_changes_payload("[]") == ([], None)
+
+
+def test_changes_payload_allows_omitted_op_and_part():
+    """op / part 允许缺省或为 None：CSV 里 OP 列留空即表示交给 op 推断。"""
+    got, err = validate_changes_payload('[{"reference":"R1"}]')
+    assert err is None and got == [{"reference": "R1"}]
+
+
+@pytest.mark.parametrize("bad", [
+    "not json",                                      # 语法错误
+    "42",                                            # 顶层是标量
+    '{"a":1}',                                       # 顶层是对象
+    '["R1"]',                                        # 元素不是对象
+    "[123]",                                         # 元素是数字
+    '[{"op":"add","part":"1k"}]',                    # 缺 reference
+    '[{"reference":123,"op":"add","part":"1k"}]',    # reference 不是字符串
+    '[{"reference":"R9","op":"add","part":123}]',    # part 不是字符串
+    '[{"reference":"R9","op":"add","part":true}]',   # part 是布尔真值
+    '[{"reference":"R9","op":123,"part":"1k"}]',     # op 不是字符串
+])
+def test_changes_payload_rejects_malformed(bad):
+    got, err = validate_changes_payload(bad)
+    assert got == []
+    assert err == "数据格式不正确"
+
+
+def test_changes_payload_rejects_deeply_nested_json():
+    """RecursionError 是 RuntimeError 的子类，不被 ValueError/TypeError 捕获。"""
+    got, err = validate_changes_payload("[" * 10000 + "]" * 10000)
+    assert got == []
+    assert err == "数据格式不正确"
+
+
+def test_changes_payload_rejects_duplicate_reference_after_strip():
+    got, err = validate_changes_payload(
+        '[{"reference":"R9","op":"add","part":"1u"},'
+        ' {"reference":" R9 ","op":"add","part":"2u"}]')
+    assert got == []
+    assert err == "位号重复"
