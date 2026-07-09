@@ -32,7 +32,49 @@ uvicorn app.main:app --reload
 pytest
 ```
 
-## 打包成 Docker 镜像
+## 发版（触发 GHCR 自动构建镜像）
+
+推 `v*.*.*` 格式的 git tag 会触发 `publish-image.yml`，构建并推送镜像到
+`ghcr.io/aixia715/reflow`。**前提：tag 指向的提交必须已经在 `master` 分支历史里**
+——CI 里 `verify-tag-on-master` 这一步会用 `git merge-base --is-ancestor` 校验，
+tag 打在还没合并的分支/PR 上会直接报错终止，不会构建发布。
+
+正确顺序：先把改动合并到 `master`，再对 `master` 上的提交打 tag：
+
+```bash
+git checkout master && git pull
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+## 从 GHCR 拉取镜像（推荐，联网环境）
+
+```bash
+docker pull ghcr.io/aixia715/reflow:v0.1.2   # 指定版本
+# 或
+docker pull ghcr.io/aixia715/reflow:latest   # 最新发版
+
+docker run -d --name reflow --restart unless-stopped \
+  -p 8000:8000 \
+  -v reflow-data:/data \
+  ghcr.io/aixia715/reflow:v0.1.2
+```
+
+访问 `http://<部署机IP>:8000/`。GHCR 包默认 private，仓库协作者本地已用
+`gh auth login` / `docker login ghcr.io` 登录即可直接 `pull`；若需要外部匿名拉取，
+要去仓库 Packages 页面把该包手动设为 public。
+
+`latest` 是浮动 tag，看名字分不清对应哪次发版，可用 `/version` 接口或镜像 label 确认：
+
+```bash
+curl http://<部署机IP>:8000/version   # {"version": "v0.1.2"}
+docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' ghcr.io/aixia715/reflow:v0.1.2
+```
+
+升级版本、数据卷位置、备份方式和下面「部署（离线导入）」小节一致（`docker run` 换成
+`ghcr.io/aixia715/reflow:<新 tag>` 即可，`-v reflow-data:/data` 照用），不重复贴一遍。
+
+## 打包成 Docker 镜像（离线环境，无镜像仓库时用）
 
 仓库根目录有 `Dockerfile`，前端依赖（htmx / Alpine.js）已内置在 `app/static/vendor/`，镜像**完全自包含，运行时不需要外网**。
 
@@ -46,7 +88,7 @@ docker save reflow:0.1.0 | gzip > reflow-0.1.0.tar.gz
 
 得到的 `reflow-0.1.0.tar.gz` 可以通过 U 盘 / scp 等任意方式传到部署机。
 
-## 部署
+## 部署（离线导入）
 
 目标机器只需要装有 Docker：
 

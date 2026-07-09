@@ -125,7 +125,9 @@ def board_delete(board_id: int):
     conn = get_conn()
     if not models.get_board(conn, board_id):
         raise HTTPException(status_code=404, detail="单板不存在")
+    att_paths = models.board_attachment_paths(conn, board_id)
     storage.delete_images(models.delete_board(conn, board_id))
+    storage.delete_files(att_paths)
     return _hx_redirect("/")
 
 
@@ -138,14 +140,19 @@ def bom_version_delete(
     conn = get_conn()
     if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
         raise HTTPException(status_code=404, detail="BOM 版本不存在")
+    board_ids = [b["id"] for b in models.list_boards(conn, board_name, pcb_version, bom_version)]
+    att_paths = [p for bid in board_ids for p in models.board_attachment_paths(conn, bid)]
     storage.delete_images(models.delete_bom_version(conn, board_name, pcb_version, bom_version))
+    storage.delete_files(att_paths)
     return _hx_redirect("/")
 
 
 @router.delete("/board-group")
 def board_group_delete(board_name: str = Query(...)):
     conn = get_conn()
+    att_paths = models.board_attachment_paths_by_name(conn, board_name)
     storage.delete_images(models.delete_board_name(conn, board_name))
+    storage.delete_files(att_paths)
     return _hx_redirect("/")
 
 

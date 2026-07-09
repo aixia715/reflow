@@ -58,6 +58,7 @@
     </div>
     {% endif %}
     <div id="changes-panel" class="panel">{% include "_changes_panel.html" %}</div>
+    {% include "_attachments.html" %}
     {% if node.is_committed and node.parent_id is not none %}
     <details class="panel">
       <summary>编辑节点信息…</summary>

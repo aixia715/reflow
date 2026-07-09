@@ -140,6 +140,8 @@ details.panel summary{cursor:pointer;font-weight:600}
 .tl-item.draft .dot{background:var(--surface);border-color:var(--blue)}
 .tl-item.root .dot{background:var(--purple)}
 .tl-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px}
+/* 节点卡片上的回形针标志：表示该节点含附件（issue #104） */
+.attach-mark{color:var(--muted);margin-left:4px;vertical-align:-3px}
 /* 卡片内印章色与正文色一致，避免锚点蓝叠加到标题 */
 a.tl-card{color:var(--fg);text-decoration:none}
 a.tl-card:hover{text-decoration:none}
@@ -193,6 +195,8 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 /* 时间线卡片右上的 ⋯ 操作菜单：默认隐藏，悬浮整个项时露出（issue #79） */
 /* 用 .menu.tl-actions 提高特异性，压过 .menu 的 position:relative，才能真正绝对定位到右上角 */
 .menu.tl-actions{position:absolute;right:6px;top:6px;z-index:10}
+/* 菜单展开时抬高自身层叠上下文，压过下方相邻项的三点按钮，避免按钮穿透菜单（issue #105） */
+.menu.tl-actions.menu-open{z-index:30}
 .tl-card{padding-right:30px}
 .compare-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:.75rem;
   padding:.6rem .9rem;margin-top:1rem;border-radius:var(--radius);
@@ -263,3 +267,12 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 .rename-input{border:1px solid var(--blue);border-radius:5px;padding:1px 6px;
   font:inherit;color:var(--fg);background:var(--surface);outline:none;
   box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* 节点附件列表 */
+.attach-list{margin-bottom:8px}
+.attach-row{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px;gap:8px}
+.attach-row:first-of-type{border-top:none}
+.attach-name{min-width:0;word-break:break-all}
+.attach-form{display:flex;gap:8px;align-items:flex-start;margin-top:4px}
+.attach-form .input{flex:1;min-width:0}

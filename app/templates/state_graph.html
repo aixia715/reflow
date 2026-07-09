@@ -31,6 +31,7 @@
      :class="{ 'selected': sel.includes({{ n.id }}) }"
      @click="if (cmp) { $event.preventDefault(); toggle({{ n.id }}); }">
     <b>{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}📦 {{ n.message or '(无说明)' }}{% endif %}</b>
+    {% if n.id in attach_node_ids %}<svg class="ico attach-mark" title="含附件" aria-label="含附件"><use href="#icon-paperclip"></use></svg>{% endif %}
     {% if n.parent_id is none %}
     <span class="badge badge-purple">初始 BOM · {{ initial_count }} 位号</span>
     {% elif not n.is_committed %}
@@ -43,7 +44,7 @@
     </div>
   </a>
   {% if show_menu %}
-  <span class="menu tl-actions" x-data="{ open:false }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
+  <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
     <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       {% if n.id in insertable_ids %}
@@ -72,7 +73,7 @@
       <button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ hard_short(h.id) }}')">复制</button>
     </div>
   </a>
-  <span class="menu tl-actions" x-data="{ open:false }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
+  <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
     <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       <button type="button" class="del"
