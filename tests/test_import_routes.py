@@ -174,6 +174,25 @@ def test_apply_rejected_on_committed_node(client):
     assert "只有工作区草稿" in r.text
 
 
+@pytest.mark.parametrize("bad_changes", [
+    '{"reference":"R1"}',   # JSON 对象而非数组
+    "42",                   # JSON 标量
+    '["R1"]',                # 数组但元素是字符串
+    '[{"reference": 123, "op":"add", "part":"1k"}]',  # reference 是数字
+])
+def test_apply_rejects_malformed_changes_shape(client, bad_changes):
+    """形状畸形的 changes（合法 JSON 但不是 list[dict{reference: str}]）应被优雅拒绝，而不是 500。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/import",
+                    data={"changes": bad_changes})
+    assert r.status_code == 200
+    assert r.headers.get("HX-Retarget") == "#import-error"
+    # 拒绝原因是中文提示（措辞与既有的「导入被拒绝：…」风格一致），且没有写库
+    assert "格式不正确" in r.text
+    assert _changeset(ws) == {}
+
+
 def test_apply_records_audit_log_per_change(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
