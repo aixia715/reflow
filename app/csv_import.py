@@ -2,6 +2,8 @@ import csv
 import io
 from typing import NamedTuple
 
+from app.validation import validate_edit
+
 
 class CsvEntry(NamedTuple):
     reference: str
@@ -114,3 +116,34 @@ def parse_change_csv(text: str) -> tuple[list[ChangeEntry], list[CsvProblem]]:
             entries.append(ChangeEntry(ref, op or None, part))
 
     return entries, problems
+
+
+class PlannedChange(NamedTuple):
+    """一条已确定 op 且通过校验的修改。remove 时 part 为 None。"""
+    reference: str
+    op: str
+    part: str | None
+
+
+def plan_changes(
+    full_bom: dict[str, str], entries: list[ChangeEntry]
+) -> tuple[list[PlannedChange], list[CsvProblem]]:
+    """把 CSV 条目落到某节点折叠后的 BOM 上：推断 op、逐条校验。
+
+    op 为 None 时按位号是否已在 full_bom 中推断为 modify / add——推断永远
+    得不出 remove，批量设不贴必须显式写 OP=remove。
+
+    CSV 内位号不重复（parse_change_csv 已保证），故每条都对**静态的**
+    full_bom 独立校验，不需要维护逐行模拟态。full_bom 不被修改。
+    """
+    changes: list[PlannedChange] = []
+    problems: list[CsvProblem] = []
+    for e in entries:
+        op = e.op or ("modify" if e.reference in full_bom else "add")
+        part = None if op == "remove" else e.part
+        err = validate_edit(full_bom, e.reference, op, part)
+        if err:
+            problems.append(CsvProblem("invalid", e.reference, err))
+            continue
+        changes.append(PlannedChange(e.reference, op, part))
+    return changes, problems

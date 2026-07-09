@@ -1,7 +1,7 @@
 """issue #108：工作区从 CSV 导入修改项 —— 纯逻辑层。"""
 import pytest
 
-from app.csv_import import ChangeEntry, parse_change_csv
+from app.csv_import import ChangeEntry, PlannedChange, parse_change_csv, plan_changes
 
 
 def test_headers_are_case_insensitive():
@@ -94,3 +94,88 @@ def test_duplicate_detected_across_merged_cells():
     entries, problems = parse_change_csv(csv)
     assert len(entries) == 2
     assert [p.kind for p in problems] == ["duplicate"]
+
+
+BOM = {"R1": "10k", "C1": "100nF"}
+
+
+def test_infers_modify_for_existing_reference():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R1", None, "47k")])
+    assert problems == []
+    assert changes == [PlannedChange("R1", "modify", "47k")]
+
+
+def test_infers_add_for_new_reference():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R9", None, "1uF")])
+    assert problems == []
+    assert changes == [PlannedChange("R9", "add", "1uF")]
+
+
+def test_explicit_op_wins_over_inference():
+    """位号不存在但显式写 modify → 走 modify，于是校验失败。"""
+    changes, problems = plan_changes(BOM, [ChangeEntry("R9", "modify", "1uF")])
+    assert changes == []
+    assert [p.kind for p in problems] == ["invalid"]
+    assert "不存在" in problems[0].detail
+
+
+def test_remove_drops_part_value():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R1", "remove", "随便写的")])
+    assert problems == []
+    assert changes == [PlannedChange("R1", "remove", None)]
+
+
+def test_remove_allows_empty_part():
+    changes, problems = plan_changes(BOM, [ChangeEntry("C1", "remove", "")])
+    assert problems == []
+    assert changes == [PlannedChange("C1", "remove", None)]
+
+
+def test_remove_of_unplaced_reference_is_a_problem():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R9", "remove", "")])
+    assert changes == []
+    assert [p.kind for p in problems] == ["invalid"]
+
+
+def test_add_of_existing_reference_is_a_problem():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R1", "add", "22k")])
+    assert changes == []
+    assert problems[0].reference == "R1"
+    assert "已存在" in problems[0].detail
+
+
+def test_empty_part_is_a_problem_for_add():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R9", "add", "")])
+    assert changes == []
+    assert [p.kind for p in problems] == ["invalid"]
+
+
+def test_empty_part_is_a_problem_for_inferred_modify():
+    """无 OP 列时空 Part 推断不出「不贴」，必须报错。"""
+    changes, problems = plan_changes(BOM, [ChangeEntry("R1", None, "")])
+    assert changes == []
+    assert [p.kind for p in problems] == ["invalid"]
+
+
+def test_modify_to_same_value_is_a_harmless_noop_not_a_problem():
+    changes, problems = plan_changes(BOM, [ChangeEntry("R1", None, "10k")])
+    assert problems == []
+    assert changes == [PlannedChange("R1", "modify", "10k")]
+
+
+def test_good_rows_and_bad_rows_both_reported():
+    """问题行不阻止其余行进入 changes；是否应用由调用方按「全对才应用」决定。"""
+    changes, problems = plan_changes(BOM, [
+        ChangeEntry("R1", None, "47k"),
+        ChangeEntry("R1x", "modify", "1k"),
+        ChangeEntry("C1", "remove", ""),
+    ])
+    assert changes == [PlannedChange("R1", "modify", "47k"),
+                       PlannedChange("C1", "remove", None)]
+    assert [p.reference for p in problems] == ["R1x"]
+
+
+def test_full_bom_is_not_mutated():
+    bom = dict(BOM)
+    plan_changes(bom, [ChangeEntry("R1", "remove", ""), ChangeEntry("R9", "add", "1k")])
+    assert bom == BOM
