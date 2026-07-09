@@ -1,6 +1,39 @@
 """位号编辑校验（纯逻辑，零 Web/DB 依赖）。"""
 
+import json
 from datetime import datetime, timezone
+
+
+def validate_changes_payload(changes: str) -> tuple[list[dict], str | None]:
+    """校验前端提交的 changes JSON：语法、形状、字段类型、位号唯一性。
+
+    返回 (payload, error)；error 非 None 时 payload 为空。空数组不算错误，
+    「空修改」的文案各路由不同，由调用方判断。
+
+    op / part 允许缺省或为 None——CSV 的 OP 列留空即表示交给 op 推断。
+
+    正常界面走 |tojson / JSON.stringify 生成，形状必然正确；本函数防的是手工
+    拼接的畸形请求体：validate_edit 会对 part 调 .strip()，非字符串真值会打穿；
+    RecursionError 是 RuntimeError 的子类，深嵌套 JSON 能绕过对 ValueError /
+    TypeError 的捕获；位号重复则会让 set_change 的 upsert 后者覆盖前者，审计
+    日志留下一条从未生效的记录。
+    """
+    try:
+        payload = json.loads(changes)
+    except (ValueError, TypeError, RecursionError):
+        return [], "数据格式不正确"
+    if not isinstance(payload, list) or not all(isinstance(c, dict) for c in payload):
+        return [], "数据格式不正确"
+    for c in payload:
+        if not isinstance(c.get("reference"), str):
+            return [], "数据格式不正确"
+        for field in ("part", "op"):
+            if not (c.get(field) is None or isinstance(c.get(field), str)):
+                return [], "数据格式不正确"
+    refs = [c["reference"].strip() for c in payload]
+    if len(set(refs)) != len(refs):
+        return [], "位号重复"
+    return payload, None
 
 
 def validate_insert_time(prev_ts: str, next_ts: str, chosen_ts: str | None) -> str | None:

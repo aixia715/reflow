@@ -10,7 +10,7 @@ from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
 from app.csv_import import ChangeEntry, parse_change_csv, plan_changes
-from app.validation import validate_edit, validate_insert_time
+from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
 from app.models import _now
 
@@ -382,35 +382,14 @@ def import_apply(request: Request, board_id: int, node_id: int,
             request, "_form_error.html", {"message": msg},
             headers={"HX-Retarget": "#import-error", "HX-Reswap": "innerHTML"})
 
-    try:
-        payload = json.loads(changes)
-    except (ValueError, TypeError, RecursionError):
-        payload = []
+    payload, perr = validate_changes_payload(changes)
+    if perr:
+        return _err(f"导入被拒绝：{perr}")
     if not payload:
         return _err("没有可导入的修改")
-    # 形状校验：必须是数组，元素为对象，且 reference 是字符串、
-    # part/op 是字符串或 None（下游 validate_edit 对 part 会 .strip()，
-    # 非字符串真值会打穿；op 也一并收紧防御性校验）。
-    # 正常 UI 走 |tojson 生成不会触发；防的是被人手工拼接的畸形请求体。
-    if (not isinstance(payload, list)
-            or not all(isinstance(c, dict) for c in payload)
-            or not all(isinstance(c.get("reference"), str) for c in payload)
-            or not all(c.get("part") is None or isinstance(c.get("part"), str)
-                       for c in payload)
-            or not all(c.get("op") is None or isinstance(c.get("op"), str)
-                       for c in payload)):
-        return _err("导入被拒绝：数据格式不正确")
 
-    entries = [ChangeEntry(c.get("reference").strip(),
-                           c.get("op"), c.get("part") or "")
+    entries = [ChangeEntry(c["reference"].strip(), c.get("op"), c.get("part") or "")
                for c in payload]
-    # 位号唯一性：parse_change_csv 保证 CSV 内不重复，plan_changes 才敢对静态 BOM
-    # 逐条独立校验。手搓的 payload 绕过这个不变量时，两条 add 都会通过校验，
-    # upsert 让后者覆盖前者，但审计日志会多出一条从未生效的记录。
-    refs = [e.reference for e in entries]
-    if len(set(refs)) != len(refs):
-        return _err("导入被拒绝：位号重复")
-
     initial, chain = models.get_chain(conn, node_id)
     planned, problems = plan_changes(fold_bom(initial, chain), entries)
     if problems:
@@ -475,10 +454,9 @@ def insert_save(request: Request, board_id: int, parent_id: int,
 
     if not parent["is_committed"] or child is None or not child["is_committed"]:
         return _err("该位置不可插入（链末请直接用工作区编辑）")
-    try:
-        chs = json.loads(changes)
-    except (ValueError, TypeError):
-        chs = []
+    chs, perr = validate_changes_payload(changes)
+    if perr:
+        return _err(perr)
     if not chs:
         return _err("请至少添加一条修改（不允许插入空节点）")
     terr = validate_insert_time(parent["committed_at"], child["committed_at"], committed_at)
