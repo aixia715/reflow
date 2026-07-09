@@ -179,6 +179,12 @@ def test_apply_rejected_on_committed_node(client):
     "42",                   # JSON 标量
     '["R1"]',                # 数组但元素是字符串
     '[{"reference": 123, "op":"add", "part":"1k"}]',  # reference 是数字
+    '[{"reference":"R1","op":"add","part":123}]',      # part 是数字
+    '[{"reference":"R1","op":"add","part":["1k"]}]',   # part 是数组
+    '[{"reference":"R1","op":"add","part":true}]',     # part 是布尔
+    '[{"reference":"R1","op":"add","part":{"x":1}}]',  # part 是对象
+    '[{"reference":"R1","op":"add","part":1.5}]',       # part 是浮点数
+    '[{"reference":"R1","op":123,"part":"1k"}]',        # op 是数字
 ])
 def test_apply_rejects_malformed_changes_shape(client, bad_changes):
     """形状畸形的 changes（合法 JSON 但不是 list[dict{reference: str}]）应被优雅拒绝，而不是 500。"""

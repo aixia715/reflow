@@ -385,11 +385,17 @@ def import_apply(request: Request, board_id: int, node_id: int,
         payload = []
     if not payload:
         return _err("没有可导入的修改")
-    # 形状校验：必须是「元素为对象且 reference 是字符串」的数组，
+    # 形状校验：必须是数组，元素为对象，且 reference 是字符串、
+    # part/op 是字符串或 None（下游 validate_edit 对 part 会 .strip()，
+    # 非字符串真值会打穿；op 也一并收紧防御性校验）。
     # 正常 UI 走 |tojson 生成不会触发；防的是被人手工拼接的畸形请求体。
     if (not isinstance(payload, list)
             or not all(isinstance(c, dict) for c in payload)
-            or not all(isinstance(c.get("reference"), str) for c in payload)):
+            or not all(isinstance(c.get("reference"), str) for c in payload)
+            or not all(c.get("part") is None or isinstance(c.get("part"), str)
+                       for c in payload)
+            or not all(c.get("op") is None or isinstance(c.get("op"), str)
+                       for c in payload)):
         return _err("导入被拒绝：数据格式不正确")
 
     entries = [ChangeEntry(c.get("reference").strip(),
