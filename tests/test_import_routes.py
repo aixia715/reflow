@@ -199,6 +199,21 @@ def test_apply_rejects_malformed_changes_shape(client, bad_changes):
     assert _changeset(ws) == {}
 
 
+def test_apply_rejects_deeply_nested_json(client):
+    """深嵌套 JSON 导致 RecursionError 应被优雅拒绝，而不是 500。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    # 10000 层嵌套数组会触发 RecursionError
+    deeply_nested = '[' * 10000 + ']' * 10000
+    r = client.post(f"/board/{board_id}/node/{ws}/import",
+                    data={"changes": deeply_nested})
+    assert r.status_code == 200
+    assert r.headers.get("HX-Retarget") == "#import-error"
+    # 应显示中文错误提示，且没有写库
+    assert "没有可导入的修改" in r.text
+    assert _changeset(ws) == {}
+
+
 def test_apply_records_audit_log_per_change(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)

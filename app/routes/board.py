@@ -381,7 +381,7 @@ def import_apply(request: Request, board_id: int, node_id: int,
 
     try:
         payload = json.loads(changes)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         payload = []
     if not payload:
         return _err("没有可导入的修改")
