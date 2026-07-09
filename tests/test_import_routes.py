@@ -226,3 +226,26 @@ def test_apply_records_audit_log_per_change(client):
         "SELECT reference, source FROM edit_log WHERE node_id=?", (ws,)).fetchall()
     assert sorted(r["reference"] for r in rows) == ["R1", "R9"]
     assert {r["source"] for r in rows} == {"direct"}
+
+
+# ── 页面入口 ────────────────────────────────────────────────────
+
+def test_draft_page_shows_import_panel(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    html = client.get(f"/board/{board_id}/node/{ws}").text
+    assert "从 CSV 导入修改" in html
+    assert f'hx-post="/board/{board_id}/node/{ws}/import/preview"' in html
+    assert 'id="import-preview"' in html
+
+
+def test_committed_page_has_no_import_panel(client):
+    board_id = _setup_board(client)
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    client.post(f"/board/{board_id}/commit", data={"message": "改 R1"},
+                follow_redirects=False)
+    committed = [n for n in models.list_nodes(get_conn(), board_id)
+                 if n["is_committed"] and n["parent_id"] is not None][-1]["id"]
+    html = client.get(f"/board/{board_id}/node/{committed}").text
+    assert "从 CSV 导入修改" not in html
