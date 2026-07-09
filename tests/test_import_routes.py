@@ -209,8 +209,8 @@ def test_apply_rejects_deeply_nested_json(client):
                     data={"changes": deeply_nested})
     assert r.status_code == 200
     assert r.headers.get("HX-Retarget") == "#import-error"
-    # 应显示中文错误提示，且没有写库
-    assert "没有可导入的修改" in r.text
+    # 归因为格式问题，而不是「没有可导入的修改」——后者是把解析失败降级成空数组的副作用
+    assert "格式不正确" in r.text
     assert _changeset(ws) == {}
 
 

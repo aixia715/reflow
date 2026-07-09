@@ -113,6 +113,64 @@ def test_insert_empty_changes_rejected(client):
                         (c2,)).fetchone()["parent_id"] == c1
 
 
+def _node_count(board_id):
+    from app.main import get_conn
+    return len(models.list_nodes(get_conn(), board_id))
+
+
+@pytest.mark.parametrize("bad_changes", [
+    '["R1"]',                                        # 数组元素不是对象
+    '[123]',                                         # 数组元素是数字
+    '42',                                            # 顶层是标量
+    '{"a":1}',                                       # 顶层是对象（遍历拿到 key 字符串）
+    '[{"reference":123,"op":"add","part":"1k"}]',    # reference 不是字符串
+    '[{"reference":"R9","op":"add","part":123}]',    # part 不是字符串（validate_edit 会 .strip()）
+    '[{"reference":"R9","op":123,"part":"1k"}]',     # op 不是字符串
+])
+def test_insert_rejects_malformed_changes_shape(client, bad_changes):
+    """形状畸形的 changes（合法 JSON 但不是 list[dict{reference: str}]）应被优雅拒绝，而不是 500。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    before = _node_count(board_id)
+    r = client.post(f"/board/{board_id}/node/{c1}/insert",
+                    data={"committed_at": "2026-06-05T00:00:00+00:00", "message": "m",
+                          "changes": bad_changes})
+    assert r.status_code == 200
+    assert r.headers.get("HX-Retarget") == "#form-error"
+    assert "格式不正确" in r.text
+    assert _node_count(board_id) == before      # 没有建出半个节点
+
+
+def test_insert_rejects_deeply_nested_json(client):
+    """深嵌套 JSON 触发 RecursionError（RuntimeError 子类，不被 ValueError/TypeError 捕获）。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    before = _node_count(board_id)
+    r = client.post(f"/board/{board_id}/node/{c1}/insert",
+                    data={"committed_at": "2026-06-05T00:00:00+00:00", "message": "m",
+                          "changes": '[' * 10000 + ']' * 10000})
+    assert r.status_code == 200
+    assert "格式不正确" in r.text
+    assert _node_count(board_id) == before
+
+
+def test_insert_rejects_duplicate_reference_in_payload(client):
+    """同一位号在 payload 里出现两次应被拒绝。
+
+    前端 pending 以位号为 key、pendingList() 由 Object.keys 生成，位号天然唯一；
+    手搓的 payload 绕过这个契约时，apply_node_edit 会写两次，set_change 的 upsert
+    让后者覆盖前者，审计日志却多出一条从未生效的记录。
+    """
+    board_id, root, c1, c2 = _setup_chain(client)
+    before = _node_count(board_id)
+    payload = json.dumps([{"reference": "R9", "op": "add", "part": "1uF"},
+                          {"reference": " R9 ", "op": "add", "part": "2uF"}])
+    r = client.post(f"/board/{board_id}/node/{c1}/insert",
+                    data={"committed_at": "2026-06-05T00:00:00+00:00", "message": "m",
+                          "changes": payload})
+    assert r.status_code == 200
+    assert "位号重复" in r.text
+    assert _node_count(board_id) == before
+
+
 def test_insert_time_out_of_range_rejected(client):
     board_id, root, c1, c2 = _setup_chain(client)
     r = client.post(f"/board/{board_id}/node/{c1}/insert",

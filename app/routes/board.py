@@ -333,6 +333,36 @@ def _import_draft(conn, board_id: int, node_id: int):
     return None if node["is_committed"] else node
 
 
+def _parse_changes_payload(changes: str) -> tuple[list[dict], str | None]:
+    """解析前端提交的 changes JSON：语法、形状、字段类型、位号唯一性。
+
+    返回 (payload, error)；error 非 None 时 payload 为空。空数组不算错误，
+    「空修改」的文案各路由不同，由调用方判断。
+
+    正常界面走 |tojson / JSON.stringify 生成，形状必然正确；本函数防的是手工
+    拼接的畸形请求体——下游 validate_edit 会对 part 调 .strip()，非字符串真值
+    会打穿；RecursionError 是 RuntimeError 的子类，深嵌套 JSON 能绕过对
+    ValueError / TypeError 的捕获。位号重复则会让 set_change 的 upsert 后者
+    覆盖前者，审计日志留下一条从未生效的记录。
+    """
+    try:
+        payload = json.loads(changes)
+    except (ValueError, TypeError, RecursionError):
+        return [], "数据格式不正确"
+    if not isinstance(payload, list) or not all(isinstance(c, dict) for c in payload):
+        return [], "数据格式不正确"
+    for c in payload:
+        if not isinstance(c.get("reference"), str):
+            return [], "数据格式不正确"
+        for field in ("part", "op"):
+            if not (c.get(field) is None or isinstance(c.get(field), str)):
+                return [], "数据格式不正确"
+    refs = [c["reference"].strip() for c in payload]
+    if len(set(refs)) != len(refs):
+        return [], "位号重复"
+    return payload, None
+
+
 @router.post("/board/{board_id}/node/{node_id}/import/preview")
 async def import_preview(request: Request, board_id: int, node_id: int,
                          file: UploadFile | None = File(None)):
@@ -382,35 +412,14 @@ def import_apply(request: Request, board_id: int, node_id: int,
             request, "_form_error.html", {"message": msg},
             headers={"HX-Retarget": "#import-error", "HX-Reswap": "innerHTML"})
 
-    try:
-        payload = json.loads(changes)
-    except (ValueError, TypeError, RecursionError):
-        payload = []
+    payload, perr = _parse_changes_payload(changes)
+    if perr:
+        return _err(f"导入被拒绝：{perr}")
     if not payload:
         return _err("没有可导入的修改")
-    # 形状校验：必须是数组，元素为对象，且 reference 是字符串、
-    # part/op 是字符串或 None（下游 validate_edit 对 part 会 .strip()，
-    # 非字符串真值会打穿；op 也一并收紧防御性校验）。
-    # 正常 UI 走 |tojson 生成不会触发；防的是被人手工拼接的畸形请求体。
-    if (not isinstance(payload, list)
-            or not all(isinstance(c, dict) for c in payload)
-            or not all(isinstance(c.get("reference"), str) for c in payload)
-            or not all(c.get("part") is None or isinstance(c.get("part"), str)
-                       for c in payload)
-            or not all(c.get("op") is None or isinstance(c.get("op"), str)
-                       for c in payload)):
-        return _err("导入被拒绝：数据格式不正确")
 
-    entries = [ChangeEntry(c.get("reference").strip(),
-                           c.get("op"), c.get("part") or "")
+    entries = [ChangeEntry(c["reference"].strip(), c.get("op"), c.get("part") or "")
                for c in payload]
-    # 位号唯一性：parse_change_csv 保证 CSV 内不重复，plan_changes 才敢对静态 BOM
-    # 逐条独立校验。手搓的 payload 绕过这个不变量时，两条 add 都会通过校验，
-    # upsert 让后者覆盖前者，但审计日志会多出一条从未生效的记录。
-    refs = [e.reference for e in entries]
-    if len(set(refs)) != len(refs):
-        return _err("导入被拒绝：位号重复")
-
     initial, chain = models.get_chain(conn, node_id)
     planned, problems = plan_changes(fold_bom(initial, chain), entries)
     if problems:
@@ -475,10 +484,9 @@ def insert_save(request: Request, board_id: int, parent_id: int,
 
     if not parent["is_committed"] or child is None or not child["is_committed"]:
         return _err("该位置不可插入（链末请直接用工作区编辑）")
-    try:
-        chs = json.loads(changes)
-    except (ValueError, TypeError):
-        chs = []
+    chs, perr = _parse_changes_payload(changes)
+    if perr:
+        return _err(perr)
     if not chs:
         return _err("请至少添加一条修改（不允许插入空节点）")
     terr = validate_insert_time(parent["committed_at"], child["committed_at"], committed_at)
