@@ -404,10 +404,19 @@ def import_apply(request: Request, board_id: int, node_id: int,
     entries = [ChangeEntry(c.get("reference").strip(),
                            c.get("op"), c.get("part") or "")
                for c in payload]
+    # 位号唯一性：parse_change_csv 保证 CSV 内不重复，plan_changes 才敢对静态 BOM
+    # 逐条独立校验。手搓的 payload 绕过这个不变量时，两条 add 都会通过校验，
+    # upsert 让后者覆盖前者，但审计日志会多出一条从未生效的记录。
+    refs = [e.reference for e in entries]
+    if len(set(refs)) != len(refs):
+        return _err("导入被拒绝：位号重复")
+
     initial, chain = models.get_chain(conn, node_id)
     planned, problems = plan_changes(fold_bom(initial, chain), entries)
     if problems:
-        return _err(f"草稿已变化，导入被拒绝：{problems[0].reference} {problems[0].detail}")
+        # 不归因「草稿已变化」——非法 op 等结构性问题并非草稿变化所致；
+        # detail 取自 validate_edit，本身已说明具体原因。
+        return _err(f"导入被拒绝：{problems[0].reference} {problems[0].detail}")
 
     for c in planned:
         propagation.apply_node_edit(conn, node_id, c.reference, c.op, c.part)

@@ -214,6 +214,40 @@ def test_apply_rejects_deeply_nested_json(client):
     assert _changeset(ws) == {}
 
 
+def test_apply_rejects_duplicate_reference_in_payload(client):
+    """payload 里同一位号出现两次应被拒绝，而不是写两次、审计留下幻影编辑。
+
+    parse_change_csv 保证 CSV 内位号唯一，plan_changes 因此对静态 BOM 逐条独立校验；
+    手搓的 payload 绕过了这个不变量，两条 add 都会通过校验，set_change 的 upsert
+    让后者覆盖前者，但审计日志会多出一条从未生效的记录。
+    """
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    payload = json.dumps([{"reference": "R9", "op": "add", "part": "1uF"},
+                          {"reference": " R9 ", "op": "add", "part": "2uF"}])
+    r = client.post(f"/board/{board_id}/node/{ws}/import", data={"changes": payload})
+    assert r.status_code == 200
+    assert r.headers.get("HX-Retarget") == "#import-error"
+    assert "位号重复" in r.text
+    assert _changeset(ws) == {}
+    rows = get_conn().execute(
+        "SELECT reference FROM edit_log WHERE node_id=?", (ws,)).fetchall()
+    assert rows == []
+
+
+def test_apply_error_message_does_not_blame_stale_draft(client):
+    """重校验失败的文案不应一律归因「草稿已变化」——非法 op 并非草稿变化所致。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    payload = json.dumps([{"reference": "R1", "op": "hack", "part": "1k"}])
+    r = client.post(f"/board/{board_id}/node/{ws}/import", data={"changes": payload})
+    assert r.status_code == 200
+    assert "草稿已变化" not in r.text
+    # 仍保留 validate_edit 给出的具体原因
+    assert "未知操作类型" in r.text
+    assert _changeset(ws) == {}
+
+
 def test_apply_records_audit_log_per_change(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
