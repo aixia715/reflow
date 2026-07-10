@@ -9,7 +9,7 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
-from app.csv_import import ChangeEntry, parse_change_csv, plan_changes
+from app.csv_import import ChangeEntry, parse_change_csv, plan_changes, change_csv_template
 from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
 from app.models import _now
@@ -331,6 +331,24 @@ def _import_draft(conn, board_id: int, node_id: int):
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     return None if node["is_committed"] else node
+
+
+@router.get("/board/{board_id}/node/{node_id}/import/template")
+def import_csv_template(board_id: int, node_id: int):
+    """下载修改清单 CSV 模板（仅 Reference/Part/OP 三列表头）。
+
+    模板本身是通用文本，与节点状态无关；入口只在工作区草稿面板展示。
+    """
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    body = change_csv_template().encode("utf-8")
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="change_template.csv"'},
+    )
 
 
 @router.post("/board/{board_id}/node/{node_id}/import/preview")

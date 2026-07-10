@@ -70,6 +70,15 @@ class ChangeEntry(NamedTuple):
 _VALID_OPS = ("add", "modify", "remove")
 
 
+def change_csv_template() -> str:
+    """工作区「从 CSV 导入修改」用的下载模板：仅 Reference/Part/OP 三列表头。
+
+    与 parse_change_csv 的表头约定一致（大小写不敏感、空格容错），无数据行，
+    便于用户填好位号后直接上传。可被 parse_change_csv 反向解析为「无条目」。
+    """
+    return "Reference,Part,OP\n"
+
+
 def parse_change_csv(text: str) -> tuple[list[ChangeEntry], list[CsvProblem]]:
     """解析「修改清单 CSV」：Reference / Part 两列必需，OP 列可选。
 

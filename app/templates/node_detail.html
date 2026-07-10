@@ -81,7 +81,9 @@
         <label>修改清单 CSV
           <input name="file" type="file" accept=".csv"></label>
         <p class="muted">表头需含 Reference 与 Part；可选 OP 列（add / modify / remove）。
-          不写 OP 时按位号是否已存在自动判为新增或修改。</p>
+          不写 OP 时按位号是否已存在自动判为新增或修改。
+          <a class="btn-link" download
+             href="/board/{{ board_id }}/node/{{ node.id }}/import/template">下载模板</a></p>
       </form>
       <div id="import-preview"></div>
     </details>

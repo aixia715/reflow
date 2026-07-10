@@ -176,6 +176,17 @@ def test_good_rows_and_bad_rows_both_reported():
     assert [p.reference for p in problems] == ["R1x"]
 
 
+def test_change_csv_template_has_three_headers_and_no_rows():
+    """issue #112：修改清单 CSV 模板含 Reference/Part/OP 三列表头，无数据行。"""
+    from app.csv_import import change_csv_template
+    tmpl = change_csv_template()
+    assert tmpl == "Reference,Part,OP\n"
+    # 模板应能被 parse_change_csv 反向解析：无条目、无问题
+    entries, problems = parse_change_csv(tmpl)
+    assert entries == []
+    assert problems == []
+
+
 def test_full_bom_is_not_mutated():
     bom = dict(BOM)
     plan_changes(bom, [ChangeEntry("R1", "remove", ""), ChangeEntry("R9", "add", "1k")])
