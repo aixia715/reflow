@@ -75,6 +75,23 @@ def test_trailing_comma_in_merged_cell_ignored():
     assert entries == [ChangeEntry("R1", None, "10k")]
 
 
+def test_blank_rows_from_excel_are_skipped():
+    # Excel 保存 CSV 时空行是一行逗号、无文字，应自动跳过，不报问题。
+    csv = "Reference,Part\nR1,10k\n,,\nR2,100nF\n"
+    entries, problems = parse_change_csv(csv)
+    assert problems == []
+    assert entries == [ChangeEntry("R1", None, "10k"),
+                       ChangeEntry("R2", None, "100nF")]
+
+
+def test_blank_row_with_op_column_skipped():
+    csv = "Reference,Part,Op\nR1,10k,add\n,,,\nR2,100nF,modify\n"
+    entries, problems = parse_change_csv(csv)
+    assert problems == []
+    assert entries == [ChangeEntry("R1", "add", "10k"),
+                       ChangeEntry("R2", "modify", "100nF")]
+
+
 def test_empty_reference_is_a_problem():
     csv = "Reference,Part\n,10k\n"
     entries, problems = parse_change_csv(csv)
