@@ -6,9 +6,12 @@
 {{ '编辑' if mode == 'edit' else '记录' }}硬更改
 {% endblock %}
 {% block content %}
+<script src="/static/hard_change_upload.js"></script>
 <div class="page-head"><h1>{{ '编辑' if mode == 'edit' else '记录' }}硬更改</h1></div>
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
 <form class="panel" method="post" enctype="multipart/form-data"
+      x-data="hardChangeImages" @paste.window="onPaste($event)"
+      @submit="if (compressing) $event.preventDefault()"
       action="{% if mode == 'edit' %}/board/{{ board_id }}/hard-change/{{ hc.id }}/edit{% else %}/board/{{ board_id }}/hard-change{% endif %}">
   <label>标题
     <input class="input" name="title" required
@@ -67,63 +70,33 @@
     {% endfor %}
   </div>
   {% endif %}
-  <div x-data="{
-         pending: [], _k: 0,
-         mimeExt: {'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'},
-         addFiles(list){
-           for(const f of list){
-             this.pending.push({file: f, url: URL.createObjectURL(f), key: this._k++});
-           }
-           this.syncInput();
-         },
-         onPaste(e){
-           const items = e.clipboardData ? e.clipboardData.items : [];
-           const imgs = [];
-           for(const it of items){
-             if(it.kind === 'file' && this.mimeExt[it.type]){
-               const f = it.getAsFile();
-               if(f) imgs.push(this.ensureNamed(f));
-             }
-           }
-           if(!imgs.length) return;   // 没有图片：不拦截，文字等照常粘贴
-           e.preventDefault();
-           this.addFiles(imgs);
-         },
-         ensureNamed(f){
-           const dot = f.name ? f.name.lastIndexOf('.') : -1;
-           if(dot > 0 && dot < f.name.length - 1) return f;
-           const ext = this.mimeExt[f.type] || 'png';
-           return new File([f], `pasted-${Date.now()}-${this._k++}.${ext}`, {type: f.type});
-         },
-         syncInput(){
-           const dt = new DataTransfer();
-           this.pending.forEach(it => dt.items.add(it.file));
-           this.$refs.fileInput.files = dt.files;
-         },
-         remove(i){
-           URL.revokeObjectURL(this.pending[i].url);
-           this.pending.splice(i, 1);
-           this.syncInput();
-         }
-       }" @paste.window="onPaste($event)">
+  <div>
     <label>{{ '追加附图' if mode == 'edit' else '附图（可多选，可粘贴）' }}
       <input class="input" type="file" name="files" multiple x-ref="fileInput"
              accept="image/png,image/jpeg,image/webp,image/gif"
-             @change="addFiles($event.target.files)">
+             :disabled="compressing" @change="addFiles($event.target.files)">
     </label>
+    <div class="muted">单张超过 10 MB 时将在浏览器中自动压缩为 WebP 后上传</div>
+    <div class="muted" x-cloak x-show="compressing">正在压缩图片，请稍候…</div>
+    <div class="flash flash-error" x-cloak x-show="error" x-text="error"></div>
     <div class="hc-gallery" x-cloak x-show="pending.length">
       <template x-for="(item, i) in pending" :key="item.key">
         <div class="hc-thumb hc-pending-thumb">
           <img :src="item.url" alt="待上传">
+          <span class="muted" x-show="item.compressed"
+                x-text="`已压缩 ${formatSize(item.originalSize)} → ${formatSize(item.file.size)}`"></span>
           <button type="button" class="btn-link danger hc-pending-del"
                   @click="remove(i)" title="移除这张待上传图片">移除</button>
         </div>
       </template>
     </div>
-  </div>
-  <div class="form-actions">
-    <button class="btn btn-primary" type="submit">{{ '保存' if mode == 'edit' else '记录' }}</button>
-    <a class="btn btn-outline" href="/board/{{ board_id }}">取消</a>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit" :disabled="compressing">
+        <span x-show="!compressing">{{ '保存' if mode == 'edit' else '记录' }}</span>
+        <span x-cloak x-show="compressing">压缩中…</span>
+      </button>
+      <a class="btn btn-outline" href="/board/{{ board_id }}">取消</a>
+    </div>
   </div>
 </form>
 {% endblock %}
