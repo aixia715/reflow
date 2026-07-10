@@ -1,3 +1,4 @@
+// 模板必须在 defer 加载的 Alpine 执行前以普通 script 引入，才能注册 alpine:init 监听器。
 document.addEventListener('alpine:init', () => {
   Alpine.data('hardChangeImages', () => ({
     pending: [],
@@ -55,7 +56,7 @@ document.addEventListener('alpine:init', () => {
 
       let bitmap;
       try {
-        bitmap = await createImageBitmap(file);
+        bitmap = await createImageBitmap(file, {imageOrientation: 'from-image'});
       } catch (_) {
         throw new Error(`“${file.name}”无法读取，未能完成压缩`);
       }
@@ -76,7 +77,10 @@ document.addEventListener('alpine:init', () => {
           ctx.drawImage(bitmap, 0, 0, width, height);
           for (const quality of qualities) {
             const blob = await this.canvasToBlob(canvas, quality);
-            if (blob && blob.size < this.maxBytes) {
+            if (!blob) {
+              throw new Error('当前浏览器不支持 WebP 图片压缩，请更换浏览器或先压缩图片');
+            }
+            if (blob.size < this.maxBytes) {
               const stem = file.name.replace(/\.[^.]*$/, '') || 'image';
               return new File([blob], `${stem}.webp`, {
                 type: 'image/webp',

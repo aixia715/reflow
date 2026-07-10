@@ -96,6 +96,14 @@ def test_oversized_image_is_compressed_before_upload(live_server, page: Page):
     """超过 10 MB 的静态图片应在浏览器端转为 WebP，再进入 multipart（issue #115）。"""
     bid = _make_board(live_server, uid="HC115")
     page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.evaluate("""() => {
+        const nativeCreateImageBitmap = window.createImageBitmap.bind(window);
+        window.__imageBitmapOptions = null;
+        window.createImageBitmap = (file, options) => {
+          window.__imageBitmapOptions = options;
+          return nativeCreateImageBitmap(file, options);
+        };
+    }""")
     # PNG 允许尾随数据；用它稳定构造一个可解码、但文件大小略超 10 MB 的图片。
     oversized = _solid_png() + b"\0" * (10 * 1024 * 1024)
     assert len(oversized) > 10 * 1024 * 1024
@@ -113,12 +121,31 @@ def test_oversized_image_is_compressed_before_upload(live_server, page: Page):
     assert uploaded["name"] == "oversized.webp"
     assert uploaded["type"] == "image/webp"
     assert uploaded["size"] < 10 * 1024 * 1024
+    assert page.evaluate("window.__imageBitmapOptions") == {"imageOrientation": "from-image"}
     expect(page.get_by_text(re.compile(r"已压缩.*MB → .*MB"))).to_be_visible()
 
     page.fill("input[name=title]", "前端压缩")
     page.click("button[type=submit]")
     page.wait_for_load_state("networkidle")
     expect(page.locator(".tl-item.hard")).to_contain_text("前端压缩")
+
+
+def test_webp_encoder_unavailable_shows_accurate_error(live_server, page: Page):
+    """浏览器不能编码 WebP 时，应报告能力缺失而不是误报压缩后仍超限。"""
+    bid = _make_board(live_server, uid="HC115B")
+    page.goto(f"{live_server}/board/{bid}/hard-change/new")
+    page.evaluate("""() => {
+        HTMLCanvasElement.prototype.toBlob = function(callback) { callback(null); };
+    }""")
+    oversized = _solid_png() + b"\0" * (10 * 1024 * 1024)
+
+    page.set_input_files("input[name=files]", files=[{
+        "name": "unsupported.png", "mimeType": "image/png", "buffer": oversized,
+    }])
+
+    expect(page.get_by_text("当前浏览器不支持 WebP 图片压缩，请更换浏览器或先压缩图片")).to_be_visible()
+    assert page.evaluate(
+        "document.querySelector('input[name=files]').files.length") == 0
 
 
 def _paste_event_js():
