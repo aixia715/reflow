@@ -22,8 +22,8 @@ def test_compare_mode_select_two_and_go(live_server, page: Page):
     bid = _make_board(live_server)
     page.goto(f"{live_server}/board/{bid}")
     toggle = page.locator("[data-testid=compare-toggle]")
-    # 默认按钮文案是「对比节点…」
-    assert toggle.inner_text().strip() == "对比节点…"
+    # 默认按钮文案是「对比节点」
+    assert toggle.inner_text().strip() == "对比节点"
     toggle.click()
     # 进入对比状态后按钮文案变为「退出对比」，给用户清晰提示
     assert toggle.inner_text().strip() == "退出对比"
@@ -45,7 +45,7 @@ def test_compare_mode_select_two_and_go(live_server, page: Page):
     expect(cards.nth(0)).not_to_have_class(re.compile(r".*\bselected\b.*"))
     # 再次点击「退出对比」按钮退出对比状态，文案恢复
     toggle.click()
-    assert toggle.inner_text().strip() == "对比节点…"
+    assert toggle.inner_text().strip() == "对比节点"
 
 
 def test_compare_mode_click_node_does_not_navigate(live_server, page: Page):
@@ -67,3 +67,73 @@ def test_local_dt_rendered_to_local(live_server, page: Page):
     expect(el).to_be_visible()
     text = el.inner_text()
     assert "+00:00" not in text and "T" not in text
+
+
+def test_exit_compare_button_is_danger_styled(live_server, page: Page):
+    """进入对比状态后「退出对比」按钮应带 danger 样式（红色边框/文字）。"""
+    bid = _make_board(live_server, uid="CMP3")
+    page.goto(f"{live_server}/board/{bid}")
+    toggle = page.locator("[data-testid=compare-toggle]")
+    expect(toggle).not_to_have_class(re.compile(r".*\bdanger\b.*"))
+    toggle.click()
+    expect(toggle).to_have_class(re.compile(r".*\bdanger\b.*"))
+    toggle.click()
+    expect(toggle).not_to_have_class(re.compile(r".*\bdanger\b.*"))
+
+
+def test_compare_bar_shows_immediately_with_count_and_disabled_go(live_server, page: Page):
+    """进入对比状态即显示「已选择 x/2 个节点」，选满 2 个前「开始对比」不可用。"""
+    bid = _make_board(live_server, uid="CMP4")
+    page.goto(f"{live_server}/board/{bid}")
+    page.click("[data-testid=compare-toggle]")
+    bar = page.locator("[data-testid=compare-bar]")
+    go = page.locator("[data-testid=compare-go]")
+    # 未选任何节点时也应显示
+    expect(bar).to_be_visible()
+    expect(bar).to_contain_text("已选择 0/2 个节点")
+    expect(go).to_have_class(re.compile(r".*\bdisabled\b.*"))
+    cards = page.locator(".tl-item.node .tl-card")
+    cards.nth(0).click()
+    expect(bar).to_contain_text("已选择 1/2 个节点")
+    expect(go).to_have_class(re.compile(r".*\bdisabled\b.*"))
+    cards.nth(1).click()
+    expect(bar).to_contain_text("已选择 2/2 个节点")
+    expect(go).not_to_have_class(re.compile(r".*\bdisabled\b.*"))
+
+
+def test_compare_go_href_and_aria_disabled_before_two_selected(live_server, page: Page):
+    """选满 2 个节点前，「开始对比」href 不应含 undefined，且带 aria-disabled。"""
+    bid = _make_board(live_server, uid="CMP6")
+    page.goto(f"{live_server}/board/{bid}")
+    page.click("[data-testid=compare-toggle]")
+    go = page.locator("[data-testid=compare-go]")
+    assert go.get_attribute("href") == "#"
+    assert go.get_attribute("aria-disabled") == "true"
+    assert go.get_attribute("tabindex") == "-1"
+    cards = page.locator(".tl-item.node .tl-card")
+    cards.nth(0).click()
+    cards.nth(1).click()
+    href = go.get_attribute("href")
+    assert "/compare?left=" in href and "right=" in href
+    # Alpine 对绑定 false 的非布尔属性会直接移除，而非写 "false"
+    assert go.get_attribute("aria-disabled") is None
+    assert go.get_attribute("tabindex") == "0"
+
+
+def test_hard_change_disabled_in_compare_mode(live_server, page: Page):
+    """进入对比状态后硬更改卡片置灰不可选、⋯菜单不可用，退出后恢复。"""
+    bid = _make_board(live_server, uid="CMP5")
+    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+        c.post(f"/board/{bid}/hard-change",
+               data={"title": "返修 U1", "occurred_at": "2026-06-17T10:00",
+                     "description": "演示返修"})
+    page.goto(f"{live_server}/board/{bid}")
+    hard = page.locator(".tl-item.hard", has_text="返修 U1")
+    expect(hard).not_to_have_class(re.compile(r".*\bdisabled\b.*"))
+    page.click("[data-testid=compare-toggle]")
+    expect(hard).to_have_class(re.compile(r".*\bdisabled\b.*"))
+    # 置灰后点击不应跳转到硬更改详情页
+    hard.locator(".tl-card").first.click()
+    assert page.url.endswith(f"/board/{bid}")
+    # ⋯ 菜单按钮在对比模式下也应禁用
+    expect(hard.locator(".menu-btn")).to_be_disabled()

@@ -11,7 +11,8 @@
         x-data="{ cmp: false }"
         @toggle-cmp.window="cmp = !cmp"
         @click="$dispatch('toggle-cmp')"
-        x-text="cmp ? '退出对比' : '对比节点…'"></button>
+        :class="{ 'danger': cmp }"
+        x-text="cmp ? '退出对比' : '对比节点'"></button>
 {% endblock %}
 {% block content %}
 <div class="page-head"><h1>状态演进</h1></div>
@@ -19,7 +20,7 @@
        toggle(id){ const i = this.sel.indexOf(id);
          if (i > -1) this.sel.splice(i, 1);
          else if (this.sel.length < 2) this.sel.push(id); },
-       href(){ return `/board/{{ board_id }}/compare?left=${this.sel[0]}&right=${this.sel[1]}`; } }"
+       href(){ return this.sel.length === 2 ? `/board/{{ board_id }}/compare?left=${this.sel[0]}&right=${this.sel[1]}` : '#'; } }"
      @toggle-cmp.window="cmp = !cmp; sel = []">
 {% for it in timeline %}
 {% if it.kind == 'node' %}
@@ -64,9 +65,10 @@
 </div>
 {% else %}
 {% set h = it.obj %}
-<div class="tl-item hard">
+<div class="tl-item hard" :class="{ 'disabled': cmp }">
   <span class="dot"></span>
-  <a class="tl-card" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
+  <a class="tl-card" href="/board/{{ board_id }}/hard-change/{{ h.id }}"
+     @click="if (cmp) $event.preventDefault()">
     <b>🔧 {{ h.title }}</b>
     <div class="muted">
       <time class="local-dt" datetime="{{ h.occurred_at }}">{{ h.occurred_at }}</time> · <code title="哈希 {{ hard_hash(h.id) }}">{{ hard_short(h.id) }}</code>
@@ -74,7 +76,7 @@
     </div>
   </a>
   <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
-    <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
+    <button type="button" class="menu-btn" title="操作" @click.stop="if (!cmp) open=!open" :disabled="cmp">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       <button type="button" class="del"
               hx-post="/board/{{ board_id }}/hard-change/{{ h.id }}/delete"
@@ -84,9 +86,13 @@
 </div>
 {% endif %}
 {% endfor %}
-<div class="compare-bar" data-testid="compare-bar" x-show="cmp && sel.length === 2" x-cloak>
-  已选 2 个节点
-  <a class="btn btn-primary" data-testid="compare-go" :href="href()">开始对比 →</a>
+<div class="compare-bar" data-testid="compare-bar" x-show="cmp" x-cloak>
+  <span x-text="`已选择 ${sel.length}/2 个节点`"></span>
+  <a class="btn btn-primary" data-testid="compare-go" :href="href()"
+     :class="{ 'disabled': sel.length !== 2 }"
+     :aria-disabled="sel.length !== 2"
+     :tabindex="sel.length !== 2 ? -1 : 0"
+     @click="if (sel.length !== 2) $event.preventDefault()">开始对比 →</a>
 </div>
 </div>
 {% endblock %}
