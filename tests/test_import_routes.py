@@ -262,6 +262,27 @@ def test_apply_records_audit_log_per_change(client):
     assert {r["source"] for r in rows} == {"direct"}
 
 
+# ── 下载模板 ────────────────────────────────────────────────────
+
+def test_download_change_csv_template(client):
+    """issue #112：GET 模板端点返回仅含三列表头的 CSV 文件。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}/import/template")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "attachment" in r.headers["content-disposition"]
+    assert r.text == "Reference,Part,OP\n"
+
+
+def test_draft_page_shows_template_download_link(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    html = client.get(f"/board/{board_id}/node/{ws}").text
+    assert f'href="/board/{board_id}/node/{ws}/import/template"' in html
+    assert "下载模板" in html
+
+
 # ── 页面入口 ────────────────────────────────────────────────────
 
 def test_draft_page_shows_import_panel(client):

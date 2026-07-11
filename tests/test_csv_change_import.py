@@ -1,7 +1,9 @@
 """issue #108：工作区从 CSV 导入修改项 —— 纯逻辑层。"""
 import pytest
 
-from app.csv_import import ChangeEntry, PlannedChange, parse_change_csv, plan_changes
+from app.csv_import import (
+    ChangeEntry, PlannedChange, change_csv_template, parse_change_csv, plan_changes,
+)
 
 
 def test_headers_are_case_insensitive():
@@ -174,6 +176,16 @@ def test_good_rows_and_bad_rows_both_reported():
     assert changes == [PlannedChange("R1", "modify", "47k"),
                        PlannedChange("C1", "remove", None)]
     assert [p.reference for p in problems] == ["R1x"]
+
+
+def test_change_csv_template_has_three_headers_and_no_rows():
+    """issue #112：修改清单 CSV 模板含 Reference/Part/OP 三列表头，无数据行。"""
+    tmpl = change_csv_template()
+    assert tmpl == "Reference,Part,OP\n"
+    # 模板应能被 parse_change_csv 反向解析：无条目、无问题
+    entries, problems = parse_change_csv(tmpl)
+    assert entries == []
+    assert problems == []
 
 
 def test_full_bom_is_not_mutated():
