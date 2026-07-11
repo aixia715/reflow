@@ -67,6 +67,15 @@ def test_blank_row_with_extra_columns_skipped():
     assert entries == [CsvEntry("R1", "10k"), CsvEntry("R2", "100nF")]
 
 
+def test_row_with_data_in_other_columns_still_reports_empty_reference():
+    # 只有整行全空才算空行：Reference/Part 为空但其他列有数据的行不是空行，
+    # 仍应报 empty_reference。
+    csv = "Item,Quantity,Reference,Part,PCB Footprint\n1,2,R1,10k,0402\n3,1,,,0402\n"
+    entries, problems = parse_bom_csv(csv)
+    assert entries == [CsvEntry("R1", "10k")]
+    assert any(p.kind == "empty_reference" for p in problems)
+
+
 def test_duplicate_with_empty_part_does_not_emit_empty_part_problem():
     # 首条 R1=10k 进入 entries；第二条 R1 是重复且 Part 为空，
     # 应只报 duplicate，不应为这个被丢弃的重复行误报 empty_part。

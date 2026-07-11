@@ -10,21 +10,22 @@ class CsvEntry(NamedTuple):
     part: str
 
 
-def _is_cell_blank(v) -> bool:
+class CsvProblem(NamedTuple):
+    kind: str        # "duplicate" | "empty_part" | "empty_reference" | "bad_op" | "invalid"
+    reference: str
+    detail: str
+
+
+def _is_cell_blank(v: str | list | tuple | None) -> bool:
+    # 数据行字段数多于表头时，DictReader 把多余字段以 list 挂在 restkey（None 键）下
     if isinstance(v, (list, tuple)):
         return all(_is_cell_blank(x) for x in v)
     return not (v or "").strip()
 
 
 def _is_blank_row(row: dict) -> bool:
-    """整行所有单元格都在空白/空（Excel 保存 CSV 产生的空行）→ 视作空行跳过。"""
+    """整行所有单元格都是空白/空（Excel 保存 CSV 产生的空行）→ 视作空行跳过。"""
     return all(_is_cell_blank(v) for v in row.values())
-
-
-class CsvProblem(NamedTuple):
-    kind: str        # "duplicate" | "empty_part" | "empty_reference" | "bad_op" | "invalid"
-    reference: str
-    detail: str
 
 
 def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
