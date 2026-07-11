@@ -347,7 +347,7 @@ def import_csv_template(board_id: int, node_id: int):
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="change_template.csv"'},
+        headers={"Content-Disposition": _content_disposition("change_template.csv")},
     )
 
 
