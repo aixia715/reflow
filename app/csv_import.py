@@ -16,6 +16,18 @@ class CsvProblem(NamedTuple):
     detail: str
 
 
+def _is_cell_blank(v: str | list | tuple | None) -> bool:
+    # 数据行字段数多于表头时，DictReader 把多余字段以 list 挂在 restkey（None 键）下
+    if isinstance(v, (list, tuple)):
+        return all(_is_cell_blank(x) for x in v)
+    return not (v or "").strip()
+
+
+def _is_blank_row(row: dict) -> bool:
+    """整行所有单元格都是空白/空（Excel 保存 CSV 产生的空行）→ 视作空行跳过。"""
+    return all(_is_cell_blank(v) for v in row.values())
+
+
 def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
     """解析 CSV，只取 Reference/Part 两列，拆分逗号合并位号，并产出校验问题清单。
 
@@ -38,6 +50,8 @@ def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
     seen: dict[str, str] = {}
 
     for row in reader:
+        if _is_blank_row(row):
+            continue  # Excel 空行（一行逗号、无文字）自动跳过
         raw_refs = (row.get(ref_col) or "")
         part = (row.get(part_col) or "").strip()
         for ref in raw_refs.split(","):
@@ -102,6 +116,8 @@ def parse_change_csv(text: str) -> tuple[list[ChangeEntry], list[CsvProblem]]:
     seen: set[str] = set()
 
     for row in reader:
+        if _is_blank_row(row):
+            continue  # Excel 空行（一行逗号、无文字）自动跳过
         raw_refs = row.get(ref_col) or ""
         part = (row.get(part_col) or "").strip()
         raw_op = (row.get(op_col) or "").strip() if op_col else ""
