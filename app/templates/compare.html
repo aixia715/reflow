@@ -1,21 +1,38 @@
 {% extends "base.html" %}
-{% block title %}对比 · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block title %}{{ '跨板' if cross else '' }}对比 · 板 {{ board.board_uid }} — Reflow{% endblock %}
 {% block crumbs %}
 <a href="/">首页</a> /
-<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a> / 对比
+<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a> / {{ '跨板' if cross else '' }}对比
 {% endblock %}
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}">状态图</a>
 {% endblock %}
 {% block content %}
-{% macro node_label(n) -%}
-{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}
-{%- endmacro %}
-<div class="page-head" x-data="{ showSame: false }">
-  <h1>对比</h1>
-  <span class="badge">{{ node_label(left_node) }}</span>
+{% macro side_picker(name, sel_board, options, sel_node, is_left) %}
+<span class="cmp-picker">
+  {% if board_selects|length > 1 %}
+  <select class="input" data-testid="cmp-board-{{ name }}" aria-label="选择单板" title="选择单板"
+          @change="{% if is_left %}go(defaults[$event.target.value], {{ right_node.id }}){% else %}go({{ left_node.id }}, defaults[$event.target.value]){% endif %}">
+    {% for s in board_selects %}
+    <option value="{{ s.id }}"{% if s.id == sel_board.id %} selected{% endif %}>{{ s.label }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <select class="input" data-testid="cmp-node-{{ name }}" aria-label="选择节点" title="选择节点"
+          @change="{% if is_left %}go($event.target.value, {{ right_node.id }}){% else %}go({{ left_node.id }}, $event.target.value){% endif %}">
+    {% for n in options %}
+    <option value="{{ n.id }}"{% if n.id == sel_node.id %} selected{% endif %}>{{ n.label }}</option>
+    {% endfor %}
+  </select>
+</span>
+{% endmacro %}
+<div class="page-head"
+     x-data='{ showSame: false, defaults: {{ board_defaults | tojson }},
+               go(l, r){ location = `/board/{{ board_id }}/compare?left=${l}&right=${r}`; } }'>
+  <h1>{{ '跨板' if cross else '' }}对比</h1>
+  {{ side_picker("left", left_board, left_options, left_node, true) }}
   <span class="muted">→</span>
-  <span class="badge">{{ node_label(right_node) }}</span>
+  {{ side_picker("right", right_board, right_options, right_node, false) }}
   <a class="btn btn-outline" href="/board/{{ board_id }}/compare?left={{ right_node.id }}&right={{ left_node.id }}">⇄ 交换</a>
 
   <div class="muted" style="width:100%">
@@ -24,7 +41,7 @@
 
   {% if diff_rows %}
   <table class="bom" style="width:100%">
-    <thead><tr><th>位号</th><th>{{ node_label(left_node) }} 的值</th><th></th><th>{{ node_label(right_node) }} 的值</th><th>变化</th></tr></thead>
+    <thead><tr><th>位号</th><th>{{ left_label }} 的值</th><th></th><th>{{ right_label }} 的值</th><th>变化</th></tr></thead>
     <tbody>
     {% for r in diff_rows %}
       <tr class="row-{{ r.kind }}">
@@ -54,11 +71,12 @@
   <div class="flash">两节点 BOM 完全一致。</div>
   {% endif %}
 
+  {% if not cross %}
   <section style="width:100%;margin-top:1.5rem">
     <h2>这段时间内的硬更改{% if hard_changes %}（{{ hard_changes|length }} 条）{% endif %}</h2>
     {% if hard_changes %}
     {% for h in hard_changes %}
-    <a class="tl-item hard" href="/board/{{ board_id }}/hard-change/{{ h.id }}">
+    <a class="tl-item hard" href="/board/{{ left_board.id }}/hard-change/{{ h.id }}">
       <div class="tl-card">
         <b>🔧 {{ h.title }}</b>
         <div class="muted"><time class="local-dt" datetime="{{ h.occurred_at }}">{{ h.occurred_at }}</time>{% if h.description %} · {{ h.description[:40] }}{% endif %}</div>
@@ -69,5 +87,6 @@
     <div class="muted">这段时间内没有硬更改记录。</div>
     {% endif %}
   </section>
+  {% endif %}
 </div>
 {% endblock %}
