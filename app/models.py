@@ -181,6 +181,22 @@ def list_boards(conn, board_name, pcb_version, bom_version) -> list[sqlite3.Row]
     ).fetchall()
 
 
+def list_sibling_boards(conn, board_id) -> list[sqlite3.Row]:
+    """同「单板名称 + PCB版本」下的全部单板（含自身、跨 BOM 版本），供跨板对比。"""
+    return conn.execute(
+        "SELECT s.* FROM boards_hierarchy s"
+        " JOIN boards_hierarchy b ON b.id=?"
+        " WHERE s.board_name=b.board_name AND s.pcb_version=b.pcb_version"
+        " ORDER BY s.bom_version, s.board_uid",
+        (board_id,),
+    ).fetchall()
+
+
+def board_chain_nodes(conn, board_id) -> list[sqlite3.Row]:
+    """按链序（根 → 工作区草稿）返回该单板全部节点。"""
+    return _ancestry(conn, workspace_node(conn, board_id)["id"])
+
+
 def board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid) -> bool:
     """同一 BOM 版本内是否已存在该 board_uid（用于新建单板去重）。"""
     return conn.execute(

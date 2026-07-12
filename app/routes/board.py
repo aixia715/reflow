@@ -103,7 +103,8 @@ def state_graph(request: Request, board_id: int):
          "summaries": models.node_summaries(conn, board_id),
          "insertable_ids": insertable_ids,
          "attach_node_ids": models.node_ids_with_attachments(conn, board_id),
-         "initial_count": initial_count})
+         "initial_count": initial_count,
+         "has_siblings": len(models.list_sibling_boards(conn, board_id)) > 1})
 
 
 @router.get("/board/{board_id}/node/{node_id}")
@@ -573,22 +574,44 @@ def _node_ts(node) -> str:
     return node["committed_at"] or _now()
 
 
+def _node_option_label(n) -> str:
+    """对比页节点下拉的选项文案。"""
+    if not n["is_committed"]:
+        return "工作区草稿"
+    if n["parent_id"] is None:
+        return "初始状态"
+    return f"#{n['id']} {n['message'] or '(无说明)'}"
+
+
 @router.get("/board/{board_id}/compare")
 def compare_nodes(request: Request, board_id: int, left: int | None = None, right: int | None = None):
     conn = get_conn()
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
-    if left is None or right is None:
+    if left is None:
         raise HTTPException(status_code=404, detail="缺少对比节点参数")
+    # 可比较范围 = 同「单板名称 + PCB版本」下的兄弟单板（跨 BOM 版本）
+    siblings = models.list_sibling_boards(conn, board_id)
+    sibling_ids = {s["id"] for s in siblings}
+    ln = models.get_node(conn, left)
+    if ln is None or ln["board_id"] not in sibling_ids:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    if right is None:
+        # 跨板入口只带 left：右侧默认取第一块其他兄弟单板的最新已提交节点
+        other = next((s for s in siblings if s["id"] != ln["board_id"]), None)
+        if other is None:
+            raise HTTPException(status_code=404, detail="缺少对比节点参数")
+        rn = models.get_node(
+            conn, models.workspace_node(conn, other["id"])["parent_id"])
+        right = rn["id"]
+    else:
+        rn = models.get_node(conn, right)
+        if rn is None or rn["board_id"] not in sibling_ids:
+            raise HTTPException(status_code=404, detail="节点不存在")
     if left == right:
         return RedirectResponse(
             f"/board/{board_id}?flash=不能和自己比", status_code=303)
-    ln = models.get_node(conn, left)
-    rn = models.get_node(conn, right)
-    for n in (ln, rn):
-        if n is None or n["board_id"] != board_id:
-            raise HTTPException(status_code=404, detail="节点不存在")
     li, lc = models.get_chain(conn, left)
     ri, rc = models.get_chain(conn, right)
     left_bom = fold_bom(li, lc)
@@ -598,11 +621,34 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
     same_rows = [r for r in rows if r["kind"] == "same"]
     counts = {k: sum(1 for r in rows if r["kind"] == k)
               for k in ("add", "modify", "remove", "same")}
-    hcs = [dict(h) for h in models.list_hard_changes(conn, board_id)]
-    between = compare.hard_changes_between(hcs, _node_ts(ln), _node_ts(rn))
+    cross = ln["board_id"] != rn["board_id"]
+    if cross:
+        # 硬更改是单板维度的记录，跨板对比时时间区间语义不成立，不展示
+        between = None
+    else:
+        hcs = [dict(h) for h in models.list_hard_changes(conn, ln["board_id"])]
+        between = compare.hard_changes_between(hcs, _node_ts(ln), _node_ts(rn))
+    boards_by_id = {s["id"]: s for s in siblings}
+    # 板/节点下拉数据 + 各板默认节点（最新已提交），换板即用默认节点跳转
+    selects, defaults = [], {}
+    for s in siblings:
+        chain_nodes = models.board_chain_nodes(conn, s["id"])
+        defaults[s["id"]] = next(
+            n["id"] for n in reversed(chain_nodes) if n["is_committed"])
+        selects.append({
+            "id": s["id"],
+            "label": f"板 {s['board_uid']} · {s['bom_version']}",
+            "nodes": [{"id": n["id"], "label": _node_option_label(n)}
+                      for n in chain_nodes],
+        })
     return templates.TemplateResponse(request, "compare.html", {
         "board": board, "board_id": board_id,
         "left_node": ln, "right_node": rn,
+        "left_board": boards_by_id[ln["board_id"]],
+        "right_board": boards_by_id[rn["board_id"]],
+        "left_options": next(s["nodes"] for s in selects if s["id"] == ln["board_id"]),
+        "right_options": next(s["nodes"] for s in selects if s["id"] == rn["board_id"]),
+        "cross": cross, "board_selects": selects, "board_defaults": defaults,
         "diff_rows": diff_rows, "same_rows": same_rows,
         "counts": counts, "hard_changes": between,
     })

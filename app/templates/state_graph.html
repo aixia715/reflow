@@ -88,6 +88,15 @@
 {% endfor %}
 <div class="compare-bar" data-testid="compare-bar" x-show="cmp" x-cloak>
   <span x-text="`已选择 ${sel.length}/2 个节点`"></span>
+  {% if has_siblings %}
+  <a class="btn btn-outline" data-testid="cross-compare"
+     title="选中 1 个节点后，与同一 PCB 版本下另一块单板对比"
+     :href="sel.length === 1 ? `/board/{{ board_id }}/compare?left=${sel[0]}` : '#'"
+     :class="{ 'disabled': sel.length !== 1 }"
+     :aria-disabled="sel.length !== 1"
+     :tabindex="sel.length !== 1 ? -1 : 0"
+     @click="if (sel.length !== 1) $event.preventDefault()">跨板对比 →</a>
+  {% endif %}
   <a class="btn btn-primary" data-testid="compare-go" :href="href()"
      :class="{ 'disabled': sel.length !== 2 }"
      :aria-disabled="sel.length !== 2"

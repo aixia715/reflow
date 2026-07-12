@@ -207,6 +207,9 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 .compare-bar{position:sticky;bottom:0;display:flex;align-items:center;gap:.75rem;
   padding:.6rem .9rem;margin-top:1rem;border-radius:var(--radius);
   background:var(--surface);border:1px solid var(--border)}
+/* 对比页头部的「板 + 节点」选择器组（issue #116 跨板对比） */
+.cmp-picker{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cmp-picker .input{width:auto;max-width:240px}
 
 /* Alpine 初始化前隐藏带 x-cloak 的元素，避免闪现 */
 [x-cloak]{display:none !important}
