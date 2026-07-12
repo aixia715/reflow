@@ -1,19 +1,13 @@
 {% extends "base.html" %}
-{% block title %}对比 · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block title %}{{ '跨板' if cross else '' }}对比 · 板 {{ board.board_uid }} — Reflow{% endblock %}
 {% block crumbs %}
 <a href="/">首页</a> /
-<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a> / 对比
+<a href="/board/{{ board_id }}">{{ board.board_name }} / {{ board.pcb_version }} / {{ board.bom_version }} / 板 {{ board.board_uid }}</a> / {{ '跨板' if cross else '' }}对比
 {% endblock %}
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}">状态图</a>
 {% endblock %}
 {% block content %}
-{% macro node_label(n) -%}
-{% if not n.is_committed %}工作区草稿{% elif n.parent_id is none %}初始状态{% else %}#{{ n.id }} {{ n.message or '(无说明)' }}{% endif %}
-{%- endmacro %}
-{% macro side_label(n, b) -%}
-{% if cross %}板 {{ b.board_uid }} · {% endif %}{{ node_label(n) }}
-{%- endmacro %}
 {% macro side_picker(name, sel_board, options, sel_node, is_left) %}
 <span class="cmp-picker">
   {% if board_selects|length > 1 %}
@@ -35,7 +29,7 @@
 <div class="page-head"
      x-data='{ showSame: false, defaults: {{ board_defaults | tojson }},
                go(l, r){ location = `/board/{{ board_id }}/compare?left=${l}&right=${r}`; } }'>
-  <h1>对比</h1>
+  <h1>{{ '跨板' if cross else '' }}对比</h1>
   {{ side_picker("left", left_board, left_options, left_node, true) }}
   <span class="muted">→</span>
   {{ side_picker("right", right_board, right_options, right_node, false) }}
@@ -47,7 +41,7 @@
 
   {% if diff_rows %}
   <table class="bom" style="width:100%">
-    <thead><tr><th>位号</th><th>{{ side_label(left_node, left_board) }} 的值</th><th></th><th>{{ side_label(right_node, right_board) }} 的值</th><th>变化</th></tr></thead>
+    <thead><tr><th>位号</th><th>{{ left_label }} 的值</th><th></th><th>{{ right_label }} 的值</th><th>变化</th></tr></thead>
     <tbody>
     {% for r in diff_rows %}
       <tr class="row-{{ r.kind }}">

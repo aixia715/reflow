@@ -197,6 +197,11 @@ def board_chain_nodes(conn, board_id) -> list[sqlite3.Row]:
     return _ancestry(conn, workspace_node(conn, board_id)["id"])
 
 
+def latest_committed_node_id(conn, board_id) -> int:
+    """链末最新已提交节点 id（= 工作区草稿的父节点；无提交时为根节点）。"""
+    return workspace_node(conn, board_id)["parent_id"]
+
+
 def board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid) -> bool:
     """同一 BOM 版本内是否已存在该 board_uid（用于新建单板去重）。"""
     return conn.execute(

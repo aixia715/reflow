@@ -603,7 +603,7 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
         if other is None:
             raise HTTPException(status_code=404, detail="缺少对比节点参数")
         rn = models.get_node(
-            conn, models.workspace_node(conn, other["id"])["parent_id"])
+            conn, models.latest_committed_node_id(conn, other["id"]))
         right = rn["id"]
     else:
         rn = models.get_node(conn, right)
@@ -611,7 +611,7 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
             raise HTTPException(status_code=404, detail="节点不存在")
     if left == right:
         return RedirectResponse(
-            f"/board/{board_id}?flash=不能和自己比", status_code=303)
+            f"/board/{ln['board_id']}?flash=不能和自己比", status_code=303)
     li, lc = models.get_chain(conn, left)
     ri, rc = models.get_chain(conn, right)
     left_bom = fold_bom(li, lc)
@@ -632,20 +632,25 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
     # 板/节点下拉数据 + 各板默认节点（最新已提交），换板即用默认节点跳转
     selects, defaults = [], {}
     for s in siblings:
-        chain_nodes = models.board_chain_nodes(conn, s["id"])
-        defaults[s["id"]] = next(
-            n["id"] for n in reversed(chain_nodes) if n["is_committed"])
+        defaults[s["id"]] = models.latest_committed_node_id(conn, s["id"])
         selects.append({
             "id": s["id"],
             "label": f"板 {s['board_uid']} · {s['bom_version']}",
             "nodes": [{"id": n["id"], "label": _node_option_label(n)}
-                      for n in chain_nodes],
+                      for n in models.board_chain_nodes(conn, s["id"])],
         })
+    left_board, right_board = boards_by_id[ln["board_id"]], boards_by_id[rn["board_id"]]
+
+    def _side_label(n, b):
+        prefix = f"板 {b['board_uid']} · " if cross else ""
+        return prefix + _node_option_label(n)
+
     return templates.TemplateResponse(request, "compare.html", {
         "board": board, "board_id": board_id,
         "left_node": ln, "right_node": rn,
-        "left_board": boards_by_id[ln["board_id"]],
-        "right_board": boards_by_id[rn["board_id"]],
+        "left_board": left_board, "right_board": right_board,
+        "left_label": _side_label(ln, left_board),
+        "right_label": _side_label(rn, right_board),
         "left_options": next(s["nodes"] for s in selects if s["id"] == ln["board_id"]),
         "right_options": next(s["nodes"] for s in selects if s["id"] == rn["board_id"]),
         "cross": cross, "board_selects": selects, "board_defaults": defaults,

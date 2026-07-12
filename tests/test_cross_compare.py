@@ -151,3 +151,40 @@ def test_compare_page_has_board_and_node_selects(client):
     for tid in ("cmp-board-left", "cmp-node-left",
                 "cmp-board-right", "cmp-node-right"):
         assert tid in r.text
+
+
+# ---------- PR #121 评审改进 ----------
+
+def test_latest_committed_node_id(conn):
+    """最新已提交节点 = 链末草稿的父节点；无提交时为根节点。"""
+    models.create_bom_version(conn, "B", "v1", "bomA", [CsvEntry("R1", "10k")])
+    bid = models.create_board(conn, "B", "v1", "bomA", "3")
+    root = models.list_nodes(conn, bid)[0]["id"]
+    assert models.latest_committed_node_id(conn, bid) == root
+    c1 = models.commit_workspace(conn, bid, "c1")
+    assert models.latest_committed_node_id(conn, bid) == c1
+
+
+def test_cross_compare_title_marked(client):
+    """跨板对比时 title/面包屑标注「跨板」，同板对比不标。"""
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    bb = _new_board(client, "bomB", "5", "Reference,Part\nR1,22k\n")
+    left = _node_ids(client, ba)[0]
+    right = _node_ids(client, bb)[0]
+    r = client.get(f"/board/{ba}/compare?left={left}&right={right}")
+    assert "跨板对比" in r.text
+    _commit_edit(client, ba, "C9", "add", "100nF", "加 C9")
+    ids = _node_ids(client, ba)
+    r = client.get(f"/board/{ba}/compare?left={ids[0]}&right={ids[-1]}")
+    assert "跨板对比" not in r.text
+
+
+def test_same_node_redirects_to_node_own_board(client):
+    """left==right 且节点属兄弟板时，应跳回该节点所属单板页，而非 URL 板。"""
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    bb = _new_board(client, "bomB", "5", "Reference,Part\nR1,22k\n")
+    b_root = _node_ids(client, bb)[0]
+    r = client.get(f"/board/{ba}/compare?left={b_root}&right={b_root}",
+                   follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(f"/board/{bb}?")
