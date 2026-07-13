@@ -28,6 +28,15 @@
   <a class="brand" href="/">⟲ Reflow</a>
   <nav class="crumbs">{% block crumbs %}{% endblock %}</nav>
   <nav class="ctx">{% block ctxlinks %}{% endblock %}</nav>
+  <form id="hash-jump-form" class="hash-jump"
+    onsubmit="event.preventDefault(); hashJump(this);">
+    <input id="hash-jump" class="input" type="text" inputmode="lower-hex"
+      placeholder="输入哈希跳转…"
+      aria-label="按哈希跳转到提交节点"
+      title="输入提交哈希（至少 4 位）后回车跳转到对应节点或硬更改详情页"
+      autocomplete="off" spellcheck="false">
+    <span id="hash-jump-error" class="hash-jump-error" role="alert"></span>
+  </form>
   <button class="theme-toggle" title="切换白天/夜间模式"
     x-data="{t: document.documentElement.getAttribute('data-theme')}"
     @click="t = t === 'dark' ? 'light' : 'dark';
@@ -67,6 +76,20 @@
   document.addEventListener('click', function(e){
     window.dispatchEvent(new CustomEvent('close-menus', { detail: e.target }));
   }, true);
+  function hashJump(form){
+    var input = document.getElementById('hash-jump');
+    var err = document.getElementById('hash-jump-error');
+    var val = input.value.trim().toLowerCase();
+    err.classList.remove('show');
+    err.textContent = '';
+    if (!val) { err.textContent = '请输入哈希值'; err.classList.add('show'); return; }
+    fetch('/hash/' + encodeURIComponent(val), {redirect: 'follow'})
+      .then(function(r){
+        if (r.ok) { window.location.href = r.url; }
+        else { err.textContent = '未找到该哈希对应的节点，或哈希前缀不唯一'; err.classList.add('show'); }
+      })
+      .catch(function(){ err.textContent = '跳转失败，请重试'; err.classList.add('show'); });
+  }
   function copyHash(text){
     var done = function(){ showToast('已复制哈希值'); };
     if (navigator.clipboard && navigator.clipboard.writeText) {

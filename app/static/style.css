@@ -29,6 +29,10 @@ h1{font-size:18px;margin:0}
 .topnav .brand{font-weight:700;color:var(--fg)}
 .topnav .crumbs{color:var(--muted);font-size:13px}
 .topnav .ctx{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:13px}
+.hash-jump{display:flex;align-items:center;gap:6px;position:relative}
+.hash-jump .input{width:170px;font-size:12px;padding:4px 8px}
+.hash-jump-error{font-size:11px;color:var(--red);display:none;white-space:nowrap}
+.hash-jump-error.show{display:inline-block}
 main{max-width:1100px;margin:0 auto;padding:20px 24px}
 
 .page-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
