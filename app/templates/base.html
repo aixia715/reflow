@@ -30,7 +30,7 @@
   <nav class="ctx">{% block ctxlinks %}{% endblock %}</nav>
   <form id="hash-jump-form" class="hash-jump"
     onsubmit="event.preventDefault(); hashJump(this);">
-    <input id="hash-jump" class="input" type="text" inputmode="lower-hex"
+    <input id="hash-jump" class="input" type="text"
       placeholder="输入哈希跳转…"
       aria-label="按哈希跳转到提交节点"
       title="输入提交哈希（至少 4 位）后回车跳转到对应节点或硬更改详情页"
@@ -83,7 +83,7 @@
     err.classList.remove('show');
     err.textContent = '';
     if (!val) { err.textContent = '请输入哈希值'; err.classList.add('show'); return; }
-    fetch('/hash/' + encodeURIComponent(val), {redirect: 'follow'})
+    fetch('/hash/' + encodeURIComponent(val), {method: 'HEAD', redirect: 'follow'})
       .then(function(r){
         if (r.ok) { window.location.href = r.url; }
         else { err.textContent = '未找到该哈希对应的节点，或哈希前缀不唯一'; err.classList.add('show'); }

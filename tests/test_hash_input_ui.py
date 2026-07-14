@@ -8,7 +8,6 @@ from playwright.sync_api import Page, expect
 
 
 def _make_board_with_committed_node(base: str, uid: str = "H1") -> tuple[str, str]:
-    from app import hashing
     import re
     with httpx.Client(base_url=base, follow_redirects=True) as c:
         r = c.post("/board/new",
