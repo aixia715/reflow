@@ -177,6 +177,8 @@ def test_header_has_hash_input_on_any_page(client):
     page = client.get("/").text
     assert "/hash-lookup" in page
     assert 'name="q"' in page
+    # 错误分支返回空 body，表单必须 hx-swap="none"，否则会把输入框自身 swap 掉
+    assert 'hx-swap="none"' in page
 
 
 def test_node_detail_has_copy_hash_button(client):
