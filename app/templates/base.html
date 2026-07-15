@@ -28,6 +28,12 @@
   <a class="brand" href="/">⟲ Reflow</a>
   <nav class="crumbs">{% block crumbs %}{% endblock %}</nav>
   <nav class="ctx">{% block ctxlinks %}{% endblock %}</nav>
+  <form class="hash-jump" hx-get="/hash-lookup" hx-trigger="submit" autocomplete="off"
+        onsubmit="return false">
+    <input class="input" type="text" name="q" placeholder="哈希跳转…"
+           title="输入提交节点/硬更改的哈希值（至少 4 位），回车跳转到详情页"
+           aria-label="哈希跳转">
+  </form>
   <button class="theme-toggle" title="切换白天/夜间模式"
     x-data="{t: document.documentElement.getAttribute('data-theme')}"
     @click="t = t === 'dark' ? 'light' : 'dark';

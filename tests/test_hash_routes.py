@@ -112,6 +112,73 @@ def _make_hard_change(client, board_id):
     return models.list_hard_changes(get_conn(), board_id)[0]["id"]
 
 
+# --- issue #122：header 哈希输入框 + /hash-lookup HTMX 端点 ---
+
+
+def test_hash_lookup_redirects_node_by_short_hash(client):
+    """命中唯一节点：返回 HX-Redirect 指向该节点详情。"""
+    board_id = _setup_board(client)
+    node_id = _committed_node(client, board_id)
+    short = hashing.node_short(node_id)
+    r = client.get(f"/hash-lookup?q={short}", follow_redirects=False)
+    assert r.headers.get("HX-Redirect") == f"/board/{board_id}/node/{node_id}"
+
+
+def test_hash_lookup_redirects_hard_change(client):
+    """命中硬更改：返回 HX-Redirect 指向硬更改详情。"""
+    board_id = _setup_board(client)
+    hc_id = _make_hard_change(client, board_id)
+    full = hashing.hard_change_hash(hc_id)
+    r = client.get(f"/hash-lookup?q={full}", follow_redirects=False)
+    assert r.headers.get("HX-Redirect") == f"/board/{board_id}/hard-change/{hc_id}"
+
+
+def test_hash_lookup_not_found_shows_toast(client):
+    """找不到：200 + showToast 触发头，不跳转。"""
+    _setup_board(client)
+    r = client.get("/hash-lookup?q=deadbeef", follow_redirects=False)
+    assert r.status_code == 200
+    assert "HX-Redirect" not in r.headers
+    assert "showToast" in r.headers.get("HX-Trigger", "")
+
+
+def test_hash_lookup_too_short_shows_toast(client):
+    """太短：200 + showToast，不跳转。"""
+    _setup_board(client)
+    r = client.get("/hash-lookup?q=ab", follow_redirects=False)
+    assert r.status_code == 200
+    assert "HX-Redirect" not in r.headers
+    assert "showToast" in r.headers.get("HX-Trigger", "")
+
+
+def test_hash_lookup_ambiguous_prefix_shows_toast(client):
+    """前缀不唯一：200 + showToast，不跳转。"""
+    board_id = _setup_board(client)
+    node_id = _committed_node(client, board_id)
+    hc_id = _make_hard_change(client, board_id)
+    nh = hashing.node_hash(node_id)
+    hh = hashing.hard_change_hash(hc_id)
+    common = None
+    for length in range(4, 40):
+        if nh[:length] == hh[:length]:
+            common = nh[:length]
+        else:
+            break
+    if common is None:
+        pytest.skip("本次哈希无公共前缀，无法构造歧义用例")
+    r = client.get(f"/hash-lookup?q={common}", follow_redirects=False)
+    assert r.status_code == 200
+    assert "HX-Redirect" not in r.headers
+    assert "showToast" in r.headers.get("HX-Trigger", "")
+
+
+def test_header_has_hash_input_on_any_page(client):
+    """任意页面（首页）的 header 应含哈希跳转输入框，指向 /hash-lookup。"""
+    page = client.get("/").text
+    assert "/hash-lookup" in page
+    assert 'name="q"' in page
+
+
 def test_node_detail_has_copy_hash_button(client):
     """节点详情页哈希值旁应有复制按钮，按钮携带短哈希。"""
     board_id = _setup_board(client)
