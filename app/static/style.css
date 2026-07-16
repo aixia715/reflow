@@ -326,6 +326,9 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
   .input-clearable .input{width:100%}
 
   table.bom th,table.bom td{padding-left:8px;padding-right:8px}
+  /* 表头与单元格内链接不折行：宽表格宁可在 .table-scroll 里横滚，也不要挤成一字一行 */
+  table.bom th{white-space:nowrap}
+  table.bom a{white-space:nowrap}
 
   .cmp-picker .input{max-width:100%}
   .compare-bar{flex-wrap:wrap}
