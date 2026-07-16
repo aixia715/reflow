@@ -11,6 +11,7 @@
     <button type="button" :class="{on: tab==='removed'}" @click="tab='removed'">不贴 {{ removed_count }}</button>
   </div>
 </div>
+<div class="table-scroll">
 <table class="bom">
   <thead><tr><th>位号</th><th>Part</th><th>状态</th><th></th></tr></thead>
   <tbody>
@@ -70,3 +71,4 @@
   {% endfor %}
   </tbody>
 </table>
+</div>

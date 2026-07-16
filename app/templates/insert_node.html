@@ -70,6 +70,7 @@
           <button type="button" :class="{on: tab==='removed'}" @click="tab='removed'">不贴 <span x-text="removedRows().length"></span></button>
         </div>
       </div>
+      <div class="table-scroll">
       <table class="bom">
         <thead><tr><th>位号</th><th>Part</th><th>状态</th><th></th></tr></thead>
         <tbody>
@@ -121,6 +122,7 @@
           </template>
         </tbody>
       </table>
+      </div>
     </div>
     <aside>
       <div class="panel">

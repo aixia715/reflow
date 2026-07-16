@@ -40,7 +40,8 @@
   </div>
 
   {% if diff_rows %}
-  <table class="bom" style="width:100%">
+  <div class="table-scroll">
+  <table class="bom">
     <thead><tr><th>位号</th><th>{{ left_label }} 的值</th><th></th><th>{{ right_label }} 的值</th><th>变化</th></tr></thead>
     <tbody>
     {% for r in diff_rows %}
@@ -67,6 +68,7 @@
     {% endif %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <div class="flash">两节点 BOM 完全一致。</div>
   {% endif %}
