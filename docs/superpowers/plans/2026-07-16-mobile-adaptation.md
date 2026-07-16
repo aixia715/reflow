@@ -15,7 +15,7 @@
 - 颜色只用 `:root` CSS 变量，禁止裸色值（本计划不引入任何新颜色）。
 - 不写内联 style、不引入 CSS 框架、不加构建步骤。
 - 所有注释、commit 信息、文档用中文。
-- 改动完成后 `pytest` 必须全绿（当前 222 passed；纯前端改动不应影响任何测试）。
+- 改动完成后 `pytest` 必须全绿（当前 491 passed + 1 skipped；纯前端改动不应影响任何测试）。
 - 每个 commit 末尾加 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。
 - 运行环境：先 `. .venv/bin/activate`。
 
@@ -86,7 +86,7 @@
 - [ ] **Step 2: 运行测试确认无回归**
 
 Run: `. .venv/bin/activate && pytest -q`
-Expected: 222 passed（数字与改动前一致，0 failed）
+Expected: 491 passed + 1 skipped（数字与改动前一致，0 failed）
 
 - [ ] **Step 3: Commit**
 
@@ -151,7 +151,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 5: 运行测试确认无回归**
 
 Run: `. .venv/bin/activate && pytest -q`
-Expected: 222 passed（有测试断言 HTML 片段的话若失败，看失败信息调整——预期不会，包裹不改变表格内容）
+Expected: 491 passed + 1 skipped（有测试断言 HTML 片段的话若失败，看失败信息调整——预期不会，包裹不改变表格内容）
 
 - [ ] **Step 6: Commit**
 
@@ -213,7 +213,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - [ ] **Step 3: 运行测试确认无回归**
 
 Run: `. .venv/bin/activate && pytest -q`
-Expected: 222 passed
+Expected: 491 passed + 1 skipped
 
 - [ ] **Step 4: Commit**
 
@@ -301,7 +301,7 @@ Run: `. .venv/bin/activate && REFLOW_DB=reflow.sqlite uvicorn app.main:app --por
 - [ ] **Step 4: 最终回归**
 
 Run: `pytest -q`
-Expected: 222 passed
+Expected: 491 passed + 1 skipped
 
 - [ ] **Step 5: 有修补则提交**
 
