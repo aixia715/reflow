@@ -65,6 +65,6 @@ Reflow 至今按「单人桌面工具」设计，`style.css` 没有任何 `@medi
 
 ## 测试与验证
 
-- 纯 CSS 无法用 pytest 覆盖；`pytest` 保持全绿（222 passed）即可确认无回归。
+- 纯 CSS 无法用 pytest 覆盖；`pytest` 保持全绿（491 passed + 1 skipped）即可确认无回归。
 - 验证方式：浏览器 375px 宽度逐页目检（首页、状态图、节点详情、日志、对比、硬更改详情），白天 + 夜间两套主题都看。
 - `scrollIntoView` 改动手工验证：小屏点行内「修改」后页面滚到编辑面板。
