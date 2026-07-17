@@ -125,6 +125,9 @@ tr.row-remove{background:var(--red-bg)}
 td.row-actions{text-align:right;white-space:nowrap}
 table.bom tr .hover-only{visibility:hidden}
 table.bom tr:hover .hover-only{visibility:visible}
+/* 表格横向滚动兜底容器（通用组件，桌面同样生效）：所有 table.bom 外层都套它，
+   宽度不够时在容器内横滚，页面不横滚 */
+.table-scroll{width:100%;overflow-x:auto}
 
 .change-row{display:flex;justify-content:space-between;align-items:center;
   padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
@@ -293,13 +296,10 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
    两组规则相互独立：hover:none 管触屏（与屏宽无关），max-width:720px 管窄屏布局。
    只追加覆盖，不改上方桌面样式。 */
 
-/* 表格横向滚动兜底容器：所有 table.bom 外层都套它（宽度不够时容器内滚动，页面不横滚） */
-.table-scroll{width:100%;overflow-x:auto}
-
 /* 触屏设备：悬停显现的按钮常显、图标按钮点按区加大 */
 @media (hover: none){
   table.bom tr .hover-only{visibility:visible}
-  .menu-btn{opacity:.45}
+  .menu-btn{opacity:.6}
   .icon-btn{padding:6px}
 }
 
