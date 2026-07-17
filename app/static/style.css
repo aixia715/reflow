@@ -125,6 +125,9 @@ tr.row-remove{background:var(--red-bg)}
 td.row-actions{text-align:right;white-space:nowrap}
 table.bom tr .hover-only{visibility:hidden}
 table.bom tr:hover .hover-only{visibility:visible}
+/* 表格横向滚动兜底容器（通用组件，桌面同样生效）：所有 table.bom 外层都套它，
+   宽度不够时在容器内横滚，页面不横滚 */
+.table-scroll{width:100%;overflow-x:auto}
 
 .change-row{display:flex;justify-content:space-between;align-items:center;
   padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
@@ -287,3 +290,50 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 .attach-name{min-width:0;word-break:break-all}
 .attach-form{display:flex;gap:8px;align-items:flex-start;margin-top:4px}
 .attach-form .input{flex:1;min-width:0}
+
+/* ===== 移动端适配 =====
+   设计见 docs/superpowers/specs/2026-07-16-mobile-adaptation-design.md。
+   两组规则相互独立：hover:none 管触屏（与屏宽无关），max-width:720px 管窄屏布局。
+   只追加覆盖，不改上方桌面样式。 */
+
+/* 触屏设备：悬停显现的按钮常显、图标按钮点按区加大 */
+@media (hover: none){
+  table.bom tr .hover-only{visibility:visible}
+  .menu-btn{opacity:.6}
+  .icon-btn{padding:6px}
+}
+
+/* 窄屏布局（单断点） */
+@media (max-width: 720px){
+  /* header：品牌+主题切换占首行，面包屑/上下文链接/哈希框依次换行 */
+  .topnav{flex-wrap:wrap;padding:8px 12px;gap:6px 12px}
+  .topnav .theme-toggle{order:1;margin-left:auto}
+  .topnav .crumbs{order:2;flex-basis:100%;font-size:12px}
+  .topnav .ctx{order:3;flex-basis:100%;margin-left:0;flex-wrap:wrap;row-gap:6px}
+  .topnav .hash-jump{order:4;flex-basis:100%}
+  .hash-jump .input{width:100%}
+
+  main{padding:16px 12px}
+
+  /* 主内容 + 侧栏改纵向堆叠 */
+  .two-col{flex-direction:column}
+  .two-col > aside{width:100%}
+
+  /* 工具栏：筛选框自适应收缩，装不下则换行 */
+  .toolbar{flex-wrap:wrap}
+  .toolbar .input{flex:1 1 160px;width:auto;min-width:0}
+  .toolbar .input-clearable{flex:1 1 170px}
+  .input-clearable .input{width:100%}
+
+  table.bom th,table.bom td{padding-left:8px;padding-right:8px}
+  /* 表头与单元格内链接不折行：宽表格宁可在 .table-scroll 里横滚，也不要挤成一字一行 */
+  table.bom th{white-space:nowrap}
+  table.bom a{white-space:nowrap}
+
+  .cmp-picker .input{max-width:100%}
+  .compare-bar{flex-wrap:wrap}
+
+  .modal-overlay{padding:16px 12px 0}
+  #toast-zone{left:12px;right:12px}
+  .toast{width:fit-content;margin-left:auto}
+}

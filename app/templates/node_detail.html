@@ -52,7 +52,7 @@
       {% include "_edit_form.html" %}
     </details>
     {% else %}
-    <div class="panel">
+    <div class="panel" x-ref="editPanel">
       <div class="panel-title">添加修改</div>
       {% include "_edit_form.html" %}
     </div>
@@ -123,7 +123,9 @@ function bomPage(){
       return null;
     },
     setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || '';
-      const det = this.$refs.editDetails; if (det && !det.open) det.open = true; },
+      const det = this.$refs.editDetails; if (det && !det.open) det.open = true;
+      const panel = det || this.$refs.editPanel;
+      if (panel) panel.scrollIntoView({behavior: 'smooth', block: 'nearest'}); },
   };
 }
 </script>
