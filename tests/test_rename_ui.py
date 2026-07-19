@@ -15,9 +15,14 @@ def _api_create_board(base, name, pcb, bom, uid,
 
 
 def test_menu_button_present_and_hidden(seeded_server, page: Page):
-    """⋯ 菜单按钮存在且默认隐藏（opacity == 0）。"""
+    """⋯ 菜单按钮存在且默认隐藏（opacity == 0）。
+
+    用 `.group-title .menu-btn` 而非裸 `.menu-btn`：header 的 ⋯ 菜单按钮
+    （`.topnav-menu-btn`，2026-07-18 设计）也带 `menu-btn` 类且默认 opacity
+    为 .6（常显），裸选择器会先命中它而非本测试要验证的分组操作按钮。
+    """
     page.goto(seeded_server)
-    btn = page.locator(".menu-btn").first
+    btn = page.locator(".group-title .menu-btn").first
     expect(btn).to_be_attached()
     assert float(btn.evaluate("el => getComputedStyle(el).opacity")) == 0
 

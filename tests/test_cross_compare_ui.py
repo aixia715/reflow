@@ -4,6 +4,11 @@ import httpx
 from playwright.sync_api import Page, expect
 
 
+def _open_menu(page):
+    """功能入口收在 header ⋯ 菜单里（2026-07-18 设计），点击前先展开。"""
+    page.click(".topnav-menu-btn")
+
+
 def _new_board(base, name, bom_version, uid, csv):
     with httpx.Client(base_url=base, follow_redirects=False) as c:
         r = c.post("/board/new",
@@ -35,6 +40,7 @@ def _make_pair(base, prefix):
 def test_cross_button_enabled_only_with_exactly_one_selected(live_server, page: Page):
     ba, _ = _make_pair(live_server, "X1")
     page.goto(f"{live_server}/board/{ba}")
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     cross = page.locator("[data-testid=cross-compare]")
     # 0 个：置灰
@@ -61,6 +67,7 @@ def test_cross_button_absent_without_sibling(live_server, page: Page):
                                    "text/csv")})
         bid = r.headers["location"].split("?")[0].rsplit("/", 1)[-1]
     page.goto(f"{live_server}/board/{bid}")
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     expect(page.locator("[data-testid=cross-compare]")).to_have_count(0)
 
@@ -68,6 +75,7 @@ def test_cross_button_absent_without_sibling(live_server, page: Page):
 def test_cross_flow_lands_on_compare_with_sibling_default(live_server, page: Page):
     ba, bb = _make_pair(live_server, "X2")
     page.goto(f"{live_server}/board/{ba}")
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     page.locator(".tl-item.node .tl-card").nth(0).click()
     page.click("[data-testid=cross-compare]")

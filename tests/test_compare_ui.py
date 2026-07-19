@@ -4,6 +4,11 @@ import httpx
 from playwright.sync_api import Page, expect
 
 
+def _open_menu(page):
+    """功能入口收在 header ⋯ 菜单里（2026-07-18 设计），点击前先展开。"""
+    page.click(".topnav-menu-btn")
+
+
 def _make_board(base: str, uid: str = "CMP1") -> str:
     with httpx.Client(base_url=base, follow_redirects=False) as c:
         r = c.post("/board/new",
@@ -24,6 +29,7 @@ def test_compare_mode_select_two_and_go(live_server, page: Page):
     toggle = page.locator("[data-testid=compare-toggle]")
     # 默认按钮文案是「对比节点」
     assert toggle.inner_text().strip() == "对比节点"
+    _open_menu(page)
     toggle.click()
     # 进入对比状态后按钮文案变为「退出对比」，给用户清晰提示
     assert toggle.inner_text().strip() == "退出对比"
@@ -44,6 +50,7 @@ def test_compare_mode_select_two_and_go(live_server, page: Page):
     cards.nth(0).click()
     expect(cards.nth(0)).not_to_have_class(re.compile(r".*\bselected\b.*"))
     # 再次点击「退出对比」按钮退出对比状态，文案恢复
+    _open_menu(page)
     toggle.click()
     assert toggle.inner_text().strip() == "对比节点"
 
@@ -52,6 +59,7 @@ def test_compare_mode_click_node_does_not_navigate(live_server, page: Page):
     """对比模式下单击节点只选中、不跳转到节点页。"""
     bid = _make_board(live_server, uid="CMP2")
     page.goto(f"{live_server}/board/{bid}")
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     cards = page.locator(".tl-item.node .tl-card")
     cards.nth(0).click()
@@ -75,8 +83,10 @@ def test_exit_compare_button_is_danger_styled(live_server, page: Page):
     page.goto(f"{live_server}/board/{bid}")
     toggle = page.locator("[data-testid=compare-toggle]")
     expect(toggle).not_to_have_class(re.compile(r".*\bdanger\b.*"))
+    _open_menu(page)
     toggle.click()
     expect(toggle).to_have_class(re.compile(r".*\bdanger\b.*"))
+    _open_menu(page)
     toggle.click()
     expect(toggle).not_to_have_class(re.compile(r".*\bdanger\b.*"))
 
@@ -85,6 +95,7 @@ def test_compare_bar_shows_immediately_with_count_and_disabled_go(live_server, p
     """进入对比状态即显示「已选择 x/2 个节点」，选满 2 个前「开始对比」不可用。"""
     bid = _make_board(live_server, uid="CMP4")
     page.goto(f"{live_server}/board/{bid}")
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     bar = page.locator("[data-testid=compare-bar]")
     go = page.locator("[data-testid=compare-go]")
@@ -105,6 +116,7 @@ def test_compare_go_href_and_aria_disabled_before_two_selected(live_server, page
     """选满 2 个节点前，「开始对比」href 不应含 undefined，且带 aria-disabled。"""
     bid = _make_board(live_server, uid="CMP6")
     page.goto(f"{live_server}/board/{bid}")
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     go = page.locator("[data-testid=compare-go]")
     assert go.get_attribute("href") == "#"
@@ -130,6 +142,7 @@ def test_hard_change_disabled_in_compare_mode(live_server, page: Page):
     page.goto(f"{live_server}/board/{bid}")
     hard = page.locator(".tl-item.hard", has_text="返修 U1")
     expect(hard).not_to_have_class(re.compile(r".*\bdisabled\b.*"))
+    _open_menu(page)
     page.click("[data-testid=compare-toggle]")
     expect(hard).to_have_class(re.compile(r".*\bdisabled\b.*"))
     # 置灰后点击不应跳转到硬更改详情页
