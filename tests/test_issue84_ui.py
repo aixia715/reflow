@@ -5,7 +5,13 @@ from playwright.sync_api import Page, expect
 from tests.test_issue79_ui import _make_chain, _c1
 
 
+def _open_menu(page):
+    """功能入口收在 header ⋯ 菜单里（2026-07-18 设计），点击前先展开。"""
+    page.click(".topnav-menu-btn")
+
+
 def _enter_cmp(page):
+    _open_menu(page)
     page.locator('[data-testid="compare-toggle"]').click()
 
 
