@@ -33,7 +33,7 @@
            title="输入提交节点/硬更改的哈希值（至少 4 位），回车跳转到详情页"
            aria-label="哈希跳转">
   </form>
-  <span class="menu" x-data="{nav:false}" @click.outside="nav=false">
+  <span class="menu" x-data="{nav:false}" @close-menus.window="if (!$el.contains($event.detail)) nav=false">
     <button type="button" class="menu-btn topnav-menu-btn" title="菜单" aria-label="菜单"
             @click="nav=!nav">⋯</button>
     <nav class="menu-pop topnav-actions" x-show="nav" x-cloak @click="nav=false">
