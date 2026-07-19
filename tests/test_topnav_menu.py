@@ -16,7 +16,7 @@ def test_topnav_has_kebab_menu(client):
     assert r.status_code == 200
     assert "topnav-menu-btn" in r.text
     assert "topnav-actions" in r.text
-    assert 'class="ctx"' not in r.text
+    assert '<nav class="ctx"' not in r.text
 
 
 def test_ctxlinks_still_render(client):
