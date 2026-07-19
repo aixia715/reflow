@@ -310,12 +310,11 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 
 /* 窄屏布局（单断点） */
 @media (max-width: 720px){
-  /* header：品牌+主题切换占首行，面包屑/上下文链接/哈希框依次换行 */
+  /* header 三行：logo+⋯菜单 / 面包屑 / 哈希框（功能入口都在 ⋯ 菜单里） */
   .topnav{flex-wrap:wrap;padding:8px 12px;gap:6px 12px}
-  .topnav .theme-toggle{order:1;margin-left:auto}
+  .topnav .menu{margin-left:auto}
   .topnav .crumbs{order:2;flex-basis:100%;font-size:12px}
-  .topnav .ctx{order:3;flex-basis:100%;margin-left:0;flex-wrap:wrap;row-gap:6px}
-  .topnav .hash-jump{order:4;flex-basis:100%}
+  .topnav .hash-jump{order:3;flex-basis:100%;margin-left:0}
   .hash-jump .input{width:100%}
 
   main{padding:16px 12px}
