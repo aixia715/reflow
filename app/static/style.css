@@ -28,8 +28,7 @@ h1{font-size:18px;margin:0}
   display:flex;align-items:center;gap:16px}
 .topnav .brand{font-weight:700;color:var(--fg)}
 .topnav .crumbs{color:var(--muted);font-size:13px}
-.topnav .ctx{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:13px}
-.hash-jump{display:flex;align-items:center}
+.hash-jump{display:flex;align-items:center;margin-left:auto}
 .hash-jump .input{width:150px;padding-top:4px;padding-bottom:4px;font-size:12px}
 main{max-width:1100px;margin:0 auto;padding:20px 24px}
 
@@ -234,9 +233,6 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
 .toast{background:var(--toast-bg);color:var(--toast-fg);border-radius:var(--radius);padding:8px 14px;
   font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.25)}
 
-/* 主题切换按钮（topnav 右侧） */
-.theme-toggle{border:none;background:none;cursor:pointer;font-size:16px;line-height:1;padding:0}
-
 /* 夜间模式：仅覆盖颜色变量，结构样式不变 */
 [data-theme="dark"]{
   --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e;
@@ -276,6 +272,15 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
   font-size:13px;padding:6px 10px;border-radius:4px;color:var(--fg);white-space:nowrap}
 .menu-pop button:hover{background:var(--surface-2)}
 .menu-pop button.del{color:var(--red)}
+/* topnav ⋯ 菜单：header 功能入口统一收纳（桌面+移动同构），面板内 a/按钮一律拍平成菜单项 */
+.topnav-menu-btn{opacity:.6;font-size:18px;padding:4px 8px}
+.topnav-menu-btn:hover,.topnav-menu-btn:focus-visible{opacity:1}
+.topnav-actions{min-width:180px}
+.topnav-actions a,.topnav-actions button{display:block;width:100%;text-align:left;
+  border:none;background:none;cursor:pointer;font:inherit;font-size:13px;font-weight:400;
+  padding:7px 10px;border-radius:4px;color:var(--fg);white-space:nowrap;text-decoration:none}
+.topnav-actions a:hover,.topnav-actions button:hover{background:var(--surface-2)}
+.topnav-actions .danger{color:var(--red)}
 /* 内联重命名输入框 */
 .rename-form{display:inline-flex;margin:0}
 .rename-input{border:1px solid var(--blue);border-radius:5px;padding:1px 6px;
