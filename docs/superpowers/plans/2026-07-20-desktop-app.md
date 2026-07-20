@@ -722,7 +722,8 @@ jobs:
 
 - [ ] **Step 2: 校验 YAML 语法**
 
-Run: `python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/publish-desktop.yml')); print('YAML OK')"`
+Run（先 `. .venv/bin/activate`；裸 `python` 在本机不存在，需用 venv 或 `python3`）：
+`python3 -c "import yaml; yaml.safe_load(open('.github/workflows/publish-desktop.yml')); print('YAML OK')"`
 Expected: 打印 `YAML OK`
 
 - [ ] **Step 3: 提交**
