@@ -220,7 +220,7 @@ def undo_change(request: Request, board_id: int, node_id: int,
     if node["is_committed"]:
         return templates.TemplateResponse(
             request, "_form_error.html",
-            {"message": "已提交节点不能撤销，请使用「修正历史记录」"},
+            {"message": "已提交节点不能撤销，请使用右侧「修订」"},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
     reference = reference.strip()
     models.delete_change(conn, node_id, reference)

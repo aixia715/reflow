@@ -285,12 +285,37 @@ def test_committed_node_shows_history_warning(client):
     ws = _workspace_id(client, board_id)
     client.post(f"/board/{board_id}/commit", data={"message": "S1"})
     r = client.get(f"/board/{board_id}/node/{ws}")
+    # 「修正历史记录」是 flash 警告里对「编辑已提交节点」这一行为的定性说法，
+    # 与右侧修改区入口的标签（「修订」）是两回事，两者措辞不必统一。
     assert "修正历史记录" in r.text
     assert "链接不变但内容会变" in r.text      # 链接分享维度提示
     assert "引用此链接的笔记将不再准确" in r.text
     assert "建议在工作区修改后提交" in r.text   # 引导新变更走工作区
     assert "修正会改变本链接内容" in r.text       # 表单上方 inline 提示
     assert "撤销" not in r.text            # 已提交节点无撤销入口
+
+
+def test_changes_panel_title_differs_by_node_state(client):
+    """修改面板标题随节点状态二分：已提交节点＝「已合入修改」，工作区草稿＝
+    「本节点修改」（草稿页头写着「未提交」，说「已合入」会自相矛盾）。
+    修改区入口标签同样只在已提交节点上是「修订」。"""
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    committed = _workspace_id(client, board_id)
+    client.post(f"/board/{board_id}/commit", data={"message": "S1"})
+
+    r = client.get(f"/board/{board_id}/node/{committed}")
+    assert "已合入修改（1）" in r.text
+    assert "本节点修改" not in r.text
+    assert "<summary>修订</summary>" in r.text
+
+    draft = _workspace_id(client, board_id)
+    r = client.get(f"/board/{board_id}/node/{draft}")
+    assert "本节点修改（0）" in r.text
+    assert "已合入修改" not in r.text
+    assert "修订" not in r.text
 
 
 def test_home_groups_by_board_name(client):
