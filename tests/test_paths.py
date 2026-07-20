@@ -40,3 +40,12 @@ def test_user_data_dir_creates_directory(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     d = user_data_dir()
     assert d.is_dir()
+
+
+def test_main_uses_absolute_template_dir():
+    """模板目录必须是绝对路径，否则打包后随 cwd 变化而失效。"""
+    from app.main import templates
+
+    loader_dirs = templates.env.loader.searchpath
+    assert all(Path(p).is_absolute() for p in loader_dirs), loader_dirs
+    assert any((Path(p) / "base.html").is_file() for p in loader_dirs), loader_dirs
