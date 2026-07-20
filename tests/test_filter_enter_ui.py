@@ -73,7 +73,7 @@ def test_filter_enter_no_match_keeps_typed(live_server, page: Page):
 
 
 def test_filter_enter_on_committed_node_opens_edit(live_server, page: Page):
-    """已提交历史节点的修改区折叠在 <details>「修正历史记录…」中。在筛选框按回车
+    """已提交历史节点的修改区折叠在 <details>「修订」中。在筛选框按回车
     后，应自动展开该 <details>，并把筛选结果第一项的位号/Part 填入修改区，
     让光标真正「跳到右边的修改区」（issue #65 中「节点状态界面」的场景）。"""
     bid = _api_create_board(live_server, name="CommittedNode", uid="CN1",
@@ -81,7 +81,7 @@ def test_filter_enter_on_committed_node_opens_edit(live_server, page: Page):
     _goto_committed_root_node(page, live_server, bid)
 
     filter_input = page.locator("input[placeholder='筛选位号 / Part…']")
-    details = page.locator("details.panel", has_text="修正历史记录")
+    details = page.locator("details.panel", has_text="修订")
     ref_input = page.locator("input[placeholder='位号（自动补全）']")
     part_input = page.locator("input[placeholder='新 Part 值']")
 
