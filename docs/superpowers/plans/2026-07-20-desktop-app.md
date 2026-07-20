@@ -432,6 +432,18 @@ git add app/desktop.py tests/test_desktop.py
 git commit -m "feat：新增桌面版启动器，绑本地端口并自动开浏览器"
 ```
 
+**⚠ Windows 上可能失败的点（本任务的测试与 Linux CI 都验证不到）**
+
+`run(sockets=[sock])` 传进去的是一个**已经 listen 的** socket，而 asyncio 的
+`create_server(sock=...)` 内部会再 listen 一次。Linux 上重复 listen 无害，
+所以 Step 5 与 `_checks.yml` 全绿**不能**证明 Windows 路径可用。
+真正的判定关口是 Task 5 的 Windows 冒烟测试。
+
+若在 Windows 上抛 `OSError` / `WSAEINVAL`，改用不移交 socket 的写法：
+选一个空闲端口 → 在 daemon 线程里 `uvicorn.Server(Config(app, port=port)).run()`
+→ 主线程轮询 `socket.create_connection(("127.0.0.1", port))` 成功后再
+`webbrowser.open`。同样避免了浏览器抢跑，且不依赖 socket 移交。
+
 ---
 
 ### Task 4: PyInstaller 打包配置
@@ -745,8 +757,10 @@ git commit -m "ci：打 tag 时构建 Windows 桌面版并挂到 Release"
 1. 到本仓库 [Releases](https://github.com/aixia715/reflow/releases) 页面下载
    `Reflow-vX.Y.Z-windows.zip`。
 2. 解压到任意目录（**整个文件夹一起解压**，不要只取出 `Reflow.exe`）。
-3. 双击文件夹里的 `Reflow.exe`，浏览器会自动打开 Reflow。
-4. 用完直接关掉那个黑色命令行窗口即退出。
+3. 双击文件夹里的 `Reflow.exe`。**首次运行 Windows 会弹「Windows 已保护你的电脑」**
+   —— 点蓝色小字**「更多信息」**，再点**「仍要运行」**。这是因为程序没做数字签名，不是病毒。
+4. 浏览器会自动打开 Reflow。
+5. 用完直接关掉那个黑色命令行窗口即退出。
 
 数据存放在 `%LOCALAPPDATA%\Reflow`（数据库 `reflow.sqlite` + 上传图片 `uploads/`），
 **不在程序目录里** —— 升级时覆盖解压新版本不会丢数据。
