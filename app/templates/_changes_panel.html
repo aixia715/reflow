@@ -1,4 +1,4 @@
-<div class="panel-title">本节点修改（{{ changes|length }}）</div>
+<div class="panel-title">{% if node.is_committed %}已合入修改{% else %}本节点修改{% endif %}（{{ changes|length }}）</div>
 {% if not changes %}<p class="muted">还没有修改</p>{% endif %}
 {% for c in changes %}
 <div class="change-row">

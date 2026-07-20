@@ -21,13 +21,12 @@
 {% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>{% if not node.is_committed %}工作区草稿{% elif node.parent_id is none %}初始状态{% else %}#{{ node.id }} {{ node.message or '(无说明)' }}{% endif %}</h1>
+  <h1>{% if not node.is_committed %}工作区草稿{% elif node.parent_id is none %}初始状态{% else %}📦 {{ node.message or '(无说明)' }}{% endif %}</h1>
   {% if node.is_committed %}
   <span class="badge">已提交 · <time class="local-dt" datetime="{{ node.committed_at }}">{{ node.committed_at }}</time></span>
   {% else %}
   <span class="badge badge-blue">未提交 · {{ changes|length }} 条修改</span>
   {% endif %}
-  <span class="muted stable-link">稳定链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code></span>
   {% if node.is_committed %}
   <span class="muted stable-link">哈希 <a href="/hash/{{ node_hash(node.id) }}" title="完整哈希 {{ node_hash(node.id) }}（点击跳转）"><code>{{ node_short(node.id) }}</code></a><button type="button" class="copy-hash" title="复制哈希值" onclick="copyHash('{{ node_short(node.id) }}')">复制</button></span>
   {% endif %}
@@ -48,7 +47,7 @@
   <aside>
     {% if node.is_committed %}
     <details class="panel" x-ref="editDetails">
-      <summary>修正历史记录…</summary>
+      <summary>修订</summary>
       {% include "_edit_form.html" %}
     </details>
     {% else %}

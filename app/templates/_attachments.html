@@ -8,11 +8,11 @@
            title="下载 {{ a.filename }}">{{ a.filename }}</a>
         <span class="muted">· <time class="local-dt" datetime="{{ a.created_at }}">{{ a.created_at }}</time></span>
       </span>
-      <button type="button" class="btn-link danger"
+      <button type="button" class="icon-btn danger" title="删除附件" aria-label="删除附件"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/attachments/{{ a.id }}/delete"
               hx-target="#attachments" hx-swap="outerHTML"
               hx-confirm="确认删除附件「{{ a.filename }}」？该文件将从磁盘移除，不可恢复。">
-        删除
+        <svg class="ico"><use href="#icon-trash"></use></svg>
       </button>
     </div>
     {% else %}
