@@ -69,11 +69,16 @@ app.mount("/static", StaticFiles(directory=str(_RES / "static")), name="static")
 1. **仅在未设置时**写入 `REFLOW_DB` = `user_data_dir()/reflow.sqlite`、
    `REFLOW_UPLOAD_DIR` = `user_data_dir()/uploads`。用 `os.environ.setdefault`，
    保留环境变量覆盖能力（便于调试与多份数据）。
-2. 绑 `127.0.0.1`，端口取 `REFLOW_PORT` 环境变量；未设置时用**端口 0**，
-   由系统分配空闲端口后读回实际端口号，避免固定端口被占用导致启动失败。
+2. 自建 socket 绑 `127.0.0.1`，端口取 `REFLOW_PORT` 环境变量；未设置时用**端口 0**，
+   由系统分配空闲端口后 `getsockname()[1]` 读回实际端口号，避免固定端口被占用导致启动失败。
    （`REFLOW_PORT` 供 CI 冒烟测试固定端口用，见第 5 节。）
-3. `webbrowser.open(f"http://127.0.0.1:{port}/")`。
-4. `uvicorn.run(...)` 阻塞运行。
+3. **先 `sock.listen()`**，再 `webbrowser.open(f"http://127.0.0.1:{port}/")`。
+   顺序不能反：浏览器发出第一个 GET 时 uvicorn 的 accept 循环可能尚未启动，
+   但只要 socket 已 listen，内核就会把连接排队，不会 connection refused。
+4. `uvicorn.Server(uvicorn.Config(app, ...)).run(sockets=[sock])` 阻塞运行。
+
+**不能用 `uvicorn.run()`** —— 它内部自建 socket，不接受外部传入的已绑定 socket，
+因而无法在启动前得知实际端口。必须走 `Server` + `Config` + `run(sockets=[...])` 这条路径。
 
 **绑定 `127.0.0.1` 而非 `0.0.0.0`** —— `Dockerfile` 用 `0.0.0.0` 是容器场景的正确选择，
 桌面应用不应把服务暴露到局域网。
@@ -85,6 +90,11 @@ README 中说明「用完关掉这个黑窗口」。
 
 - 入口 `app/desktop.py`，onedir 模式，输出名 `Reflow`。
 - `datas` 带上 `app/templates` 与 `app/static`（含 `vendor/` 下的 htmx / alpine）。
+  **目标路径必须剥掉 `app/` 前缀**，落成 `_MEIPASS/templates` 和 `_MEIPASS/static`，
+  即 `datas=[("app/templates", "templates"), ("app/static", "static")]`。
+  因为 `resource_dir()` 在 frozen 时返回 `_MEIPASS` 本身，若打成 `_MEIPASS/app/templates`
+  则路径对不上。这是个静默陷阱：开发模式完全正常，打包产物每个模板都 404，
+  只有第 5 节的冒烟测试能拦住。
 - 按需补 `hiddenimports`（uvicorn 的 worker / lifecycle 模块常需显式声明）。
 
 ### 5. `.github/workflows/publish-desktop.yml`（新增）
