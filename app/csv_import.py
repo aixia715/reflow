@@ -28,10 +28,11 @@ def _is_blank_row(row: dict) -> bool:
     return all(_is_cell_blank(v) for v in row.values())
 
 
-def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
+def parse_bom_csv(text: str, forbid_op: bool = False) -> tuple[list[CsvEntry], list[CsvProblem]]:
     """解析 CSV，只取 Reference/Part 两列，拆分逗号合并位号，并产出校验问题清单。
 
     健壮性：UTF-8 BOM 头、CRLF、带引号含逗号字段、位号首尾空格。
+    forbid_op=True 时表头含 OP 列直接报错（全量导入模式用）。
     """
     # 去掉 UTF-8 BOM 头（U+FEFF）；csv 模块按 \n/\r\n 都能正确分行
     if text.startswith("﻿"):
@@ -40,6 +41,8 @@ def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
     reader = csv.DictReader(io.StringIO(text))
     # 容忍列名首尾空格
     fieldmap = {(name or "").strip(): name for name in (reader.fieldnames or [])}
+    if forbid_op and any(k.lower() == "op" for k in fieldmap):
+        raise ValueError("全量模式的 CSV 不应包含 OP 列，请删除后重试")
     ref_col = fieldmap.get("Reference")
     part_col = fieldmap.get("Part")
     if ref_col is None or part_col is None:
