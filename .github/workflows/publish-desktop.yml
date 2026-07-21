@@ -51,7 +51,12 @@ jobs:
           $env:REFLOW_PORT = "8125"
           $env:REFLOW_DB = "$env:TEMP\smoke.sqlite"
           $env:REFLOW_UPLOAD_DIR = "$env:TEMP\smoke-uploads"
-          $p = Start-Process -FilePath ".\dist\Reflow\Reflow.exe" -PassThru
+          # 重定向 exe 的 stdout/stderr 到独立日志文件：一旦 exe 启动即崩溃（例如打包漏了
+          # 某个 hiddenimports），这两个文件就是排障时唯一能看到的线索（呼应 reflow.spec 里
+          # console=True 的注释）。两个 -Redirect* 参数不能指向同一个文件，故分开两个路径。
+          $outLog = "$env:TEMP\reflow-out.log"
+          $errLog = "$env:TEMP\reflow-err.log"
+          $p = Start-Process -FilePath ".\dist\Reflow\Reflow.exe" -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
           try {
             $ok = $false
             foreach ($i in 1..30) {
@@ -60,7 +65,14 @@ jobs:
                 $ok = $true; break
               } catch { Start-Sleep -Seconds 1 }
             }
-            if (-not $ok) { throw "打包产物 30 秒内未就绪" }
+            if (-not $ok) {
+              # 打印 exe 自己的输出，方便在 CI 日志里定位打包/启动失败的原因
+              Write-Host "---- Reflow.exe stdout ($outLog) ----"
+              Get-Content -Path $outLog -ErrorAction SilentlyContinue
+              Write-Host "---- Reflow.exe stderr ($errLog) ----"
+              Get-Content -Path $errLog -ErrorAction SilentlyContinue
+              throw "打包产物 30 秒内未就绪"
+            }
             Write-Host "首页 200，打包冒烟通过"
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
