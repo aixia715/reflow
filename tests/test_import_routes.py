@@ -393,6 +393,10 @@ def test_full_apply_writes_diffed_changes(client):
 def test_full_preview_empty_part_is_a_problem(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
-    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,\n")
+    # 全量列出 R1(空 Part)+C1(原值)：R1 只报一次「Part 为空」，不重复报「必须填写」，
+    # 也不把 R1 误算成任何变更行（问题位号两端剔除，不参与求差；C1 原值不变故无变更）
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,\nC1,100nF\n")
     assert r.status_code == 200
     assert "Part 为空" in r.text and "hx-vals" not in r.text
+    assert "发现 1 个问题" in r.text  # 去重前是 2 个
+    assert "不贴" not in r.text and "修改 →" not in r.text  # 无 R1 变更行

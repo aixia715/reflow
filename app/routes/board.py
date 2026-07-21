@@ -385,9 +385,13 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     try:
         if mode == "full":
             entries, problems = parse_bom_csv(text, forbid_op=True)
-            target = {e.reference: e.part for e in entries}
-            changes, invalid = plan_full_changes(current, target)
-            ctx["unchanged"] = sum(1 for ref, part in current.items()
+            # 已被 parse 判为问题的位号（空 Part、CSV 内重复等）不参与求差：
+            # 两端都剔除，既不重复报错，也不会因缺席而被误算成 remove。
+            bad = {p.reference for p in problems}
+            target = {e.reference: e.part for e in entries if e.reference not in bad}
+            base = {ref: part for ref, part in current.items() if ref not in bad}
+            changes, invalid = plan_full_changes(base, target)
+            ctx["unchanged"] = sum(1 for ref, part in base.items()
                                    if target.get(ref) == part)
         else:
             entries, problems = parse_change_csv(text)
