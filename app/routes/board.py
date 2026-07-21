@@ -9,7 +9,10 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
-from app.csv_import import ChangeEntry, parse_change_csv, plan_changes, change_csv_template
+from app.csv_import import (
+    ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
+    parse_bom_csv, plan_full_changes,
+)
 from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
 from app.models import _now
@@ -354,28 +357,43 @@ def import_csv_template(board_id: int, node_id: int):
 
 @router.post("/board/{board_id}/node/{node_id}/import/preview")
 async def import_preview(request: Request, board_id: int, node_id: int,
-                         file: UploadFile | None = File(None)):
-    """解析上传的修改清单 CSV，渲染预览；不写库。有任一问题行则不给应用按钮。"""
+                         file: UploadFile | None = File(None),
+                         mode: str = Form("diff")):
+    """解析上传的 CSV，渲染预览；不写库。有任一问题行则不给应用按钮。
+
+    mode="diff"：CSV 是修改清单（现有语义）。
+    mode="full"：CSV 是完整目标 BOM，与当前折叠 BOM 求差得出修改。
+    """
     conn = get_conn()
     if _import_draft(conn, board_id, node_id) is None:
         return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
 
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
            "changes": [], "problems": [], "ready": False,
+           "mode": mode, "unchanged": 0,
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
 
     text, err = await _read_upload(file)
     if err:
         ctx["message"] = err
         return templates.TemplateResponse(request, "_import_preview.html", ctx)
+
+    initial, chain = models.get_chain(conn, node_id)
+    current = fold_bom(initial, chain)
     try:
-        entries, problems = parse_change_csv(text)
+        if mode == "full":
+            entries, problems = parse_bom_csv(text, forbid_op=True)
+            target = {e.reference: e.part for e in entries}
+            changes, invalid = plan_full_changes(current, target)
+            ctx["unchanged"] = sum(1 for ref, part in current.items()
+                                   if target.get(ref) == part)
+        else:
+            entries, problems = parse_change_csv(text)
+            changes, invalid = plan_changes(current, entries)
     except ValueError as e:
         ctx["message"] = str(e)
         return templates.TemplateResponse(request, "_import_preview.html", ctx)
 
-    initial, chain = models.get_chain(conn, node_id)
-    changes, invalid = plan_changes(fold_bom(initial, chain), entries)
     problems = problems + invalid
     dicts = [c._asdict() for c in changes]
     ctx.update(

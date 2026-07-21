@@ -42,6 +42,12 @@ def _preview(client, board_id, node_id, csv_bytes):
                        files={"file": ("changes.csv", csv_bytes, "text/csv")})
 
 
+def _preview_full(client, board_id, node_id, csv_bytes):
+    return client.post(f"/board/{board_id}/node/{node_id}/import/preview",
+                       data={"mode": "full"},
+                       files={"file": ("full.csv", csv_bytes, "text/csv")})
+
+
 def _changes_json(html):
     """从预览片段的 hx-vals 里抠出 changes JSON 字符串。"""
     import re
@@ -304,3 +310,52 @@ def test_committed_page_has_no_import_panel(client):
                  if n["is_committed"] and n["parent_id"] is not None][-1]["id"]
     html = client.get(f"/board/{board_id}/node/{committed}").text
     assert "从 CSV 导入修改" not in html
+
+
+# ── 全量模式（issue #129）──────────────────────────────────────
+
+def test_full_preview_diffs_against_current_bom(client):
+    # 初始 BOM：R1=10k、C1=100nF。全量目标：R1=47k、R9=1uF（C1 消失）
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,47k\nR9,1uF\n")
+    assert r.status_code == 200
+    assert "新增 1" in r.text and "修改 1" in r.text and "不贴 1" in r.text
+    assert _changeset(ws) == {}  # 预览不写库
+
+
+def test_full_preview_rejects_op_column(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part,OP\nR1,47k,modify\n")
+    assert r.status_code == 200
+    assert "不应包含 OP 列" in r.text
+    assert "hx-vals" not in r.text
+
+
+def test_full_preview_empty_csv_removes_all(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\n")
+    assert r.status_code == 200
+    assert "不贴 2" in r.text and "hx-vals" in r.text  # 全部不贴、可应用
+
+
+def test_full_apply_writes_diffed_changes(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,47k\nR9,1uF\n")
+    r2 = client.post(f"/board/{board_id}/node/{ws}/import",
+                     data={"changes": _changes_json(r.text)})
+    assert r2.status_code == 204
+    assert _changeset(ws) == {"R1": ("modify", "47k"),
+                              "R9": ("add", "1uF"),
+                              "C1": ("remove", None)}
+
+
+def test_full_preview_empty_part_is_a_problem(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,\n")
+    assert r.status_code == 200
+    assert "Part 为空" in r.text and "hx-vals" not in r.text
