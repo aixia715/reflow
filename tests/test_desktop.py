@@ -1,4 +1,6 @@
 """桌面版启动器：环境变量准备与本地 socket 绑定。"""
+import ast
+import os
 import socket
 import sys
 from pathlib import Path
@@ -8,6 +10,10 @@ from app.desktop import bind_socket, prepare_env
 
 def test_prepare_env_sets_db_and_upload_under_user_data(monkeypatch, tmp_path):
     """未设置时，DB 与上传目录都指向用户数据目录。"""
+    # 整体隔离 os.environ：对一个本就未设置的变量，delenv 不会登记回滚项，
+    # prepare_env() 写入的值会在 teardown 后泄漏到后续测试；改用 setattr
+    # 替换整个字典，使测试内的任何改动都能随 teardown 一并还原。
+    monkeypatch.setattr(os, "environ", dict(os.environ))
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     monkeypatch.delenv("REFLOW_DB", raising=False)
@@ -15,7 +21,6 @@ def test_prepare_env_sets_db_and_upload_under_user_data(monkeypatch, tmp_path):
 
     prepare_env()
 
-    import os
     data = tmp_path / ".local" / "share" / "reflow"
     assert os.environ["REFLOW_DB"] == str(data / "reflow.sqlite")
     assert os.environ["REFLOW_UPLOAD_DIR"] == str(data / "uploads")
@@ -23,6 +28,8 @@ def test_prepare_env_sets_db_and_upload_under_user_data(monkeypatch, tmp_path):
 
 def test_prepare_env_does_not_override_existing(monkeypatch, tmp_path):
     """已设置的环境变量不被覆盖，保留调试与多份数据的能力。"""
+    # 同上：整体隔离 os.environ，避免本测试写入的值泄漏到后续测试。
+    monkeypatch.setattr(os, "environ", dict(os.environ))
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
     monkeypatch.setenv("REFLOW_DB", "/custom/my.sqlite")
@@ -30,7 +37,6 @@ def test_prepare_env_does_not_override_existing(monkeypatch, tmp_path):
 
     prepare_env()
 
-    import os
     assert os.environ["REFLOW_DB"] == "/custom/my.sqlite"
     assert os.environ["REFLOW_UPLOAD_DIR"] == "/custom/up"
 
@@ -70,3 +76,26 @@ def test_bind_socket_honours_reflow_port(monkeypatch):
         assert port == free_port
     finally:
         sock.close()
+
+
+def test_desktop_module_does_not_import_app_main_at_top_level():
+    """守护关键契约：app.main 不得在 app/desktop.py 模块顶层被 import。
+
+    一旦顶层 import app.main，该模块顶层的 create_app() 会在 prepare_env()
+    设置 REFLOW_UPLOAD_DIR 之前执行，导致 uploads 目录建到错误位置。
+    正确写法是把 `from app.main import app` 放在 main() 函数体内、
+    prepare_env() 调用之后。
+
+    用 AST 解析源码而非 sys.modules 判断——其它测试模块在 collection 阶段
+    就会 import app.main，用 sys.modules 检测会对本测试造成误报。
+    """
+    source = Path("app/desktop.py").read_text(encoding="utf-8")
+    tree = ast.parse(source, filename="app/desktop.py")
+
+    for node in tree.body:  # 只看模块级语句，不递归进函数体
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+            assert "app.main" not in names, "app.main 不得在模块顶层 import"
+        elif isinstance(node, ast.ImportFrom):
+            module = f"{'.' * node.level}{node.module or ''}"
+            assert module != "app.main", "app.main 不得在模块顶层 import"
