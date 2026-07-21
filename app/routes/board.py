@@ -11,7 +11,7 @@ from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
-    parse_bom_csv, plan_full_changes,
+    parse_bom_csv, plan_full_changes, full_bom_csv_template,
 )
 from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
@@ -338,20 +338,22 @@ def _import_draft(conn, board_id: int, node_id: int):
 
 
 @router.get("/board/{board_id}/node/{node_id}/import/template")
-def import_csv_template(board_id: int, node_id: int):
-    """下载修改清单 CSV 模板（仅 Reference/Part/OP 三列表头）。
+def import_csv_template(board_id: int, node_id: int, mode: str = "diff"):
+    """下载导入模板。mode=full 仅 Reference/Part 两列；否则含 OP 列（差异模式）。
 
-    模板本身是通用文本，与节点状态无关；入口只在工作区草稿面板展示。
+    模板本身与节点状态无关；入口只在工作区草稿面板展示。
     """
     conn = get_conn()
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
-    body = change_csv_template().encode("utf-8")
+    body = (full_bom_csv_template() if mode == "full"
+            else change_csv_template()).encode("utf-8")
+    fname = "full_bom_template.csv" if mode == "full" else "change_template.csv"
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": _content_disposition("change_template.csv")},
+        headers={"Content-Disposition": _content_disposition(fname)},
     )
 
 

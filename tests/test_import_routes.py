@@ -281,6 +281,21 @@ def test_download_change_csv_template(client):
     assert r.text == "Reference,Part,OP\n"
 
 
+def test_full_template_has_no_op_column(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}/import/template?mode=full")
+    assert r.status_code == 200
+    assert r.text == "Reference,Part\n"
+
+
+def test_diff_template_unchanged_by_default(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}/import/template")
+    assert r.text == "Reference,Part,OP\n"
+
+
 def test_draft_page_shows_template_download_link(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)

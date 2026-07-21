@@ -96,6 +96,11 @@ def change_csv_template() -> str:
     return "Reference,Part,OP\n"
 
 
+def full_bom_csv_template() -> str:
+    """全量模式导入模板：仅 Reference/Part 两列表头（全量不认 OP 列）。"""
+    return "Reference,Part\n"
+
+
 def parse_change_csv(text: str) -> tuple[list[ChangeEntry], list[CsvProblem]]:
     """解析「修改清单 CSV」：Reference / Part 两列必需，OP 列可选。
 
