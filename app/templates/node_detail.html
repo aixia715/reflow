@@ -72,17 +72,21 @@
     </details>
     {% endif %}
     {% if not node.is_committed %}
-    <details class="panel">
+    <details class="panel" x-data="{ mode: 'diff' }">
       <summary>从 CSV 导入修改…</summary>
       <form class="edit-form" hx-post="/board/{{ board_id }}/node/{{ node.id }}/import/preview"
             hx-target="#import-preview" hx-swap="innerHTML"
             hx-encoding="multipart/form-data" hx-trigger="change">
-        <label>修改清单 CSV
+        <div class="seg">
+          <label :class="{on: mode==='diff'}"><input type="radio" name="mode" value="diff" x-model="mode">差异</label>
+          <label :class="{on: mode==='full'}"><input type="radio" name="mode" value="full" x-model="mode">全量</label>
+        </div>
+        <label>CSV 文件
           <input name="file" type="file" accept=".csv"></label>
-        <p class="muted">表头需含 Reference 与 Part；可选 OP 列（add / modify / remove）。
-          不写 OP 时按位号是否已存在自动判为新增或修改。
-          <a class="btn-link"
-             href="/board/{{ board_id }}/node/{{ node.id }}/import/template">下载模板</a></p>
+        <p class="muted" x-show="mode==='diff'" x-cloak>差异模式：CSV 只列改动，未列出的位号保持不变。表头需含 Reference 与 Part，可选 OP 列（add / modify / remove），不写 OP 时按位号是否已存在自动判为新增或修改。</p>
+        <p class="muted" x-show="mode==='full'" x-cloak>全量模式：CSV 是这块板<b>完整的目标 BOM</b>，系统自动求差、自动算不贴，<b>不需要 OP 列</b>。表头只需 Reference 与 Part。</p>
+        <p class="muted"><a class="btn-link"
+             :href="'/board/{{ board_id }}/node/{{ node.id }}/import/template?mode=' + mode">下载模板</a></p>
       </form>
       <div id="import-preview"></div>
     </details>

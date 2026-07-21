@@ -300,7 +300,8 @@ def test_draft_page_shows_template_download_link(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
     html = client.get(f"/board/{board_id}/node/{ws}").text
-    assert f'href="/board/{board_id}/node/{ws}/import/template"' in html
+    # issue #129：下载链接改由 Alpine :href 按 mode 拼接，静态 URL 前缀仍需保留
+    assert f"/board/{board_id}/node/{ws}/import/template" in html
     assert "下载模板" in html
 
 
@@ -313,6 +314,27 @@ def test_draft_page_shows_import_panel(client):
     assert "从 CSV 导入修改" in html
     assert f'hx-post="/board/{board_id}/node/{ws}/import/preview"' in html
     assert 'id="import-preview"' in html
+
+
+def test_import_panel_has_mode_selector(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    html = client.get(f"/board/{board_id}/node/{ws}").text
+    # .seg 模式单选：差异默认选中、全量存在
+    assert 'name="mode" value="diff"' in html
+    assert 'name="mode" value="full"' in html
+    # 下载链接按 mode 联动（Alpine :href 拼 ?mode=）
+    assert "import/template?mode=" in html
+
+
+def test_full_preview_shows_unchanged_count(client):
+    # 初始 R1=10k、C1=100nF；全量把 C1 改成 220nF、R1 原值不变 → 1 个位号无变化
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,10k\nC1,220nF\n")
+    assert r.status_code == 200
+    assert "修改 1" in r.text
+    assert "其余 1 个位号无变化" in r.text
 
 
 def test_committed_page_has_no_import_panel(client):
