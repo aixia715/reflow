@@ -329,7 +329,31 @@ def test_bind_socket_honours_reflow_port(monkeypatch):
         assert port == free_port
     finally:
         sock.close()
+
+
+def test_desktop_module_does_not_import_app_main_at_top_level():
+    """守卫 import 时序契约：app.main 不得在 app/desktop.py 模块顶层被 import。
+
+    app.main 顶层执行 create_app()，会读 REFLOW_UPLOAD_DIR 并建目录；若把该 import
+    提到模块顶层，就会在 prepare_env() 之前触发，uploads 建到错误位置。用 AST 只解析
+    模块级 import 节点，不用 sys.modules（其它测试模块在 collection 期已 import
+    app.main，会误报）。
+    """
+    import ast
+    from app.paths import resource_dir
+
+    src = (resource_dir() / "desktop.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    for node in tree.body:  # 只看模块级节点，不递归进函数体
+        if isinstance(node, ast.Import):
+            assert all(a.name != "app.main" for a in node.names), "app.main 不应在顶层 import"
+        elif isinstance(node, ast.ImportFrom):
+            assert node.module != "app.main", "app.main 不应在顶层 import"
 ```
+
+注：以下两处按最终修复采纳——`prepare_env` 的两个测试须在开头整体隔离 `os.environ`
+（`monkeypatch.setattr(os, "environ", dict(os.environ))`），否则 `delenv` 对本就未设置
+的变量不记录回滚项，`prepare_env()` 写入的 `REFLOW_DB`/`REFLOW_UPLOAD_DIR` 会泄漏到后续测试。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -375,7 +399,9 @@ def bind_socket() -> tuple[socket.socket, int]:
     """
     port = int(os.environ.get("REFLOW_PORT", "0"))
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # 不设 SO_REUSEADDR：port=0 下无效用，且在目标平台 Windows 上其语义是允许
+    # 别的进程绑定到已在活跃监听的端口（端口劫持），CPython asyncio 正是特意
+    # 不在 Windows 上设它。
     sock.bind(("127.0.0.1", port))
     actual_port = sock.getsockname()[1]
     sock.listen(128)
