@@ -172,3 +172,34 @@ def plan_changes(
             continue
         changes.append(PlannedChange(e.reference, op, part))
     return changes, problems
+
+
+def plan_full_changes(
+    current_bom: dict[str, str], target_bom: dict[str, str]
+) -> tuple[list[PlannedChange], list[CsvProblem]]:
+    """把「完整目标 BOM」求差为修改清单（全量导入模式）。
+
+    - ref ∈ target，∉ current → add
+    - ref 两边都有、Part 不同 → modify
+    - ref 两边都有、Part 相同 → 跳过（无变化）
+    - ref ∈ current，∉ target → remove（不贴）
+    输出按位号排序保证确定性；每条经 validate_edit 兜底。入参不被修改。
+    """
+    changes: list[PlannedChange] = []
+    problems: list[CsvProblem] = []
+    for ref in sorted(set(current_bom) | set(target_bom)):
+        in_cur, in_tgt = ref in current_bom, ref in target_bom
+        if in_tgt and not in_cur:
+            op, part = "add", target_bom[ref]
+        elif in_tgt and in_cur:
+            if current_bom[ref] == target_bom[ref]:
+                continue
+            op, part = "modify", target_bom[ref]
+        else:  # in_cur and not in_tgt
+            op, part = "remove", None
+        err = validate_edit(current_bom, ref, op, part)
+        if err:
+            problems.append(CsvProblem("invalid", ref, err))
+            continue
+        changes.append(PlannedChange(ref, op, part))
+    return changes, problems
