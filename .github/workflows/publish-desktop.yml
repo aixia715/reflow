@@ -1,0 +1,78 @@
+name: publish-desktop
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: publish-desktop
+  cancel-in-progress: false
+
+jobs:
+  verify-tag-on-master:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: 校验 tag 是否已合入 master
+        run: |
+          git fetch origin master
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/master; then
+            echo "::error::tag ${GITHUB_REF#refs/tags/} 指向的提交（${{ github.sha }}）不在 master 分支历史中，请先合并到 master 再打 tag"
+            exit 1
+          fi
+
+  checks:
+    needs: verify-tag-on-master
+    uses: ./.github/workflows/_checks.yml
+
+  build-windows:
+    needs: [verify-tag-on-master, checks]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -e ".[dev]"
+
+      - name: 构建桌面版
+        run: pyinstaller --noconfirm --clean reflow.spec
+
+      - name: 冒烟测试（打包产物真能起来）
+        shell: pwsh
+        run: |
+          $env:REFLOW_NO_BROWSER = "1"
+          $env:REFLOW_PORT = "8125"
+          $env:REFLOW_DB = "$env:TEMP\smoke.sqlite"
+          $env:REFLOW_UPLOAD_DIR = "$env:TEMP\smoke-uploads"
+          $p = Start-Process -FilePath ".\dist\Reflow\Reflow.exe" -PassThru
+          try {
+            $ok = $false
+            foreach ($i in 1..30) {
+              try {
+                Invoke-WebRequest -Uri "http://127.0.0.1:8125/" -UseBasicParsing -TimeoutSec 2 | Out-Null
+                $ok = $true; break
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ok) { throw "打包产物 30 秒内未就绪" }
+            Write-Host "首页 200，打包冒烟通过"
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 打包成 zip
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path ".\dist\Reflow\*" -DestinationPath ".\Reflow-$tag-windows.zip"
+
+      - name: 挂到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Reflow-${{ github.ref_name }}-windows.zip
