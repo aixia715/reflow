@@ -12,3 +12,5 @@ deploy.*.sh
 uploads/
 .claude/worktrees/
 .pytest_cache/
+build/
+dist/
