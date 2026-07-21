@@ -59,6 +59,9 @@ jobs:
           $p = Start-Process -FilePath ".\dist\Reflow\Reflow.exe" -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
           try {
             $ok = $false
+            # 轮询 / 而非 /healthz：/ 会实际渲染模板，能拦住「datas 路径打错导致模板 404」，
+            # /healthz 只返回 JSON 测不出这个（详见 desktop 设计 spec）。别觉得 /healthz
+            # 看着更像“健康检查”就换回去——那会丢掉这层保护。
             foreach ($i in 1..30) {
               try {
                 Invoke-WebRequest -Uri "http://127.0.0.1:8125/" -UseBasicParsing -TimeoutSec 2 | Out-Null
@@ -74,6 +77,21 @@ jobs:
               throw "打包产物 30 秒内未就绪"
             }
             Write-Host "首页 200，打包冒烟通过"
+
+            # 首页 200 只证明模板能渲染，不代表打包进 exe 的 vendor 静态资源
+            # （htmx.min.js / alpine.min.js）也被正确打包/服务了——而“断网可用”这个
+            # 卖点完全依赖这些文件。StaticFiles 挂载或 datas 条目一旦漏配，首页仍能
+            # 200，但同事拿到的会是 HTMX/Alpine 全死的页面，故这里单独再探一次。
+            try {
+              Invoke-WebRequest -Uri "http://127.0.0.1:8125/static/vendor/htmx.min.js" -UseBasicParsing -TimeoutSec 5 | Out-Null
+              Write-Host "静态资源 200，打包冒烟通过"
+            } catch {
+              Write-Host "---- Reflow.exe stdout ($outLog) ----"
+              Get-Content -Path $outLog -ErrorAction SilentlyContinue
+              Write-Host "---- Reflow.exe stderr ($errLog) ----"
+              Get-Content -Path $errLog -ErrorAction SilentlyContinue
+              throw "静态资源 /static/vendor/htmx.min.js 未正确打包/服务：$_"
+            }
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           }

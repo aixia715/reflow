@@ -104,8 +104,10 @@ README 中说明「用完关掉这个黑窗口」。
 推 `v*.*.*` → `windows-latest` runner → `pip install -e .` + PyInstaller 构建
 → 打包成 `Reflow-vX.Y.Z-windows.zip` → 作为附件挂到 GitHub Release。
 
-**冒烟测试（必须）**：CI 里启动构建产物中的 `Reflow.exe`，轮询 `/healthz` 直到返回 200
-（超时即失败），然后结束进程。打包类问题（缺模板、缺 hiddenimports、路径错）只在真机运行时暴露，
+**冒烟测试（必须）**：CI 里启动构建产物中的 `Reflow.exe`，轮询 `/` 直到返回 200
+（超时即失败），然后结束进程。轮询 `/` 而非 `/healthz`：`/` 会实际渲染模板，
+能拦住「`datas` 路径打错导致模板 404」这类问题，`/healthz` 只返回 JSON，测不出这个。
+打包类问题（缺模板、缺 hiddenimports、路径错）只在真机运行时暴露，
 不加这步等于没验证。因端口是动态分配的，冒烟测试通过设置 `REFLOW_PORT` 环境变量固定端口
 —— 故 `desktop.py` 需支持该变量：设置了就用它，否则用端口 0。
 
