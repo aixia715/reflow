@@ -12,6 +12,7 @@
   {% if changes %}
   <div class="flash flash-info">
     共 {{ changes|length }} 条修改：新增 {{ counts.add }} · 修改 {{ counts.modify }} · 不贴 {{ counts.remove }}
+    {% if mode == 'full' and unchanged %} · 其余 {{ unchanged }} 个位号无变化{% endif %}
   </div>
   {% for c in changes %}
   <div class="change-row">

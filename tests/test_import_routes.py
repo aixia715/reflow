@@ -42,6 +42,12 @@ def _preview(client, board_id, node_id, csv_bytes):
                        files={"file": ("changes.csv", csv_bytes, "text/csv")})
 
 
+def _preview_full(client, board_id, node_id, csv_bytes):
+    return client.post(f"/board/{board_id}/node/{node_id}/import/preview",
+                       data={"mode": "full"},
+                       files={"file": ("full.csv", csv_bytes, "text/csv")})
+
+
 def _changes_json(html):
     """从预览片段的 hx-vals 里抠出 changes JSON 字符串。"""
     import re
@@ -275,11 +281,27 @@ def test_download_change_csv_template(client):
     assert r.text == "Reference,Part,OP\n"
 
 
+def test_full_template_has_no_op_column(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}/import/template?mode=full")
+    assert r.status_code == 200
+    assert r.text == "Reference,Part\n"
+
+
+def test_diff_template_unchanged_by_default(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}/import/template")
+    assert r.text == "Reference,Part,OP\n"
+
+
 def test_draft_page_shows_template_download_link(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
     html = client.get(f"/board/{board_id}/node/{ws}").text
-    assert f'href="/board/{board_id}/node/{ws}/import/template"' in html
+    # issue #129：下载链接改由 Alpine :href 按 mode 拼接，静态 URL 前缀仍需保留
+    assert f"/board/{board_id}/node/{ws}/import/template" in html
     assert "下载模板" in html
 
 
@@ -294,6 +316,27 @@ def test_draft_page_shows_import_panel(client):
     assert 'id="import-preview"' in html
 
 
+def test_import_panel_has_mode_selector(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    html = client.get(f"/board/{board_id}/node/{ws}").text
+    # .seg 模式单选：差异默认选中、全量存在
+    assert 'name="mode" value="diff"' in html
+    assert 'name="mode" value="full"' in html
+    # 下载链接按 mode 联动（Alpine :href 拼 ?mode=）
+    assert "import/template?mode=" in html
+
+
+def test_full_preview_shows_unchanged_count(client):
+    # 初始 R1=10k、C1=100nF；全量把 C1 改成 220nF、R1 原值不变 → 1 个位号无变化
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,10k\nC1,220nF\n")
+    assert r.status_code == 200
+    assert "修改 1" in r.text
+    assert "其余 1 个位号无变化" in r.text
+
+
 def test_committed_page_has_no_import_panel(client):
     board_id = _setup_board(client)
     client.post(f"/board/{board_id}/workspace/edit",
@@ -304,3 +347,56 @@ def test_committed_page_has_no_import_panel(client):
                  if n["is_committed"] and n["parent_id"] is not None][-1]["id"]
     html = client.get(f"/board/{board_id}/node/{committed}").text
     assert "从 CSV 导入修改" not in html
+
+
+# ── 全量模式（issue #129）──────────────────────────────────────
+
+def test_full_preview_diffs_against_current_bom(client):
+    # 初始 BOM：R1=10k、C1=100nF。全量目标：R1=47k、R9=1uF（C1 消失）
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,47k\nR9,1uF\n")
+    assert r.status_code == 200
+    assert "新增 1" in r.text and "修改 1" in r.text and "不贴 1" in r.text
+    assert _changeset(ws) == {}  # 预览不写库
+
+
+def test_full_preview_rejects_op_column(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part,OP\nR1,47k,modify\n")
+    assert r.status_code == 200
+    assert "不应包含 OP 列" in r.text
+    assert "hx-vals" not in r.text
+
+
+def test_full_preview_empty_csv_removes_all(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\n")
+    assert r.status_code == 200
+    assert "不贴 2" in r.text and "hx-vals" in r.text  # 全部不贴、可应用
+
+
+def test_full_apply_writes_diffed_changes(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,47k\nR9,1uF\n")
+    r2 = client.post(f"/board/{board_id}/node/{ws}/import",
+                     data={"changes": _changes_json(r.text)})
+    assert r2.status_code == 204
+    assert _changeset(ws) == {"R1": ("modify", "47k"),
+                              "R9": ("add", "1uF"),
+                              "C1": ("remove", None)}
+
+
+def test_full_preview_empty_part_is_a_problem(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    # 全量列出 R1(空 Part)+C1(原值)：R1 只报一次「Part 为空」，不重复报「必须填写」，
+    # 也不把 R1 误算成任何变更行（问题位号两端剔除，不参与求差；C1 原值不变故无变更）
+    r = _preview_full(client, board_id, ws, b"Reference,Part\nR1,\nC1,100nF\n")
+    assert r.status_code == 200
+    assert "Part 为空" in r.text and "hx-vals" not in r.text
+    assert "发现 1 个问题" in r.text  # 去重前是 2 个
+    assert "不贴" not in r.text and "修改 →" not in r.text  # 无 R1 变更行

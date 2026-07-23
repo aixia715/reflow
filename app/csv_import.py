@@ -28,10 +28,11 @@ def _is_blank_row(row: dict) -> bool:
     return all(_is_cell_blank(v) for v in row.values())
 
 
-def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
+def parse_bom_csv(text: str, forbid_op: bool = False) -> tuple[list[CsvEntry], list[CsvProblem]]:
     """解析 CSV，只取 Reference/Part 两列，拆分逗号合并位号，并产出校验问题清单。
 
     健壮性：UTF-8 BOM 头、CRLF、带引号含逗号字段、位号首尾空格。
+    forbid_op=True 时表头含 OP 列直接报错（全量导入模式用）。
     """
     # 去掉 UTF-8 BOM 头（U+FEFF）；csv 模块按 \n/\r\n 都能正确分行
     if text.startswith("﻿"):
@@ -40,6 +41,8 @@ def parse_bom_csv(text: str) -> tuple[list[CsvEntry], list[CsvProblem]]:
     reader = csv.DictReader(io.StringIO(text))
     # 容忍列名首尾空格
     fieldmap = {(name or "").strip(): name for name in (reader.fieldnames or [])}
+    if forbid_op and any(k.lower() == "op" for k in fieldmap):
+        raise ValueError("全量模式的 CSV 不应包含 OP 列，请删除后重试")
     ref_col = fieldmap.get("Reference")
     part_col = fieldmap.get("Part")
     if ref_col is None or part_col is None:
@@ -91,6 +94,11 @@ def change_csv_template() -> str:
     便于用户填好位号后直接上传。可被 parse_change_csv 反向解析为「无条目」。
     """
     return "Reference,Part,OP\n"
+
+
+def full_bom_csv_template() -> str:
+    """全量模式导入模板：仅 Reference/Part 两列表头（全量不认 OP 列）。"""
+    return "Reference,Part\n"
 
 
 def parse_change_csv(text: str) -> tuple[list[ChangeEntry], list[CsvProblem]]:
@@ -171,4 +179,35 @@ def plan_changes(
             problems.append(CsvProblem("invalid", e.reference, err))
             continue
         changes.append(PlannedChange(e.reference, op, part))
+    return changes, problems
+
+
+def plan_full_changes(
+    current_bom: dict[str, str], target_bom: dict[str, str]
+) -> tuple[list[PlannedChange], list[CsvProblem]]:
+    """把「完整目标 BOM」求差为修改清单（全量导入模式）。
+
+    - ref ∈ target，∉ current → add
+    - ref 两边都有、Part 不同 → modify
+    - ref 两边都有、Part 相同 → 跳过（无变化）
+    - ref ∈ current，∉ target → remove（不贴）
+    输出按位号排序保证确定性；每条经 validate_edit 兜底。入参不被修改。
+    """
+    changes: list[PlannedChange] = []
+    problems: list[CsvProblem] = []
+    for ref in sorted(set(current_bom) | set(target_bom)):
+        in_cur, in_tgt = ref in current_bom, ref in target_bom
+        if in_tgt and not in_cur:
+            op, part = "add", target_bom[ref]
+        elif in_tgt and in_cur:
+            if current_bom[ref] == target_bom[ref]:
+                continue
+            op, part = "modify", target_bom[ref]
+        else:  # in_cur and not in_tgt
+            op, part = "remove", None
+        err = validate_edit(current_bom, ref, op, part)
+        if err:
+            problems.append(CsvProblem("invalid", ref, err))
+            continue
+        changes.append(PlannedChange(ref, op, part))
     return changes, problems

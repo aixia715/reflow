@@ -84,3 +84,24 @@ def test_duplicate_with_empty_part_does_not_emit_empty_part_problem():
     assert entries == [CsvEntry("R1", "10k")]
     assert any(p.kind == "duplicate" and p.reference == "R1" for p in problems)
     assert not any(p.kind == "empty_part" for p in problems)
+
+
+def test_forbid_op_rejects_op_column():
+    with pytest.raises(ValueError, match="不应包含 OP 列"):
+        parse_bom_csv("Reference,Part,OP\nR1,10k,add\n", forbid_op=True)
+
+
+def test_forbid_op_case_and_space_insensitive():
+    with pytest.raises(ValueError, match="不应包含 OP 列"):
+        parse_bom_csv("Reference , Part , op \nR1,10k,add\n", forbid_op=True)
+
+
+def test_forbid_op_allows_csv_without_op():
+    entries, problems = parse_bom_csv("Reference,Part\nR1,10k\n", forbid_op=True)
+    assert problems == [] and [e.reference for e in entries] == ["R1"]
+
+
+def test_default_still_ignores_op_column():
+    # 回归保护：默认 forbid_op=False 时带 OP 列不报错（OP 被忽略）
+    entries, _ = parse_bom_csv("Reference,Part,OP\nR1,10k,add\n")
+    assert [(e.reference, e.part) for e in entries] == [("R1", "10k")]
