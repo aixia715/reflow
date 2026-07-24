@@ -1,12 +1,27 @@
 name: publish-desktop
 
+# 触发时机：
+#   - push tag：正式发版，走完整链路（校验 tag 在 master → 跑测试 → 构建 → 挂 Release）。
+#   - pull_request（仅当改到打包相关文件）：提前发现打包回归，只构建+冒烟，不发布。
+#     paths 过滤让绝大多数 PR 不触发 Windows 构建，日常改动零成本；测试套件由 ci.yml 负责，这里不重复。
+#   - workflow_dispatch：打 tag 前按需手动验证打包，同样只构建+冒烟、不发布。
 on:
   push:
     tags: ["v*.*.*"]
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "reflow.spec"
+      - "app/desktop.py"
+      - "pyproject.toml"
+      - ".github/workflows/publish-desktop.yml"
+  workflow_dispatch:
 
 concurrency:
-  group: publish-desktop
-  cancel-in-progress: false
+  # 按 ref 分组：不同 PR / tag 互不阻塞（原来固定组名会让进行中的 PR 构建挡住发版 tag）。
+  group: publish-desktop-${{ github.ref }}
+  # 非 tag（PR / 手动）时新 push 取消进行中的旧构建省 Windows 分钟；tag 发版永不中途取消。
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   verify-tag-on-master:
@@ -15,7 +30,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      # 仅 tag 触发才校验；PR / 手动触发时这一步跳过，job 仍以成功空跑收尾
+      # （不要把条件加在 job 上——被 skip 的 needs 会连累下游 build-windows 一起 skip）。
       - name: 校验 tag 是否已合入 master
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           git fetch origin master
           if ! git merge-base --is-ancestor "${{ github.sha }}" origin/master; then
@@ -24,11 +42,19 @@ jobs:
           fi
 
   checks:
+    # 仅 tag 发版时跑完整测试套件；PR 触发时 ci.yml 已跑过，跳过避免重复。
+    if: startsWith(github.ref, 'refs/tags/')
     needs: verify-tag-on-master
     uses: ./.github/workflows/_checks.yml
 
   build-windows:
     needs: [verify-tag-on-master, checks]
+    # checks 在 PR / 手动触发时被 skip，默认会连累本 job 一起 skip，故显式放行：
+    # verify 必须成功，checks 成功或被跳过都可继续（checks 失败则不构建）。
+    if: >-
+      always() &&
+      needs.verify-tag-on-master.result == 'success' &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -97,12 +123,29 @@ jobs:
           }
 
       - name: 打包成 zip
+        id: zip
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          Compress-Archive -Path ".\dist\Reflow\*" -DestinationPath ".\Reflow-$tag-windows.zip"
+          # tag 触发用 tag 名；PR / 手动触发用 dev-<短SHA>——PR 的 ref_name 形如「130/merge」带斜杠，直接拿来当文件名会出错。
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $name = "${{ github.ref_name }}"
+          } else {
+            $name = "dev-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          $zip = "Reflow-$name-windows.zip"
+          Compress-Archive -Path ".\dist\Reflow\*" -DestinationPath ".\$zip"
+          "zip=$zip" >> $env:GITHUB_OUTPUT
 
       - name: 挂到 Release
+        # 仅 tag 发版才发布 Release；PR / 手动触发只验证打包，不对外发布。
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: Reflow-${{ github.ref_name }}-windows.zip
+          files: ${{ steps.zip.outputs.zip }}
+
+      - name: 上传构建产物（PR / 手动触发，供下载自查，不发布 Release）
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip.outputs.zip }}
+          path: ${{ steps.zip.outputs.zip }}
