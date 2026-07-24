@@ -1,0 +1,151 @@
+name: publish-desktop
+
+# 触发时机：
+#   - push tag：正式发版，走完整链路（校验 tag 在 master → 跑测试 → 构建 → 挂 Release）。
+#   - pull_request（仅当改到打包相关文件）：提前发现打包回归，只构建+冒烟，不发布。
+#     paths 过滤让绝大多数 PR 不触发 Windows 构建，日常改动零成本；测试套件由 ci.yml 负责，这里不重复。
+#   - workflow_dispatch：打 tag 前按需手动验证打包，同样只构建+冒烟、不发布。
+on:
+  push:
+    tags: ["v*.*.*"]
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "reflow.spec"
+      - "app/desktop.py"
+      - "pyproject.toml"
+      - ".github/workflows/publish-desktop.yml"
+  workflow_dispatch:
+
+concurrency:
+  # 按 ref 分组：不同 PR / tag 互不阻塞（原来固定组名会让进行中的 PR 构建挡住发版 tag）。
+  group: publish-desktop-${{ github.ref }}
+  # 非 tag（PR / 手动）时新 push 取消进行中的旧构建省 Windows 分钟；tag 发版永不中途取消。
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  verify-tag-on-master:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      # 仅 tag 触发才校验；PR / 手动触发时这一步跳过，job 仍以成功空跑收尾
+      # （不要把条件加在 job 上——被 skip 的 needs 会连累下游 build-windows 一起 skip）。
+      - name: 校验 tag 是否已合入 master
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch origin master
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/master; then
+            echo "::error::tag ${GITHUB_REF#refs/tags/} 指向的提交（${{ github.sha }}）不在 master 分支历史中，请先合并到 master 再打 tag"
+            exit 1
+          fi
+
+  checks:
+    # 仅 tag 发版时跑完整测试套件；PR 触发时 ci.yml 已跑过，跳过避免重复。
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: verify-tag-on-master
+    uses: ./.github/workflows/_checks.yml
+
+  build-windows:
+    needs: [verify-tag-on-master, checks]
+    # checks 在 PR / 手动触发时被 skip，默认会连累本 job 一起 skip，故显式放行：
+    # verify 必须成功，checks 成功或被跳过都可继续（checks 失败则不构建）。
+    if: >-
+      always() &&
+      needs.verify-tag-on-master.result == 'success' &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -e ".[dev]"
+
+      - name: 构建桌面版
+        run: pyinstaller --noconfirm --clean reflow.spec
+
+      - name: 冒烟测试（打包产物真能起来）
+        shell: pwsh
+        run: |
+          $env:REFLOW_NO_BROWSER = "1"
+          $env:REFLOW_PORT = "8125"
+          $env:REFLOW_DB = "$env:TEMP\smoke.sqlite"
+          $env:REFLOW_UPLOAD_DIR = "$env:TEMP\smoke-uploads"
+          # 重定向 exe 的 stdout/stderr 到独立日志文件：一旦 exe 启动即崩溃（例如打包漏了
+          # 某个 hiddenimports），这两个文件就是排障时唯一能看到的线索（呼应 reflow.spec 里
+          # console=True 的注释）。两个 -Redirect* 参数不能指向同一个文件，故分开两个路径。
+          $outLog = "$env:TEMP\reflow-out.log"
+          $errLog = "$env:TEMP\reflow-err.log"
+          $p = Start-Process -FilePath ".\dist\Reflow\Reflow.exe" -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+          try {
+            $ok = $false
+            # 轮询 / 而非 /healthz：/ 会实际渲染模板，能拦住「datas 路径打错导致模板 404」，
+            # /healthz 只返回 JSON 测不出这个（详见 desktop 设计 spec）。别觉得 /healthz
+            # 看着更像“健康检查”就换回去——那会丢掉这层保护。
+            foreach ($i in 1..30) {
+              try {
+                Invoke-WebRequest -Uri "http://127.0.0.1:8125/" -UseBasicParsing -TimeoutSec 2 | Out-Null
+                $ok = $true; break
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ok) {
+              # 打印 exe 自己的输出，方便在 CI 日志里定位打包/启动失败的原因
+              Write-Host "---- Reflow.exe stdout ($outLog) ----"
+              Get-Content -Path $outLog -ErrorAction SilentlyContinue
+              Write-Host "---- Reflow.exe stderr ($errLog) ----"
+              Get-Content -Path $errLog -ErrorAction SilentlyContinue
+              throw "打包产物 30 秒内未就绪"
+            }
+            Write-Host "首页 200，打包冒烟通过"
+
+            # 首页 200 只证明模板能渲染，不代表打包进 exe 的 vendor 静态资源
+            # （htmx.min.js / alpine.min.js）也被正确打包/服务了——而“断网可用”这个
+            # 卖点完全依赖这些文件。StaticFiles 挂载或 datas 条目一旦漏配，首页仍能
+            # 200，但同事拿到的会是 HTMX/Alpine 全死的页面，故这里单独再探一次。
+            try {
+              Invoke-WebRequest -Uri "http://127.0.0.1:8125/static/vendor/htmx.min.js" -UseBasicParsing -TimeoutSec 5 | Out-Null
+              Write-Host "静态资源 200，打包冒烟通过"
+            } catch {
+              Write-Host "---- Reflow.exe stdout ($outLog) ----"
+              Get-Content -Path $outLog -ErrorAction SilentlyContinue
+              Write-Host "---- Reflow.exe stderr ($errLog) ----"
+              Get-Content -Path $errLog -ErrorAction SilentlyContinue
+              throw "静态资源 /static/vendor/htmx.min.js 未正确打包/服务：$_"
+            }
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 打包成 zip
+        id: zip
+        shell: pwsh
+        run: |
+          # tag 触发用 tag 名；PR / 手动触发用 dev-<短SHA>——PR 的 ref_name 形如「130/merge」带斜杠，直接拿来当文件名会出错。
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $name = "${{ github.ref_name }}"
+          } else {
+            $name = "dev-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          $zip = "Reflow-$name-windows.zip"
+          Compress-Archive -Path ".\dist\Reflow\*" -DestinationPath ".\$zip"
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: 挂到 Release
+        # 仅 tag 发版才发布 Release；PR / 手动触发只验证打包，不对外发布。
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.zip.outputs.zip }}
+
+      - name: 上传构建产物（PR / 手动触发，供下载自查，不发布 Release）
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip.outputs.zip }}
+          path: ${{ steps.zip.outputs.zip }}

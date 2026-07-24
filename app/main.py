@@ -5,11 +5,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.db import connect, init_db
+from app.paths import resource_dir
 
 from app.badge_config import pcb_badge_class
 from app import hashing
 
-templates = Jinja2Templates(directory="app/templates")
+_RES = resource_dir()
+templates = Jinja2Templates(directory=str(_RES / "templates"))
 templates.env.filters["urlencode"] = lambda v: quote(str(v), safe="")
 templates.env.filters["pcb_badge_class"] = pcb_badge_class
 # 模板里取节点 / 硬更改的哈希（长用于 title，短用于展示）
@@ -27,7 +29,7 @@ def get_conn():
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Reflow")
-    app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    app.mount("/static", StaticFiles(directory=str(_RES / "static")), name="static")
     upload_dir = os.environ.get("REFLOW_UPLOAD_DIR", "uploads")
     os.makedirs(upload_dir, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")

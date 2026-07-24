@@ -4,6 +4,33 @@
 
 工具名一语双关：硬件的回流焊（reflow soldering），也描述核心机制——编辑上游节点后，改动向后「重新流动」传播。
 
+## 桌面版（Windows，给不熟悉容器的同事）
+
+同事无需安装 Python 或 Docker，也不需要联网：
+
+1. 到本仓库 [Releases](https://github.com/aixia715/reflow/releases) 页面下载
+   `Reflow-vX.Y.Z-windows.zip`。
+2. 解压后会看到 `Reflow.exe` 和一个 `_internal` 文件夹——**这两者必须待在同一个目录里**，
+   不能只把 `Reflow.exe` 拷走单独运行（否则会启动失败）。建议先在桌面新建一个
+   `Reflow` 文件夹，把 zip 解压到这个文件夹里，再进去双击。
+3. 双击 `Reflow.exe`。**首次运行 Windows 会弹「Windows 已保护你的电脑」**
+   —— 点蓝色小字**「更多信息」**，再点**「仍要运行」**。这是因为程序没做数字签名，不是病毒。
+4. 浏览器会自动打开 Reflow。
+5. 用完直接关掉那个黑色命令行窗口即退出。
+
+数据存放在 `%LOCALAPPDATA%\Reflow`（数据库 `reflow.sqlite` + 上传图片 `uploads/`），
+**不在程序目录里** —— 升级时覆盖解压新版本不会丢数据。
+
+几点须知：
+
+- 每台电脑的数据完全独立，同事之间互相看不到对方的单板，
+  节点链接（指向 `127.0.0.1`）发给别人也打不开。需要共享起始 BOM 时手动传 CSV 让对方导入。
+- 服务只监听 `127.0.0.1`，不会暴露到局域网。
+- 程序未做代码签名，个别企业环境的杀毒软件可能拦截，需要手动放行。
+
+桌面版由 `publish-desktop.yml` 在推 `v*.*.*` tag 时用 windows-latest runner 自动构建
+（与 Docker 镜像发版同一个 tag 触发）。本地构建：`pyinstaller --noconfirm --clean reflow.spec`。
+
 ## 运行
 
 ```bash
