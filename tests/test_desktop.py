@@ -1,11 +1,12 @@
 """桌面版启动器：环境变量准备与本地 socket 绑定。"""
 import ast
+import io
 import os
 import socket
 import sys
 from pathlib import Path
 
-from app.desktop import bind_socket, prepare_env
+from app.desktop import bind_socket, prepare_env, print_startup_banner
 
 
 def test_prepare_env_sets_db_and_upload_under_user_data(monkeypatch, tmp_path):
@@ -76,6 +77,27 @@ def test_bind_socket_honours_reflow_port(monkeypatch):
         assert port == free_port
     finally:
         sock.close()
+
+
+def test_startup_banner_survives_non_utf8_stdout(monkeypatch):
+    """英文 Windows / 重定向 stdout（cp1252）下，中文启动横幅不得让进程崩溃。
+
+    真实回归（CI 冒烟发现）：打包 exe 的 stdout 被重定向或控制台代码页非 UTF-8
+    （英文 Windows 是 cp1252）时，Python 用 cp1252 编码 print 的中文横幅，抛
+    UnicodeEncodeError → exe 一启动即崩、冒烟轮询拿不到首页。修复应在打印前把
+    stdout/stderr 重配为 UTF-8。
+    """
+    buf = io.BytesIO()
+    cp1252 = io.TextIOWrapper(buf, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", cp1252)
+    monkeypatch.setattr(sys, "stderr", cp1252)
+
+    # 不得抛 UnicodeEncodeError
+    print_startup_banner("http://127.0.0.1:8000/")
+
+    cp1252.flush()
+    output = buf.getvalue().decode("utf-8")
+    assert "Reflow 已启动" in output
 
 
 def test_desktop_module_does_not_import_app_main_at_top_level():

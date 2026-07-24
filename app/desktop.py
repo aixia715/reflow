@@ -7,6 +7,7 @@
 """
 import os
 import socket
+import sys
 import webbrowser
 
 from app.paths import user_data_dir
@@ -38,6 +39,25 @@ def bind_socket() -> tuple[socket.socket, int]:
     return sock, actual_port
 
 
+def print_startup_banner(url: str) -> None:
+    """打印中文启动横幅；打印前把 stdout/stderr 重配为 UTF-8。
+
+    打包后 exe 的 stdout 若被重定向（如 CI 冒烟）或运行在非 UTF-8 控制台代码页
+    （英文 Windows 默认 cp1252），Python 会用该代码页编码中文横幅，cp1252 编不了
+    中文即抛 UnicodeEncodeError，让 exe 一启动就崩。重配为 UTF-8 后中文可正常输出；
+    errors="replace" 再兜一层，任何剩余不可编码字符降级为占位符也不至于崩溃。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            # 流不是 TextIOWrapper（无 reconfigure）或已不可重配时静默跳过
+            pass
+
+    print(f"Reflow 已启动：{url}")
+    print("用完直接关掉这个窗口即可退出。")
+
+
 def main() -> None:
     """打包入口：准备环境 → 绑端口 → 开浏览器 → 起服务（阻塞）。"""
     prepare_env()
@@ -49,8 +69,7 @@ def main() -> None:
     sock, port = bind_socket()
     url = f"http://127.0.0.1:{port}/"
 
-    print(f"Reflow 已启动：{url}")
-    print("用完直接关掉这个窗口即可退出。")
+    print_startup_banner(url)
 
     if not os.environ.get("REFLOW_NO_BROWSER"):
         webbrowser.open(url)
