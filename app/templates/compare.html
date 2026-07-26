@@ -36,7 +36,7 @@
   <a class="btn btn-outline" href="/board/{{ board_id }}/compare?left={{ right_node.id }}&right={{ left_node.id }}">⇄ 交换</a>
 
   <div class="muted" style="width:100%">
-    共 {{ counts.add }} 新增 · {{ counts.modify }} 修改 · {{ counts.remove }} 不贴 · {{ counts.same }} 项未变
+    共 {{ counts.add }} 新增 · {{ counts.modify }} 修改 · {{ counts.remove }} 不贴 · {{ counts.same }} 项相同
   </div>
 
   {% if diff_rows %}
@@ -56,7 +56,7 @@
     {% if same_rows %}
       <tr><td colspan="5">
         <button type="button" class="btn-link" @click="showSame = !showSame"
-                x-text="showSame ? '▾ 收起未变项' : '▸ 展开 {{ same_rows|length }} 项未变'"></button>
+                x-text="showSame ? '▾ 收起相同项' : '▸ 展开 {{ same_rows|length }} 项相同'"></button>
       </td></tr>
       {% for r in same_rows %}
       <tr x-show="showSame" x-cloak>
