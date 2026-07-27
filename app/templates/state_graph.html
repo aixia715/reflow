@@ -22,7 +22,9 @@
          else if (this.sel.length < 2) this.sel.push(id); },
        href(){ return this.sel.length === 2 ? `/board/{{ board_id }}/compare?left=${this.sel[0]}&right=${this.sel[1]}` : '#'; } }"
      @toggle-cmp.window="cmp = !cmp; sel = []"
-     @keydown.escape.window="if (cmp) $dispatch('toggle-cmp')">
+     {# ESC 分层退出：按下这一刻还有展开的 ⋯ 菜单（menuWasOpen 由 base.html 在捕获阶段标记）时，
+        这一下按键归菜单，菜单都关了再按才退出对比。监听挂在 window 上，本页没有会抢走 ESC 的输入框。 #}
+     @keydown.escape.window="if (cmp && !$event.menuWasOpen) $dispatch('toggle-cmp')">
 {% for it in timeline %}
 {% if it.kind == 'node' %}
 {% set n = it.obj %}{% set s = summaries[n.id] %}
@@ -46,7 +48,7 @@
     </div>
   </a>
   {% if show_menu %}
-  <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
+  <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false" @keydown.escape.window="open=false">
     <button type="button" class="menu-btn" title="操作" @click.stop="open=!open">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       {% if n.id in insertable_ids %}
@@ -76,7 +78,7 @@
       <button type="button" class="copy-hash" title="复制哈希值" onclick="event.preventDefault();event.stopPropagation();copyHash('{{ hard_short(h.id) }}')">复制</button>
     </div>
   </a>
-  <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false">
+  <span class="menu tl-actions" x-data="{ open:false }" :class="{ 'menu-open': open }" @close-menus.window="if (!$el.contains($event.detail)) open=false" @keydown.escape.window="open=false">
     <button type="button" class="menu-btn" title="操作" @click.stop="if (!cmp) open=!open" :disabled="cmp">⋯</button>
     <div class="menu-pop" x-show="open" x-cloak>
       <button type="button" class="del"

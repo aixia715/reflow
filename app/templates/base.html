@@ -38,7 +38,10 @@
            title="输入提交节点/硬更改的哈希值（至少 4 位），回车跳转到详情页"
            aria-label="哈希跳转">
   </form>
-  <span class="menu" x-data="{nav:false}" @close-menus.window="if (!$el.contains($event.detail)) nav=false">
+  {# menu-open 类是「本页有菜单展开」的统一标记，供页面级 ESC 逻辑分层判断（见 state_graph.html） #}
+  <span class="menu" x-data="{nav:false}" :class="{ 'menu-open': nav }"
+        @close-menus.window="if (!$el.contains($event.detail)) nav=false"
+        @keydown.escape.window="nav=false">
     <button type="button" class="menu-btn topnav-menu-btn" title="菜单" aria-label="菜单"
             @click="nav=!nav">⋯</button>
     <nav class="menu-pop topnav-actions" x-show="nav" x-cloak @click="nav=false">
@@ -83,6 +86,12 @@
   // 修复点击其他卡片的三点/复制按钮时菜单不消失的问题（这些按钮会阻止冒泡，使 @click.outside 失效）。
   document.addEventListener('click', function(e){
     window.dispatchEvent(new CustomEvent('close-menus', { detail: e.target }));
+  }, true);
+  // ESC 同样在捕获阶段先记下「按下这一刻页面上是否有展开的菜单」（.menu-open 类），
+  // 供页面级 ESC 逻辑分层判断这一下按键是否已经归菜单（如状态图的退出对比）——
+  // 各菜单自己的 @keydown.escape.window 之间会穿插 Alpine 的微任务刷新，事后再查 DOM 就晚了。
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') e.menuWasOpen = !!document.querySelector('.menu-open');
   }, true);
   function copyHash(text){
     var done = function(){ showToast('已复制哈希值'); };

@@ -125,6 +125,32 @@ def test_escape_key_exits_compare_mode(live_server, page: Page):
     expect(bar).to_contain_text("已选择 0/2 个节点")
 
 
+def test_escape_closes_open_menu_before_exiting_compare(live_server, page: Page):
+    """ESC 分层生效：有展开的 ⋯ 菜单时先关菜单，菜单都关了才退出对比。"""
+    bid = _make_board(live_server, uid="CMP8")
+    page.goto(f"{live_server}/board/{bid}")
+    _open_menu(page)
+    page.click("[data-testid=compare-toggle]")
+    bar = page.locator("[data-testid=compare-bar]")
+    pop = page.locator(".tl-item.node .menu-pop").first
+    # 节点 ⋯ 菜单：ESC 只关菜单，对比状态保留
+    page.locator(".tl-item.node .menu-btn").first.click()
+    expect(pop).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(pop).not_to_be_visible()
+    expect(bar).to_be_visible()
+    # header ⋯ 菜单：同样先关菜单，不退出对比
+    _open_menu(page)
+    nav = page.locator(".topnav-actions")
+    expect(nav).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(nav).not_to_be_visible()
+    expect(bar).to_be_visible()
+    # 没有菜单展开时，ESC 才退出对比
+    page.keyboard.press("Escape")
+    expect(bar).not_to_be_visible()
+
+
 def test_compare_bar_shows_immediately_with_count_and_disabled_go(live_server, page: Page):
     """进入对比状态即显示「已选择 x/2 个节点」，选满 2 个前「开始对比」不可用。"""
     bid = _make_board(live_server, uid="CMP4")
