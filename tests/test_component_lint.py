@@ -37,6 +37,19 @@ def test_unit_alias_omega():
     assert issues == [LintIssue("fix", "修正: 10Ω → 10R")]
 
 
+def test_unit_alias_with_si_prefix():
+    # §10：别名必须位于字符串末尾，前面的 SI 前缀要保留。
+    value, issues = lint_part("10kOHM")
+    assert value == "10kR"
+    assert issues == [LintIssue("fix", "修正: 10kOHM → 10kR")]
+
+
+def test_unit_alias_henry_abbreviation():
+    value, issues = lint_part("4.7Hy")
+    assert value == "4.7H"
+    assert issues == [LintIssue("fix", "修正: 4.7Hy → 4.7H")]
+
+
 def test_unit_case_fix():
     value, issues = lint_part("100mh")
     assert value == "100mH"
