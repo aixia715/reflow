@@ -172,6 +172,36 @@ def test_edit_rejects_unknown_reference(client):
     assert "不存在" in r.text
 
 
+def test_edit_lints_part_value_server_side(client):
+    # 前端 blur 只是体验优化，服务端落库必须自己再 lint 一遍，不能只信表单传回的值。
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
+                    data={"reference": "C5", "op": "add", "part": "1000pF"})
+    assert r.headers.get("HX-Retarget") is None
+    from app import models
+    from app.bom_engine import resolve_reference
+    from app.main import get_conn
+    conn = get_conn()
+    initial, chain = models.get_chain(conn, ws)
+    assert resolve_reference(initial, chain, "C5") == "1nF"
+
+
+def test_workspace_edit_lints_part_value_server_side(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "C6", "op": "add", "part": "1000pF"})
+    from app import models
+    from app.bom_engine import resolve_reference
+    from app.main import get_conn
+    conn = get_conn()
+    ws = _workspace_id(client, board_id)
+    initial, chain = models.get_chain(conn, ws)
+    assert resolve_reference(initial, chain, "C6") == "1nF"
+
+
 def test_edit_rejects_add_existing(client):
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]

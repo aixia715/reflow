@@ -136,6 +136,18 @@ def test_apply_writes_all_changes(client):
                               "C1": ("remove", None)}
 
 
+def test_apply_lints_part_value_even_without_preview(client):
+    # changes_json 正常来自预览阶段（已经 lint 过），但 /import 是可以直接调的接口，
+    # 绕过预览直传未 lint 的值时，服务端必须自己再 lint 一遍再落库。
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/import",
+                    data={"changes": json.dumps(
+                        [{"reference": "C9", "op": "add", "part": "1000pF"}])})
+    assert r.status_code == 204
+    assert _changeset(ws) == {"C9": ("add", "1nF")}
+
+
 def test_apply_overwrites_existing_draft_change(client):
     """撞车：草稿已把 R1 改成 10k 之外的值，CSV 覆盖之；草稿独有的 C1 保留。"""
     board_id = _setup_board(client)

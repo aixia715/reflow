@@ -79,6 +79,19 @@ def test_insert_creates_node_and_relinks(client):
     assert _resolved(conn, c2, "D1") == "1uF"
 
 
+def test_insert_lints_part_value_server_side(client):
+    # changes 是客户端提交的 JSON，服务端必须自己再 lint 一遍，不能只信前端传回来的值。
+    board_id, root, c1, c2 = _setup_chain(client)
+    r = client.post(f"/board/{board_id}/node/{c1}/insert",
+                    data={"committed_at": "2026-06-05T00:00:00+00:00", "message": "ins",
+                          "changes": json.dumps([{"reference": "C2", "op": "add", "part": "1000pF"}])},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    from app.main import get_conn
+    conn = get_conn()
+    assert _resolved(conn, c2, "C2") == "1nF"
+
+
 def test_insert_success_flash_keeps_node_number(client):
     from urllib.parse import urlparse, parse_qs, unquote
     board_id, root, c1, c2 = _setup_chain(client)

@@ -150,6 +150,8 @@ def _normalize_internal_space(body: str, issues: list[LintIssue]) -> str:
 
 
 def _normalize_unit_alias(body: str, issues: list[LintIssue]) -> str:
+    # 只做尾部匹配，不检查别名前面是不是数字——调用方（lint_part）已经先用
+    # stripped[0].isdigit() 把关，只有数字开头的 SPEC 候选才会走到这里。
     for alias, unit in _UNIT_ALIASES:
         if body.lower().endswith(alias.lower()):
             normalized = body[: -len(alias)] + unit

@@ -82,6 +82,18 @@ def _validate(conn, node_id, reference, op, part) -> str | None:
     return validate_edit(fold_bom(initial, chain), reference, op, part)
 
 
+def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
+    """落库前的服务端归一：remove/缺失原样传 None，否则跑 lint_part 拿修正值。
+
+    前端 blur 时已经 lint 过一次，但那只是体验优化——用户按 Enter 直接提交
+    （不触发 blur）或绕过浏览器直接调接口时，服务端必须自己再 lint 一遍，
+    不能只信前端传回来的值。
+    """
+    if op == "remove" or part is None:
+        return None
+    return lint_part(reference, part)[0]
+
+
 @router.get("/board/{board_id}")
 def state_graph(request: Request, board_id: int):
     conn = get_conn()
@@ -194,12 +206,12 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     reference = reference.strip()
-    err = _validate(conn, node_id, reference, op, part)
+    part_val = _lint_or_none(reference, op, part)
+    err = _validate(conn, node_id, reference, op, part_val)
     if err:
         return templates.TemplateResponse(
             request, "_form_error.html", {"message": err},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
-    part_val = None if op == "remove" else part
     if node["parent_id"] is None:
         board = models.get_board(conn, board_id)
         old_value = propagation._resolved_value(conn, node_id, reference)
@@ -323,10 +335,10 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     if ws is None:
         raise HTTPException(status_code=404, detail="单板不存在")
     reference = reference.strip()
-    err = _validate(conn, ws["id"], reference, op, part)
+    part_val = _lint_or_none(reference, op, part)
+    err = _validate(conn, ws["id"], reference, op, part_val)
     if err:
         return PlainTextResponse(err, status_code=400)
-    part_val = None if op == "remove" else part
     propagation.apply_node_edit(conn, ws["id"], reference, op, part_val)
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
 
@@ -447,6 +459,9 @@ def import_apply(request: Request, board_id: int, node_id: int,
 
     entries = [ChangeEntry(c["reference"].strip(), c.get("op"), c.get("part") or "")
                for c in payload]
+    # 服务端归一：changes_json 是预览阶段回传的值，正常流程已经 lint 过，
+    # 但这里是直接可调的接口，不能只信客户端传回来的字符串，落库前再 lint 一遍。
+    entries, _lint_notes = lint_entries(entries)
     initial, chain = models.get_chain(conn, node_id)
     planned, problems = plan_changes(fold_bom(initial, chain), entries)
     if problems:
@@ -519,6 +534,11 @@ def insert_save(request: Request, board_id: int, parent_id: int,
     terr = validate_insert_time(parent["committed_at"], child["committed_at"], committed_at)
     if terr:
         return _err(terr)
+    # 服务端归一：客户端提交的批量改动同样不可信，落库前统一 lint 一遍，
+    # 后面的模拟校验和实际写入都用这份修正后的值，两处保持一致。
+    for ch in chs:
+        ch["part"] = _lint_or_none(
+            (ch.get("reference") or "").strip(), ch.get("op"), ch.get("part"))
     # 落库前先在内存里逐条校验（含同一节点内重复/依赖前序改动）
     initial, chain = models.get_chain(conn, parent_id)
     sim = fold_bom(initial, chain)
@@ -538,7 +558,7 @@ def insert_save(request: Request, board_id: int, parent_id: int,
     for ch in chs:
         ref = (ch.get("reference") or "").strip()
         op = ch.get("op")
-        part_val = None if op == "remove" else ch.get("part")
+        part_val = ch.get("part")
         conflicts += propagation.apply_node_edit(conn, new_id, ref, op, part_val)
 
     if conflicts:
