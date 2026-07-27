@@ -1,6 +1,58 @@
 """元器件值 Lint（纯逻辑，零 Web/DB 依赖）。"""
 
-from app.component_lint import LintIssue, lint_part
+from app.component_lint import (
+    _E24_MANTISSAS,
+    _E96_MANTISSAS,
+    _E192_MANTISSAS,
+    LintIssue,
+    lint_part,
+)
+
+# IEC 60063 权威数值（用于校验硬编码表没有手抄错误，来源与 E192/E24/E96 相同）。
+_E48_REFERENCE = (
+    1.00, 1.05, 1.10, 1.15, 1.21, 1.27, 1.33, 1.40, 1.47, 1.54, 1.62, 1.69,
+    1.78, 1.87, 1.96, 2.05, 2.15, 2.26, 2.37, 2.49, 2.61, 2.74, 2.87, 3.01,
+    3.16, 3.32, 3.48, 3.65, 3.83, 4.02, 4.22, 4.42, 4.64, 4.87, 5.11, 5.36,
+    5.62, 5.90, 6.19, 6.49, 6.81, 7.15, 7.50, 7.87, 8.25, 8.66, 9.09, 9.53,
+)
+_E12_REFERENCE = (1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2)
+_E6_REFERENCE = (1.0, 1.5, 2.2, 3.3, 4.7, 6.8)
+
+
+def test_e192_table_size_and_bounds():
+    assert len(_E192_MANTISSAS) == 192
+    assert _E192_MANTISSAS[0] == 100
+    assert _E192_MANTISSAS[-1] == 988
+
+
+def test_e96_table_size_and_bounds():
+    assert len(_E96_MANTISSAS) == 96
+    assert _E96_MANTISSAS[0] == 100
+    assert _E96_MANTISSAS[-1] == 976
+
+
+def test_e24_table_size_and_bounds():
+    assert len(_E24_MANTISSAS) == 24
+    assert _E24_MANTISSAS[0] == 100
+    assert _E24_MANTISSAS[-1] == 910
+
+
+def test_e48_is_subset_of_e192():
+    # E48/E96 用同一套三位有效数字舍入规则，E48 必然也落在 E192 表里。
+    assert {round(v * 100) for v in _E48_REFERENCE} <= set(_E192_MANTISSAS)
+
+
+def test_e96_is_subset_of_e192():
+    assert set(_E96_MANTISSAS) <= set(_E192_MANTISSAS)
+
+
+def test_e12_is_subset_of_e24():
+    # E12/E6 用同一套两位有效数字舍入规则，E12 必然也落在 E24 表里。
+    assert {round(v * 100) for v in _E12_REFERENCE} <= set(_E24_MANTISSAS)
+
+
+def test_e6_is_subset_of_e24():
+    assert {round(v * 100) for v in _E6_REFERENCE} <= set(_E24_MANTISSAS)
 
 
 def test_spec_already_standard_no_issue():
@@ -109,6 +161,34 @@ def test_off_grid_resistor_warns_with_nearest_suggestion():
     assert value == "230R"
     assert issues == [
         LintIssue("warning", "警告: 阻值不是标准阻值（230R），最接近的标准值：229R")
+    ]
+
+
+def test_near_top_of_decade_suggests_next_decade_boundary():
+    # 9.99 离下一档的 10.0（差 0.01）比本档最大值 9.88（差 0.11）近得多，
+    # 推荐值要跨十进制档才对。
+    value, issues = lint_part("9.99R")
+    assert value == "9.99R"
+    assert issues == [
+        LintIssue("warning", "警告: 阻值不是标准阻值（9.99R），最接近的标准值：10R")
+    ]
+
+
+def test_near_top_of_decade_with_larger_magnitude_still_correct():
+    value, issues = lint_part("999R")
+    assert value == "999R"
+    assert issues == [
+        LintIssue("warning", "警告: 阻值不是标准阻值（999R），最接近的标准值：1kR")
+    ]
+
+
+def test_near_top_of_decade_but_still_closer_to_table_max():
+    # 9.9 离本档最大值 9.88（差 0.02）比下一档的 10.0（差 0.1）更近，
+    # 不应该被跨档修复逻辑带偏。
+    value, issues = lint_part("9.9R")
+    assert value == "9.9R"
+    assert issues == [
+        LintIssue("warning", "警告: 阻值不是标准阻值（9.9R），最接近的标准值：9.88R")
     ]
 
 

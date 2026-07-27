@@ -21,6 +21,9 @@ _UNIT_ALIASES = (
 
 _UNIT_CASE_FIX = {"r": "R", "f": "F", "h": "H"}
 
+# 这里的 "F" 键是 SI 前缀 femto 误写成大写（§12），跟单位字母 F（法拉）撞写法；
+# 只有 body[-2]（倒数第二位，前缀槽位）落在这张表里才会生效，body[-1]（最后一位，
+# 单位槽位）另外校验，两者不会混淆——但改这张表时要留意这个撞字母。
 _PREFIX_CASE_FIX = {"K": "k", "P": "p", "N": "n", "U": "u", "F": "f", "g": "G", "t": "T"}
 
 _PREFIX_EXPONENT = {"f": -15, "p": -12, "n": -9, "u": -6, "m": -3, "": 0, "k": 3, "M": 6, "G": 9, "T": 12}
@@ -161,6 +164,15 @@ def _format_mantissa(mantissa: Decimal) -> str:
     return text or "0"
 
 
+def _select_prefix_and_format(actual: Decimal, unit: str) -> str:
+    """把一个物理值（电阻用欧姆、电容用法拉、电感用亨利为底）格式化成带 SI 前缀的显示形式。"""
+    for prefix in _PREFIX_ORDER:
+        candidate = actual / (Decimal(10) ** _PREFIX_EXPONENT[prefix])
+        if 1 <= candidate < 1000:
+            return f"{_format_mantissa(candidate)}{prefix}{unit}"
+    return f"{_format_mantissa(actual)}{unit}"
+
+
 def _normalize_magnitude(
     mantissa: Decimal, exponent: int, unit: str, body: str, issues: list[LintIssue]
 ) -> tuple[str, Decimal, str]:
@@ -195,20 +207,37 @@ def _check_standard_value(mantissa: Decimal, prefix: str, unit: str, body: str) 
     if scaled == scaled.to_integral_value() and int(scaled) in _STANDARD_SETS_BY_UNIT[unit]:
         return None
 
-    nearest = _nearest_standard(scaled, standard_mantissas)
-    suggestion = _format_mantissa((Decimal(nearest) / 100) * (Decimal(10) ** decade))
+    nearest_mantissa, decade_shift = _nearest_standard(scaled, standard_mantissas)
+    suggested_actual = (
+        (Decimal(nearest_mantissa) / 100)
+        * (Decimal(10) ** (decade + decade_shift))
+        * (Decimal(10) ** _PREFIX_EXPONENT[prefix])
+    )
+    suggestion = _select_prefix_and_format(suggested_actual, unit)
     label = _UNIT_VALUE_LABEL[unit]
     return LintIssue(
         "warning",
-        f"警告: {label}不是标准{label}（{body}），最接近的标准值：{suggestion}{prefix}{unit}",
+        f"警告: {label}不是标准{label}（{body}），最接近的标准值：{suggestion}",
     )
 
 
-def _nearest_standard(scaled: Decimal, standard_mantissas: tuple[int, ...]) -> int:
+def _nearest_standard(scaled: Decimal, standard_mantissas: tuple[int, ...]) -> tuple[int, int]:
+    """在标准值表里找离 scaled 最近的一项，返回 (尾数, 十进制档偏移)。
+
+    表只覆盖一个十进制档（尾数 1.00~9.88/9.76 之间），越靠近档位上沿，
+    离下一档起点（下一档的 1.00，等价于本档的 10.00）反而可能更近，
+    所以要把这个跨档候选也纳入比较，否则会把 9.99 推荐成本档最大值而不是 10。
+    """
     pos = bisect_left(standard_mantissas, scaled)
-    if pos == 0:
-        return standard_mantissas[0]
-    if pos == len(standard_mantissas):
-        return standard_mantissas[-1]
-    before, after = standard_mantissas[pos - 1], standard_mantissas[pos]
-    return before if (scaled - before) <= (after - scaled) else after
+    candidates: list[tuple[int, int]] = []
+    if pos > 0:
+        candidates.append((standard_mantissas[pos - 1], 0))
+    if pos < len(standard_mantissas):
+        candidates.append((standard_mantissas[pos], 0))
+    candidates.append((standard_mantissas[0], 1))  # 下一档的最小值，本档尺度下等价于 ×10
+
+    def distance(candidate: tuple[int, int]) -> Decimal:
+        value, shift = candidate
+        return abs(scaled - Decimal(value) * (Decimal(10) ** shift))
+
+    return min(candidates, key=distance)
