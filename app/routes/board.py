@@ -9,7 +9,7 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
-from app.component_lint import lint_part
+from app.component_lint import lint_part, lint_warning_for
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
     parse_bom_csv, plan_full_changes, full_bom_csv_template, lint_entries,
@@ -69,7 +69,8 @@ def _node_context(conn, board_id: int, node) -> dict:
     return {
         "board": board, "board_id": board_id, "node": node,
         "rows": rows, "removed": removed,
-        "changes": list(changes.values()),
+        "changes": [{**dict(c), "lint_warning": lint_warning_for(c["reference"], c["part"])}
+                    for c in changes.values()],
         "all_refs": sorted(known),
         "total": len(full), "mine_count": len(changes), "removed_count": len(removed),
         "attachments": models.list_node_attachments(conn, node["id"]),

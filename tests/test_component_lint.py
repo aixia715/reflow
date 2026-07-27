@@ -6,6 +6,7 @@ from app.component_lint import (
     _E192_MANTISSAS,
     LintIssue,
     lint_part,
+    lint_warning_for,
 )
 
 # IEC 60063 权威数值（用于校验硬编码表没有手抄错误，来源与 E192/E24/E96 相同）。
@@ -287,3 +288,34 @@ def test_rcl_reference_with_ic_like_value_still_warns():
     value, issues = lint_part("R1", "555")
     assert value == "555"
     assert issues == [LintIssue("warning", "警告: 无法识别的规格格式（555）")]
+
+
+# --- lint_warning_for：给已落库的值取警告文案（渲染层用） ---
+
+def test_lint_warning_for_returns_message_for_non_standard_value():
+    assert lint_warning_for("R1", "230R") == "警告: 阻值不是标准阻值（230R），最接近的标准值：229R"
+
+
+def test_lint_warning_for_returns_none_when_value_is_fine():
+    assert lint_warning_for("R1", "10pF") is None
+
+
+def test_lint_warning_for_returns_none_for_missing_part():
+    # 「不贴」行没有值，不参与 lint。
+    assert lint_warning_for("R1", None) is None
+
+
+def test_lint_warning_for_ignores_fix_level_issues():
+    # fix 级问题落库前已经被 _lint_or_none 消化掉，渲染时只关心 warning。
+    assert lint_warning_for("U1", " 555 ") is None
+
+
+def test_lint_warning_for_is_idempotent_on_already_linted_value():
+    # 面板对「已经 lint 过一遍的存量值」重跑 lint，第二遍必须给出同样的警告、
+    # 且不再产生 fix——否则面板文案会和输入框失焦时看到的对不上。
+    for reference, raw in (("R1", "230R"), ("C1", "1000pF"), ("R2", "555"), ("L1", "1.3uH")):
+        linted, _ = lint_part(reference, raw)
+        again, issues = lint_part(reference, linted)
+        assert again == linted
+        assert [i for i in issues if i.level == "fix"] == []
+        assert lint_warning_for(reference, linted) == lint_warning_for(reference, raw)
