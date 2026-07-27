@@ -79,23 +79,40 @@ _STANDARD_MANTISSAS_BY_UNIT = {
 _STANDARD_SETS_BY_UNIT = {unit: frozenset(m) for unit, m in _STANDARD_MANTISSAS_BY_UNIT.items()}
 _UNIT_VALUE_LABEL = {"R": "阻值", "F": "容值", "H": "感值"}
 
+# 只有电阻/电容/电感位号才套用 R/F/H 这套规则；芯片、分立器件等型号常以数字开头
+# （555、741、74HC04、2N3904……），套用同一套规则会把型号误判成"格式不对的规格值"。
+# 只认标准单字母前缀，不识别 RT/RV 这类变体（先做最简单版本）。
+_LINTED_REFERENCE_PREFIXES = frozenset({"R", "C", "L"})
+_REFERENCE_PREFIX_PATTERN = re.compile(r"^[A-Za-z]+")
+
+
+def _is_linted_reference(reference: str) -> bool:
+    match = _REFERENCE_PREFIX_PATTERN.match(reference)
+    return match is not None and match.group(0) in _LINTED_REFERENCE_PREFIXES
+
 
 class LintIssue(NamedTuple):
     level: str  # "fix" | "warning"
     message: str
 
 
-def lint_part(raw_part: str) -> tuple[str, list[LintIssue]]:
+def lint_part(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
     """校验并标准化一个元器件值，返回 (标准化结果, 问题列表)。
 
-    型号类值（不以数字开头）只做首尾空白清理；规格值（数字开头）执行完整的
-    单位/前缀标准化与量级归一。任意一条规则产生 warning 后立即停止后续规则。
+    只有位号前缀是 R/C/L（电阻/电容/电感）才执行完整的单位/前缀标准化与量级
+    归一；其余位号（芯片、分立器件……）只做首尾空白清理，不套用 R/F/H 规则，
+    因为它们的型号经常以数字开头，容易被误判成格式不对的规格值。
+    型号类值（不以数字开头）同样只做首尾空白清理。任意一条规则产生 warning
+    后立即停止后续规则。
     """
     issues: list[LintIssue] = []
 
     stripped = raw_part.strip()
     if stripped != raw_part:
         issues.append(LintIssue("fix", f"修正: 去除前后空白 → {stripped}"))
+
+    if not _is_linted_reference(reference):
+        return stripped, issues
 
     if not stripped or not stripped[0].isdigit():
         return stripped, issues
