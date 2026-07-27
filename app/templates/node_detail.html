@@ -105,7 +105,7 @@
 function bomPage(){
   return {
     q: '', tab: 'all',
-    ref: '', op: 'modify', part: '',
+    ref: '', op: 'modify', part: '', partWarning: '',
     rowVisible(el){
       const d = el.dataset;
       if (this.tab === 'mine' && d.state !== 'mine') return false;
@@ -125,7 +125,7 @@ function bomPage(){
       }
       return null;
     },
-    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || '';
+    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; this.partWarning = '';
       const det = this.$refs.editDetails; if (det && !det.open) det.open = true;
       const panel = det || this.$refs.editPanel;
       if (panel) panel.scrollIntoView({behavior: 'smooth', block: 'nearest'}); },

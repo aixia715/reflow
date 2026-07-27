@@ -68,6 +68,16 @@ def test_preview_shows_counts_and_does_not_write_db(client):
     assert _changeset(ws) == {}  # 预览不写库
 
 
+def test_preview_shows_lint_notes_and_uses_fixed_value(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview(client, board_id, ws, b"Reference,PART,OP\nR9,1000pF,add\n")
+    assert r.status_code == 200
+    assert "已自动修正" in r.text
+    assert "1nF" in r.text
+    assert json.loads(_changes_json(r.text))[0]["part"] == "1nF"
+
+
 def test_preview_lists_problems_and_omits_apply_button(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)

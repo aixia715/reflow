@@ -9,9 +9,10 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
+from app.component_lint import lint_part
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
-    parse_bom_csv, plan_full_changes, full_bom_csv_template,
+    parse_bom_csv, plan_full_changes, full_bom_csv_template, lint_entries,
 )
 from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
@@ -172,6 +173,17 @@ def edit_node_info(board_id: int, node_id: int,
     models.update_node_info(conn, node_id, message.strip(), description.strip())
     return RedirectResponse(
         f"/board/{board_id}/node/{node_id}?flash=✓ 已更新节点信息", status_code=303)
+
+
+@router.post("/board/{board_id}/node/{node_id}/lint-part")
+def lint_part_route(board_id: int, node_id: int,
+                    reference: str = Form(""), part: str = Form("")):
+    """编辑表单 Part 输入框失焦时实时 lint：fix 级由前端静默改写输入框内容，
+    warning 级只作提示、不阻塞提交。纯函数调用，不查库。"""
+    fixed, issues = lint_part(reference.strip(), part)
+    warning = next((i.message for i in issues if i.level == "warning"), "")
+    return Response(status_code=204, headers={
+        "HX-Trigger": json.dumps({"partLinted": {"part": fixed, "warning": warning}})})
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit")
@@ -371,7 +383,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
         return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
 
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
-           "changes": [], "problems": [], "ready": False,
+           "changes": [], "problems": [], "lint_notes": [], "ready": False,
            "mode": mode, "unchanged": 0,
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
 
@@ -385,6 +397,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     try:
         if mode == "full":
             entries, problems = parse_bom_csv(text, forbid_op=True)
+            entries, lint_notes = lint_entries(entries)
             # 已被 parse 判为问题的位号（空 Part、CSV 内重复等）不参与求差：
             # 两端都剔除，既不重复报错，也不会因缺席而被误算成 remove。
             bad = {p.reference for p in problems}
@@ -395,6 +408,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
                                    if target.get(ref) == part)
         else:
             entries, problems = parse_change_csv(text)
+            entries, lint_notes = lint_entries(entries)
             changes, invalid = plan_changes(current, entries)
     except ValueError as e:
         ctx["message"] = str(e)
@@ -403,7 +417,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     problems = problems + invalid
     dicts = [c._asdict() for c in changes]
     ctx.update(
-        changes=dicts, problems=problems,
+        changes=dicts, problems=problems, lint_notes=lint_notes,
         ready=bool(changes) and not problems,
         counts={op: sum(1 for c in changes if c.op == op)
                 for op in ("add", "modify", "remove")},

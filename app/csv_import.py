@@ -2,6 +2,7 @@ import csv
 import io
 from typing import NamedTuple
 
+from app.component_lint import lint_part
 from app.validation import validate_edit
 
 
@@ -14,6 +15,28 @@ class CsvProblem(NamedTuple):
     kind: str        # "duplicate" | "empty_part" | "empty_reference" | "bad_op" | "invalid"
     reference: str
     detail: str
+
+
+class LintNote(NamedTuple):
+    level: str  # "fix" | "warning"
+    reference: str
+    detail: str
+
+
+def lint_entries(entries: list):
+    """对一批已解析的 CSV 条目（CsvEntry 或 ChangeEntry）逐条跑元器件值 lint。
+
+    返回 (修正后的条目, 提示列表)：fix 级直接改写 part（返回的条目已是修正后的
+    值），warning 级只作为提示附带返回，不改条目、也不算校验失败——跟 CsvProblem
+    是两回事，调用方不应把 lint 提示计入是否可以提交/导入的判断。
+    """
+    linted = []
+    notes: list[LintNote] = []
+    for entry in entries:
+        fixed, issues = lint_part(entry.reference, entry.part)
+        linted.append(entry._replace(part=fixed))
+        notes.extend(LintNote(issue.level, entry.reference, issue.message) for issue in issues)
+    return linted, notes
 
 
 def _is_cell_blank(v: str | list | tuple | None) -> bool:
