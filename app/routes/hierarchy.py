@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse, Response
 
 from app.main import templates, get_conn
 from app import models, storage
-from app.csv_import import parse_bom_csv
+from app.csv_import import lint_entries, parse_bom_csv
 from app.validation import validate_new_name
 
 router = APIRouter()
@@ -38,15 +38,16 @@ def _strip(*vals: str) -> list[str]:
 
 
 async def _read_csv(file: UploadFile):
-    """读取上传 CSV，返回 (entries, problems, error_message)。"""
+    """读取上传 CSV，返回 (entries, problems, lint_notes, error_message)。"""
     try:
         text = (await file.read()).decode("utf-8")
         entries, problems = parse_bom_csv(text)
-        return entries, problems, None
+        entries, lint_notes = lint_entries(entries)
+        return entries, problems, lint_notes, None
     except UnicodeDecodeError:
-        return [], [], "文件不是 UTF-8 编码"
+        return [], [], [], "文件不是 UTF-8 编码"
     except ValueError as e:
-        return [], [], str(e)
+        return [], [], [], str(e)
 
 
 @router.get("/board/new")
@@ -68,8 +69,8 @@ async def board_new_preview(
 ):
     conn = get_conn()
     board_name, pcb_version, bom_version = _strip(board_name, pcb_version, bom_version)
-    ctx: dict = {"ready": False, "status": "fill", "problems": [], "ref_count": 0,
-                 "message": ""}
+    ctx: dict = {"ready": False, "status": "fill", "problems": [], "lint_notes": [],
+                 "ref_count": 0, "message": ""}
     if board_name and pcb_version and bom_version:
         existing = models.get_initial_bom(conn, board_name, pcb_version, bom_version)
         if existing:
@@ -77,11 +78,11 @@ async def board_new_preview(
         elif file is None or not file.filename:
             ctx["status"] = "need_csv"
         else:
-            entries, problems, err = await _read_csv(file)
+            entries, problems, lint_notes, err = await _read_csv(file)
             if err:
                 ctx.update(status="bad_csv", message=err)
             else:
-                ctx.update(status="csv", problems=problems,
+                ctx.update(status="csv", problems=problems, lint_notes=lint_notes,
                            ref_count=len(entries), ready=not problems)
     return templates.TemplateResponse(request, "_new_preview.html", ctx)
 
@@ -100,7 +101,7 @@ async def board_create(
     if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
         if file is None or not file.filename:
             raise HTTPException(status_code=400, detail="新 BOM 版本必须上传初始 BOM CSV")
-        entries, problems, err = await _read_csv(file)
+        entries, problems, _lint_notes, err = await _read_csv(file)
         if err:
             raise HTTPException(status_code=400, detail=err)
         if problems:

@@ -20,6 +20,7 @@ pytest                        # 全部测试（当前 222 passed）
 |---|---|
 | `app/csv_import.py` | ★CSV 解析、拆分合并位号、校验报告；工作区导入的修改清单解析 + op 推断（纯逻辑） |
 | `app/validation.py` | ★位号编辑校验（纯逻辑） |
+| `app/component_lint.py` | ★元器件值 Lint：单位/SI 前缀标准化、量级归一、标准容差序列校验（电阻 E6~E192，电容/电感封顶 E6~E96），只对 R/C/L 位号生效（纯逻辑） |
 | `app/bom_engine.py` | ★折叠引擎：`fold_bom` / `resolve_reference` 沿差量链求解（纯逻辑） |
 | `app/propagation.py` | ★传播 & 冲突检测/确认（核心算法） |
 | `app/models.py` | SQLite 数据访问层（层级 / 节点 / changeset / 取链） |
@@ -54,7 +55,7 @@ pytest                        # 全部测试（当前 222 passed）
 - 标识符用 surrogate key（SQLite AUTOINCREMENT），URL 用节点/单板 id；名称仅展示，重命名不破坏链接。
 - 单人使用：`get_conn()` 每请求开一个连接、不显式关闭，对单用户 MVP 可接受。
 - 改动遵循 TDD：先写失败测试再实现。纯逻辑模块（★）是测试投入重点。
-- 前端约定：HTMX 局部刷新 + Alpine.js 客户端小交互（CDN，无构建）。校验失败返回 200 + `HX-Retarget: #form-error`；编辑/撤销成功返回 `_node_update.html`（主体换 `#bom`，OOB 换 `#changes-panel`、清 `#form-error`）+ `HX-Trigger: {"showToast": …}`（json.dumps 保持 ASCII）；整页跳转用 `?flash=` 显示 toast。htmx 事件在 Alpine 里监听要加 `.camel` 修饰符；模板向 hx-vals/JS 传值一律 `|tojson` 且属性用单引号。
+- 前端约定：HTMX 局部刷新 + Alpine.js 客户端小交互（CDN，无构建）。校验失败返回 200 + `HX-Retarget: #form-error`；编辑/撤销成功返回 `_node_update.html`（主体换 `#bom`，OOB 换 `#changes-panel`、清 `#form-error`）+ `HX-Trigger: {"showToast": …}`（json.dumps 保持 ASCII）；整页跳转用 `?flash=` 显示 toast。htmx 事件在 Alpine 里监听要加 `.camel` 修饰符；模板向 hx-vals/JS 传值一律 `|tojson` 且属性用单引号。表单内某个字段需要独立于整表单提交做「输入即请求」的小交互（如失焦校验/联想），给该字段单独挂 `hx-post`/`hx-trigger`，返回 204 + `HX-Trigger: {"xxxLinted": {...}}` 携带数据，Alpine 用 `@xxx-linted.camel` 接收；此时表单级 `@htmx:after-request` 处理器必须用 `$event.target === $el` 排除这类嵌套请求，否则会被误判为表单提交成功（参考 `_edit_form.html` 的 `/lint-part`）。
 - 撤销仅限工作区草稿（is_committed=0），实现为删 changeset 行，不记审计日志。
 - 冲突确认是弹窗（`_conflict_modal.html`），取消 ≡ 全部「保留下游值」。
 - 新建单板是唯一创建入口（`/board/new`），BOM 版本随之隐式创建；校验有问题禁止创建。

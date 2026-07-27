@@ -68,6 +68,16 @@ def test_preview_shows_counts_and_does_not_write_db(client):
     assert _changeset(ws) == {}  # 预览不写库
 
 
+def test_preview_shows_lint_notes_and_uses_fixed_value(client):
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview(client, board_id, ws, b"Reference,PART,OP\nR9,1000pF,add\n")
+    assert r.status_code == 200
+    assert "已自动修正" in r.text
+    assert "1nF" in r.text
+    assert json.loads(_changes_json(r.text))[0]["part"] == "1nF"
+
+
 def test_preview_lists_problems_and_omits_apply_button(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
@@ -124,6 +134,18 @@ def test_apply_writes_all_changes(client):
     assert _changeset(ws) == {"R1": ("modify", "47k"),
                               "R9": ("add", "1uF"),
                               "C1": ("remove", None)}
+
+
+def test_apply_lints_part_value_even_without_preview(client):
+    # changes_json 正常来自预览阶段（已经 lint 过），但 /import 是可以直接调的接口，
+    # 绕过预览直传未 lint 的值时，服务端必须自己再 lint 一遍再落库。
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/import",
+                    data={"changes": json.dumps(
+                        [{"reference": "C9", "op": "add", "part": "1000pF"}])})
+    assert r.status_code == 204
+    assert _changeset(ws) == {"C9": ("add", "1nF")}
 
 
 def test_apply_overwrites_existing_draft_change(client):

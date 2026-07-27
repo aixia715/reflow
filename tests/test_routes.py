@@ -172,6 +172,36 @@ def test_edit_rejects_unknown_reference(client):
     assert "不存在" in r.text
 
 
+def test_edit_lints_part_value_server_side(client):
+    # 前端 blur 只是体验优化，服务端落库必须自己再 lint 一遍，不能只信表单传回的值。
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
+                    data={"reference": "C5", "op": "add", "part": "1000pF"})
+    assert r.headers.get("HX-Retarget") is None
+    from app import models
+    from app.bom_engine import resolve_reference
+    from app.main import get_conn
+    conn = get_conn()
+    initial, chain = models.get_chain(conn, ws)
+    assert resolve_reference(initial, chain, "C5") == "1nF"
+
+
+def test_workspace_edit_lints_part_value_server_side(client):
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "C6", "op": "add", "part": "1000pF"})
+    from app import models
+    from app.bom_engine import resolve_reference
+    from app.main import get_conn
+    conn = get_conn()
+    ws = _workspace_id(client, board_id)
+    initial, chain = models.get_chain(conn, ws)
+    assert resolve_reference(initial, chain, "C6") == "1nF"
+
+
 def test_edit_rejects_add_existing(client):
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
@@ -180,6 +210,43 @@ def test_edit_rejects_add_existing(client):
                     data={"reference": "R1", "op": "add", "part": "1k"})
     assert r.headers.get("HX-Retarget") == "#form-error"
     assert "已存在" in r.text
+
+
+def test_lint_part_endpoint_returns_fix_via_hx_trigger(client):
+    import json
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
+                    data={"reference": "R1", "part": "1000pF"})
+    assert r.status_code == 204
+    trigger = json.loads(r.headers["HX-Trigger"])
+    assert trigger["partLinted"]["part"] == "1nF"
+    assert trigger["partLinted"]["warning"] == ""
+
+
+def test_lint_part_endpoint_returns_warning_without_changing_value(client):
+    import json
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
+                    data={"reference": "R1", "part": "230R"})
+    trigger = json.loads(r.headers["HX-Trigger"])
+    assert trigger["partLinted"]["part"] == "230R"
+    assert "不是标准" in trigger["partLinted"]["warning"]
+
+
+def test_lint_part_endpoint_skips_non_rcl_reference(client):
+    import json
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
+                    data={"reference": "U1", "part": "555"})
+    trigger = json.loads(r.headers["HX-Trigger"])
+    assert trigger["partLinted"]["part"] == "555"
+    assert trigger["partLinted"]["warning"] == ""
 
 
 def test_workspace_edit_rejects_invalid(client):
@@ -365,6 +432,34 @@ def test_preview_blocks_on_csv_problems(client):
                     files={"file": ("bom.csv", csv, "text/csv")})
     assert "校验问题" in r.text
     assert "disabled" in r.text
+
+
+def test_preview_shows_lint_fix_and_warning_notes(client):
+    csv = "Reference,Part\nR1,1000pF\nR2,230R\n"
+    r = client.post("/board/new/preview",
+                    data={"board_name": "B", "pcb_version": "v1", "bom_version": "bomA"},
+                    files={"file": ("bom.csv", csv, "text/csv")})
+    assert "已自动修正" in r.text
+    assert "R1" in r.text and "1nF" in r.text
+    assert "不是标准" in r.text
+    assert "R2" in r.text
+    assert "disabled" not in r.text  # lint 提示不影响 ready
+
+
+def test_create_stores_lint_fixed_value(client):
+    csv = "Reference,Part\nR1,1000pF\n"
+    r = client.post("/board/new",
+                    data={"board_name": "B", "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": "3"},
+                    files={"file": ("bom.csv", csv, "text/csv")},
+                    follow_redirects=False)
+    board_id = r.headers["location"].split("?")[0].rsplit("/", 1)[-1]
+    from app import models
+    from app.main import get_conn
+    board = models.get_board(get_conn(), int(board_id))
+    bom = models.get_initial_bom(get_conn(), board["board_name"],
+                                 board["pcb_version"], board["bom_version"])
+    assert bom["R1"] == "1nF"
 
 
 def test_preview_new_version_without_csv_warns(client):

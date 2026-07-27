@@ -9,9 +9,10 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
+from app.component_lint import lint_part
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
-    parse_bom_csv, plan_full_changes, full_bom_csv_template,
+    parse_bom_csv, plan_full_changes, full_bom_csv_template, lint_entries,
 )
 from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
@@ -79,6 +80,18 @@ def _validate(conn, node_id, reference, op, part) -> str | None:
     """对被编辑节点折叠后的 BOM 做位号编辑校验。"""
     initial, chain = models.get_chain(conn, node_id)
     return validate_edit(fold_bom(initial, chain), reference, op, part)
+
+
+def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
+    """落库前的服务端归一：remove/缺失原样传 None，否则跑 lint_part 拿修正值。
+
+    前端 blur 时已经 lint 过一次，但那只是体验优化——用户按 Enter 直接提交
+    （不触发 blur）或绕过浏览器直接调接口时，服务端必须自己再 lint 一遍，
+    不能只信前端传回来的值。
+    """
+    if op == "remove" or part is None:
+        return None
+    return lint_part(reference, part)[0]
 
 
 @router.get("/board/{board_id}")
@@ -174,6 +187,17 @@ def edit_node_info(board_id: int, node_id: int,
         f"/board/{board_id}/node/{node_id}?flash=✓ 已更新节点信息", status_code=303)
 
 
+@router.post("/board/{board_id}/node/{node_id}/lint-part")
+def lint_part_route(board_id: int, node_id: int,
+                    reference: str = Form(""), part: str = Form("")):
+    """编辑表单 Part 输入框失焦时实时 lint：fix 级由前端静默改写输入框内容，
+    warning 级只作提示、不阻塞提交。纯函数调用，不查库。"""
+    fixed, issues = lint_part(reference.strip(), part)
+    warning = next((i.message for i in issues if i.level == "warning"), "")
+    return Response(status_code=204, headers={
+        "HX-Trigger": json.dumps({"partLinted": {"part": fixed, "warning": warning}})})
+
+
 @router.post("/board/{board_id}/node/{node_id}/edit")
 def edit_node(request: Request, board_id: int, node_id: int,
               reference: str = Form(...), op: str = Form(...), part: str = Form(None)):
@@ -182,12 +206,12 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     reference = reference.strip()
-    err = _validate(conn, node_id, reference, op, part)
+    part_val = _lint_or_none(reference, op, part)
+    err = _validate(conn, node_id, reference, op, part_val)
     if err:
         return templates.TemplateResponse(
             request, "_form_error.html", {"message": err},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
-    part_val = None if op == "remove" else part
     if node["parent_id"] is None:
         board = models.get_board(conn, board_id)
         old_value = propagation._resolved_value(conn, node_id, reference)
@@ -311,10 +335,10 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     if ws is None:
         raise HTTPException(status_code=404, detail="单板不存在")
     reference = reference.strip()
-    err = _validate(conn, ws["id"], reference, op, part)
+    part_val = _lint_or_none(reference, op, part)
+    err = _validate(conn, ws["id"], reference, op, part_val)
     if err:
         return PlainTextResponse(err, status_code=400)
-    part_val = None if op == "remove" else part
     propagation.apply_node_edit(conn, ws["id"], reference, op, part_val)
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
 
@@ -371,7 +395,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
         return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
 
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
-           "changes": [], "problems": [], "ready": False,
+           "changes": [], "problems": [], "lint_notes": [], "ready": False,
            "mode": mode, "unchanged": 0,
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
 
@@ -385,6 +409,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     try:
         if mode == "full":
             entries, problems = parse_bom_csv(text, forbid_op=True)
+            entries, lint_notes = lint_entries(entries)
             # 已被 parse 判为问题的位号（空 Part、CSV 内重复等）不参与求差：
             # 两端都剔除，既不重复报错，也不会因缺席而被误算成 remove。
             bad = {p.reference for p in problems}
@@ -395,6 +420,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
                                    if target.get(ref) == part)
         else:
             entries, problems = parse_change_csv(text)
+            entries, lint_notes = lint_entries(entries)
             changes, invalid = plan_changes(current, entries)
     except ValueError as e:
         ctx["message"] = str(e)
@@ -403,7 +429,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     problems = problems + invalid
     dicts = [c._asdict() for c in changes]
     ctx.update(
-        changes=dicts, problems=problems,
+        changes=dicts, problems=problems, lint_notes=lint_notes,
         ready=bool(changes) and not problems,
         counts={op: sum(1 for c in changes if c.op == op)
                 for op in ("add", "modify", "remove")},
@@ -433,6 +459,9 @@ def import_apply(request: Request, board_id: int, node_id: int,
 
     entries = [ChangeEntry(c["reference"].strip(), c.get("op"), c.get("part") or "")
                for c in payload]
+    # 服务端归一：changes_json 是预览阶段回传的值，正常流程已经 lint 过，
+    # 但这里是直接可调的接口，不能只信客户端传回来的字符串，落库前再 lint 一遍。
+    entries, _lint_notes = lint_entries(entries)
     initial, chain = models.get_chain(conn, node_id)
     planned, problems = plan_changes(fold_bom(initial, chain), entries)
     if problems:
@@ -505,6 +534,11 @@ def insert_save(request: Request, board_id: int, parent_id: int,
     terr = validate_insert_time(parent["committed_at"], child["committed_at"], committed_at)
     if terr:
         return _err(terr)
+    # 服务端归一：客户端提交的批量改动同样不可信，落库前统一 lint 一遍，
+    # 后面的模拟校验和实际写入都用这份修正后的值，两处保持一致。
+    for ch in chs:
+        ch["part"] = _lint_or_none(
+            (ch.get("reference") or "").strip(), ch.get("op"), ch.get("part"))
     # 落库前先在内存里逐条校验（含同一节点内重复/依赖前序改动）
     initial, chain = models.get_chain(conn, parent_id)
     sim = fold_bom(initial, chain)
@@ -524,7 +558,7 @@ def insert_save(request: Request, board_id: int, parent_id: int,
     for ch in chs:
         ref = (ch.get("reference") or "").strip()
         op = ch.get("op")
-        part_val = None if op == "remove" else ch.get("part")
+        part_val = ch.get("part")
         conflicts += propagation.apply_node_edit(conn, new_id, ref, op, part_val)
 
     if conflicts:

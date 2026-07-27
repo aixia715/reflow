@@ -1,0 +1,16 @@
+{% if lint_notes %}
+  {% set fixes = lint_notes | selectattr('level', 'equalto', 'fix') | list %}
+  {% set warnings = lint_notes | selectattr('level', 'equalto', 'warning') | list %}
+  {% if fixes %}
+  <div class="flash flash-info">✓ 已自动修正 {{ fixes|length }} 处元器件值写法</div>
+  <ul class="problem-list">
+    {% for n in fixes %}<li><code>{{ n.reference }}</code> {{ n.detail }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if warnings %}
+  <div class="flash flash-warn">⚠ {{ warnings|length }} 处元器件值不是标准件，仅供参考，不影响导入</div>
+  <ul class="problem-list">
+    {% for n in warnings %}<li><code>{{ n.reference }}</code> {{ n.detail }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+{% endif %}
