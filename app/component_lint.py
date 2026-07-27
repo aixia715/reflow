@@ -53,8 +53,28 @@ _E24_MANTISSAS = (
     330, 360, 390, 430, 470, 510, 560, 620, 680, 750, 820, 910,
 )
 
-_STANDARD_MANTISSAS = tuple(sorted(set(_E192_MANTISSAS) | set(_E24_MANTISSAS)))
-_STANDARD_SET = frozenset(_STANDARD_MANTISSAS)
+# E96（1% 精度）——电容/电感商用件很少突破这个精度，标准值封顶到这里。
+_E96_MANTISSAS = (
+    100, 102, 105, 107, 110, 113, 115, 118, 121, 124, 127, 130, 133, 137, 140,
+    143, 147, 150, 154, 158, 162, 165, 169, 174, 178, 182, 187, 191, 196, 200,
+    205, 210, 215, 221, 226, 232, 237, 243, 249, 255, 261, 267, 274, 280, 287,
+    294, 301, 309, 316, 324, 332, 340, 348, 357, 365, 374, 383, 392, 402, 412,
+    422, 432, 442, 453, 464, 475, 487, 499, 511, 523, 536, 549, 562, 576, 590,
+    604, 619, 634, 649, 665, 681, 698, 715, 732, 750, 768, 787, 806, 825, 845,
+    866, 887, 909, 931, 953, 976,
+)
+
+# 电阻用最精细的 E192，电容/电感封顶到 E96——两者都要并上 E24（覆盖 E12/E6）。
+_STANDARD_MANTISSAS_R = tuple(sorted(set(_E192_MANTISSAS) | set(_E24_MANTISSAS)))
+_STANDARD_MANTISSAS_CF = tuple(sorted(set(_E96_MANTISSAS) | set(_E24_MANTISSAS)))
+
+_STANDARD_MANTISSAS_BY_UNIT = {
+    "R": _STANDARD_MANTISSAS_R,
+    "F": _STANDARD_MANTISSAS_CF,
+    "H": _STANDARD_MANTISSAS_CF,
+}
+_STANDARD_SETS_BY_UNIT = {unit: frozenset(m) for unit, m in _STANDARD_MANTISSAS_BY_UNIT.items()}
+_UNIT_VALUE_LABEL = {"R": "阻值", "F": "容值", "H": "感值"}
 
 
 class LintIssue(NamedTuple):
@@ -94,8 +114,8 @@ def lint_part(raw_part: str) -> tuple[str, list[LintIssue]]:
 
     body, mantissa, prefix = _normalize_magnitude(mantissa, exponent, unit, body, issues)
 
-    if unit == "R" and mantissa != 0:
-        warning = _check_standard_resistance(mantissa, prefix, body)
+    if mantissa != 0:
+        warning = _check_standard_value(mantissa, prefix, unit, body)
         if warning is not None:
             issues.append(warning)
 
@@ -158,8 +178,10 @@ def _normalize_magnitude(
     return body, mantissa, ""
 
 
-def _check_standard_resistance(mantissa: Decimal, prefix: str, body: str) -> LintIssue | None:
-    """校验阻值是否落在 E6/E12/E24/E48/E96/E192 任一标准容差序列上。"""
+def _check_standard_value(mantissa: Decimal, prefix: str, unit: str, body: str) -> LintIssue | None:
+    """校验数值是否落在该单位对应的标准容差序列上（电阻 E192∪E24，电容/电感封顶 E96∪E24）。"""
+    standard_mantissas = _STANDARD_MANTISSAS_BY_UNIT[unit]
+
     decade = 0
     leading = mantissa
     while leading >= 10:
@@ -170,22 +192,23 @@ def _check_standard_resistance(mantissa: Decimal, prefix: str, body: str) -> Lin
         decade -= 1
 
     scaled = leading * 100
-    if scaled == scaled.to_integral_value() and int(scaled) in _STANDARD_SET:
+    if scaled == scaled.to_integral_value() and int(scaled) in _STANDARD_SETS_BY_UNIT[unit]:
         return None
 
-    nearest = _nearest_standard(scaled)
+    nearest = _nearest_standard(scaled, standard_mantissas)
     suggestion = _format_mantissa((Decimal(nearest) / 100) * (Decimal(10) ** decade))
+    label = _UNIT_VALUE_LABEL[unit]
     return LintIssue(
         "warning",
-        f"警告: 阻值不是标准阻值（{body}），最接近的标准值：{suggestion}{prefix}R",
+        f"警告: {label}不是标准{label}（{body}），最接近的标准值：{suggestion}{prefix}{unit}",
     )
 
 
-def _nearest_standard(scaled: Decimal) -> int:
-    pos = bisect_left(_STANDARD_MANTISSAS, scaled)
+def _nearest_standard(scaled: Decimal, standard_mantissas: tuple[int, ...]) -> int:
+    pos = bisect_left(standard_mantissas, scaled)
     if pos == 0:
-        return _STANDARD_MANTISSAS[0]
-    if pos == len(_STANDARD_MANTISSAS):
-        return _STANDARD_MANTISSAS[-1]
-    before, after = _STANDARD_MANTISSAS[pos - 1], _STANDARD_MANTISSAS[pos]
+        return standard_mantissas[0]
+    if pos == len(standard_mantissas):
+        return standard_mantissas[-1]
+    before, after = standard_mantissas[pos - 1], standard_mantissas[pos]
     return before if (scaled - before) <= (after - scaled) else after

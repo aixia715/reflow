@@ -124,13 +124,51 @@ def test_excess_precision_resistor_warns():
     ]
 
 
-def test_e192_only_applies_to_resistors_not_capacitors():
-    # 2.2 不是 E192 成员，但 E192 只管电阻；电容/电感不做该项检查。
+def test_resistor_uses_e192_not_capped_to_e96():
+    # 459 是 E192 成员但不是 E96 成员——电阻用更精细的 E192，不封顶到 E96。
+    assert lint_part("459R") == ("459R", [])
+
+
+def test_capacitor_e96_member_no_issue():
+    assert lint_part("150nF") == ("150nF", [])
+
+
+def test_capacitor_e24_member_no_issue():
+    # 220 不是 E96 成员，但电容/电感的标准值封顶到 E96 时仍并入 E24（220 是 E24 成员）。
     assert lint_part("2.2uF") == ("2.2uF", [])
 
 
-def test_e192_only_applies_to_resistors_not_inductors():
+def test_inductor_e24_member_no_issue():
+    # 470 不是 E96 成员，但是 E24 成员。
     assert lint_part("4.7uH") == ("4.7uH", [])
+
+
+def test_capacitor_off_grid_warns_with_nearest_suggestion():
+    value, issues = lint_part("230nF")
+    assert value == "230nF"
+    assert issues == [
+        LintIssue("warning", "警告: 容值不是标准容值（230nF），最接近的标准值：232nF")
+    ]
+
+
+def test_inductor_off_grid_warns_with_nearest_suggestion():
+    value, issues = lint_part("230mH")
+    assert value == "230mH"
+    assert issues == [
+        LintIssue("warning", "警告: 感值不是标准感值（230mH），最接近的标准值：232mH")
+    ]
+
+
+def test_capacitor_excess_precision_capped_to_e96():
+    # 电容封顶到 E96：456.7 附近 E96 只有 453（E192 独有的 459 不算数），取 453。
+    value, issues = lint_part("4.567uF")
+    assert value == "4.567uF"
+    assert issues == [
+        LintIssue(
+            "warning",
+            "警告: 容值不是标准容值（4.567uF），最接近的标准值：4.53uF",
+        )
+    ]
 
 
 def test_e192_skips_after_earlier_warning():
