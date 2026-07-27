@@ -138,12 +138,71 @@ def test_model_ordinary_trailing_char_untouched():
     assert lint_part("R1", "OP27~") == ("OP27~", [])
 
 
-def test_no_suffix_handling_trailing_star_is_just_bad_format():
-    # 后缀概念（*, %, !, #）不在本项目范围内，不做任何特殊剥离/保留处理，
-    # 结尾的这类字符只是普通字符——落在 SPEC 里就直接判无法识别格式。
+def test_single_suffix_stripped_linted_and_readded():
+    # §4.2：单个后缀——移除→对主体 lint→回添。
+    value, issues = lint_part("C1", "1000pF%")
+    assert value == "1nF%"
+    assert issues == [LintIssue("fix", "修正: 1000pF → 1nF")]
+
+
+def test_single_suffix_with_case_fix():
+    value, issues = lint_part("R1", "10KR!")
+    assert value == "10kR!"
+    assert issues == [LintIssue("fix", "修正: 10KR → 10kR")]
+
+
+def test_single_suffix_already_standard_no_issue():
+    value, issues = lint_part("R1", "OP27*")
+    assert value == "OP27*"
+    assert issues == []
+
+
+def test_unsupported_trailing_char_kept_as_ordinary():
+    # §4.4：~ 不在后缀集合里，作为普通字符保留。
+    value, issues = lint_part("R1", "OP27~")
+    assert value == "OP27~"
+    assert issues == []
+
+
+def test_single_suffix_no_suffix_full_match():
+    value, issues = lint_part("C1", "10pF")
+    assert value == "10pF"
+    assert issues == []
+
+
+def test_single_suffix_exit_on_star():
+    # 后缀 * 单独存在时只剥离做 lint 然后回添，不剥离成 DNP、不报警。
     value, issues = lint_part("C1", "10pF*")
     assert value == "10pF*"
-    assert issues == [LintIssue("warning", "警告: 无法识别的规格格式（10pF*）")]
+    assert issues == []
+
+
+def test_multiple_suffixes_warns_and_keeps_last_aborts():
+    # §4.3：多个连续后缀——输出警告，只保留最后一个，立即停止后续 Lint。
+    value, issues = lint_part("C1", "10pF*!")
+    assert value == "10pF!"
+    assert issues == [LintIssue("warning", "警告: 多个后缀（*!）")]
+
+
+def test_multiple_suffixes_three_chars_warns_and_keeps_last():
+    value, issues = lint_part("C1", "10pF*!#")
+    assert value == "10pF#"
+    assert issues == [LintIssue("warning", "警告: 多个后缀（*!#）")]
+
+
+def test_multiple_suffixes_aborts_before_normalization():
+    # 多后缀警告立即停止后续 lint，所以 10pF 不会被量级归一。
+    value, issues = lint_part("C1", "1000pF%!")
+    assert value == "1000pF!"
+    assert issues == [LintIssue("warning", "警告: 多个后缀（%!）")]
+
+
+def test_suffix_applies_to_model_value_only_trims():
+    # 型号值 + 单后缀：只做首尾空白清理后回添后缀，不解析内部。
+    value, issues = lint_part("U1", " OP27 *")
+    # 主体 " OP27 " 前后空白被清掉后回添 "*"
+    assert value == "OP27*"
+    assert any(i.level == "fix" and "去除前后空白" in i.message for i in issues)
 
 
 def test_e192_exact_match_no_issue():

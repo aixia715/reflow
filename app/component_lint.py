@@ -1,7 +1,9 @@
 """元器件值 Lint：校验并标准化 BOM 中的元器件值（纯逻辑，零 Web/DB 依赖）。
 
-不处理装配属性后缀（*, %, !, # 等）——本项目不会遇到这类记法，
-落在 Part 字符串里的这些字符一律当普通字符处理。
+支持装配属性后缀（§4）：尾部受支持后缀集合 {*, %, !, #}，单个后缀移除后对
+主体做 lint、再回添到标准化结果末尾；多个连续后缀输出警告并只保留最后一个、
+停止后续 lint。后缀仅作 lint 内部识别保留，不触发任何装配语义、不改 op、
+不删字符。§17「BOM 导出规则」本期不实现。
 """
 
 import re
@@ -85,6 +87,9 @@ _UNIT_VALUE_LABEL = {"R": "阻值", "F": "容值", "H": "感值"}
 _LINTED_REFERENCE_PREFIXES = frozenset({"R", "C", "L"})
 _REFERENCE_PREFIX_PATTERN = re.compile(r"^[A-Za-z]+")
 
+# 受支持的装配属性后缀集合（§4）。结尾连续命中的字符会先剥离出来再处理主体。
+_SUFFIX_CHARS = frozenset("*%!#")
+
 
 def _is_linted_reference(reference: str) -> bool:
     match = _REFERENCE_PREFIX_PATTERN.match(reference)
@@ -96,26 +101,46 @@ class LintIssue(NamedTuple):
     message: str
 
 
+def _extract_trailing_suffixes(raw: str) -> tuple[str, str]:
+    """从字符串末尾往前收集连续的受支持后缀字符，返回 (主体, 后缀串)。"""
+    i = len(raw)
+    while i > 0 and raw[i - 1] in _SUFFIX_CHARS:
+        i -= 1
+    return raw[:i], raw[i:]
+
+
 def lint_part(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
     """校验并标准化一个元器件值，返回 (标准化结果, 问题列表)。
 
-    只有位号前缀是 R/C/L（电阻/电容/电感）才执行完整的单位/前缀标准化与量级
-    归一；其余位号（芯片、分立器件……）只做首尾空白清理，不套用 R/F/H 规则，
-    因为它们的型号经常以数字开头，容易被误判成格式不对的规格值。
-    型号类值（不以数字开头）同样只做首尾空白清理。任意一条规则产生 warning
-    后立即停止后续规则。
+    先按 §4 提取尾部装配属性后缀：多个连续后缀 → 警告并只保留最后一个、停止
+    后续 lint；单个后缀 → 剥离后对主体 lint、再回添到结果末尾。主体进入 lint
+    后，只有位号前缀是 R/C/L（电阻/电容/电感）才执行完整的单位/前缀标准化与
+    量级归一；其余位号（芯片、分立器件……）只做首尾空白清理，不套用 R/F/H 规
+    则，因为它们的型号经常以数字开头，容易被误判成格式不对的规格值。型号类值
+    （不以数字开头）同样只做首尾空白清理。任意一条规则产生 warning 后立即停
+    止后续规则。
     """
     issues: list[LintIssue] = []
 
-    stripped = raw_part.strip()
-    if stripped != raw_part:
+    body, suffixes = _extract_trailing_suffixes(raw_part)
+
+    # §4.3：多个连续后缀——输出警告，只保留最后一个，立即停止后续 Lint。
+    if len(suffixes) > 1:
+        kept = suffixes[-1]
+        issues.append(LintIssue("warning", f"警告: 多个后缀（{suffixes}）"))
+        return body + kept, issues
+
+    suffix = suffixes  # 0 或 1 个字符
+
+    stripped = body.strip()
+    if stripped != body:
         issues.append(LintIssue("fix", f"修正: 去除前后空白 → {stripped}"))
 
     if not _is_linted_reference(reference):
-        return stripped, issues
+        return stripped + suffix, issues
 
     if not stripped or not stripped[0].isdigit():
-        return stripped, issues
+        return stripped + suffix, issues
 
     body = stripped
     body = _normalize_internal_space(body, issues)
@@ -126,7 +151,7 @@ def lint_part(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
     match = _SPEC_PATTERN.fullmatch(body)
     if not match:
         issues.append(LintIssue("warning", f"警告: 无法识别的规格格式（{body}）"))
-        return body, issues
+        return body + suffix, issues
 
     number_str, prefix, unit = match.groups()
     mantissa = Decimal(number_str)
@@ -139,7 +164,7 @@ def lint_part(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
         if warning is not None:
             issues.append(warning)
 
-    return body, issues
+    return body + suffix, issues
 
 
 def _normalize_internal_space(body: str, issues: list[LintIssue]) -> str:
