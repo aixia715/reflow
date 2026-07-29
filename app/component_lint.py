@@ -104,7 +104,33 @@ def lint_part(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
     因为它们的型号经常以数字开头，容易被误判成格式不对的规格值。
     型号类值（不以数字开头）同样只做首尾空白清理。任意一条规则产生 warning
     后立即停止后续规则。
+
+    归一化是一条多规则流水线，但对外只报**结论**：值经过多步改写时，中间态
+    不作为提示暴露（见 `_consolidate_fixes`）。
     """
+    value, issues = _lint_part_steps(reference, raw_part)
+    return value, _consolidate_fixes(raw_part, value, issues)
+
+
+def _consolidate_fixes(raw_part: str, value: str, issues: list[LintIssue]) -> list[LintIssue]:
+    """多条 fix 合并成一条「原值 → 最终值」；单条保持原措辞。
+
+    逐规则记录会把流水线的中间态当成结论讲给用户，而中间态可能被下一条规则
+    立刻推翻——例如 3.9Nf 先经单位大小写变成 3.9NF，再经前缀大小写变成 3.9nF，
+    逐条记录的第一条「修正: 3.9Nf → 3.9NF」单独读就是错的建议。用户只关心
+    最终改成了什么，顺带也让「已自动修正 N 处」按值计数而不是按步。
+    单条 fix 无中间态可言，保留原措辞（「去除前后空白 → X」这类说法没有等价
+    的原值→最终值写法）。原值取 strip 后的，避免提示里出现看不见的首尾空白。
+    """
+    fixes = [i for i in issues if i.level == "fix"]
+    if len(fixes) < 2:
+        return issues
+    rest = [i for i in issues if i.level != "fix"]
+    return [LintIssue("fix", f"修正: {raw_part.strip()} → {value}")] + rest
+
+
+def _lint_part_steps(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
+    """跑完整条归一化流水线，逐规则记录（含中间态）。仅供 `lint_part` 收敛后对外。"""
     issues: list[LintIssue] = []
 
     stripped = raw_part.strip()
