@@ -1,5 +1,7 @@
 """元器件值 Lint（纯逻辑，零 Web/DB 依赖）。"""
 
+import pytest
+
 from app.component_lint import (
     _E24_MANTISSAS,
     _E96_MANTISSAS,
@@ -310,12 +312,32 @@ def test_lint_warning_for_ignores_fix_level_issues():
     assert lint_warning_for("U1", " 555 ") is None
 
 
-def test_lint_warning_for_is_idempotent_on_already_linted_value():
-    # 面板对「已经 lint 过一遍的存量值」重跑 lint，第二遍必须给出同样的警告、
-    # 且不再产生 fix——否则面板文案会和输入框失焦时看到的对不上。
-    for reference, raw in (("R1", "230R"), ("C1", "1000pF"), ("R2", "555"), ("L1", "1.3uH")):
-        linted, _ = lint_part(reference, raw)
-        again, issues = lint_part(reference, linted)
-        assert again == linted
-        assert [i for i in issues if i.level == "fix"] == []
-        assert lint_warning_for(reference, linted) == lint_warning_for(reference, raw)
+# 幂等性是「渲染时实时算 lint、不落库」这个方案的地基：面板对已归一化的存量值
+# 重跑 lint，必须给出与首次相同的警告、且不再冒出 fix。覆盖各条会改写值的规则
+# （空白/单位别名/大小写/量级）× 各档标准值序列（E24/E96/E192、电容电感封顶到
+# E96）的代表值，防止以后动 _normalize_magnitude / _check_standard_value 时
+# 悄悄破坏前提。
+@pytest.mark.parametrize("reference, raw", [
+    # 干净的标准值：两遍都不该有任何问题
+    ("R1", "47kR"), ("C1", "100nF"), ("L1", "4.7uH"),
+    # 非标准值（warning，值不变）——各档序列的落点
+    ("R1", "230R"),           # E24/E192 之间
+    ("R2", "1.01kR"),         # E192 命中，E24 不中
+    ("C2", "230nF"),          # 电容封顶 E96
+    ("L2", "230uH"),          # 电感封顶 E96
+    # 格式无法识别（warning，值不变）
+    ("R3", "555"), ("R4", "47k"), ("C3", "3n3F"),
+    # fix 级：量级归一 / 单位别名 / 大小写 / 空白，第二遍必须已无 fix
+    ("C1", "1000pF"), ("R5", "0.5kR"), ("R6", " 10 ohm "),
+    ("R7", "10K"), ("C4", "100NF"), ("L3", "1.5Hy"), ("R8", " 47kR "),
+    # 非 R/C/L 位号：只 trim，不套规则
+    ("U1", " 555 "), ("Q1", "2N7002"),
+])
+def test_lint_is_idempotent_on_already_linted_value(reference, raw):
+    linted, first = lint_part(reference, raw)
+    again, issues = lint_part(reference, linted)
+    assert again == linted, "第二遍不该再改写值"
+    assert [i for i in issues if i.level == "fix"] == [], "第二遍不该再产生 fix"
+    assert ([i for i in issues if i.level == "warning"]
+            == [i for i in first if i.level == "warning"]), "两遍的 warning 必须一致"
+    assert lint_warning_for(reference, linted) == lint_warning_for(reference, raw)
