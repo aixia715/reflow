@@ -75,9 +75,11 @@ def test_spec_magnitude_normalized_down():
 
 
 def test_spec_chained_fixes():
+    # 内部空格 + 前缀大小写 + 量级归一三步连击，对外只报一条结论
+    # （中间态 1000KR / 1000kR 不暴露，理由见 _consolidate_fixes）。
     value, issues = lint_part("R1", "1000 KR")
     assert value == "1MR"
-    assert [i.level for i in issues] == ["fix", "fix", "fix"]
+    assert issues == [LintIssue("fix", "修正: 1000 KR → 1MR")]
 
 
 def test_unit_alias_ohm():
@@ -341,3 +343,59 @@ def test_lint_is_idempotent_on_already_linted_value(reference, raw):
     assert ([i for i in issues if i.level == "warning"]
             == [i for i in first if i.level == "warning"]), "两遍的 warning 必须一致"
     assert lint_warning_for(reference, linted) == lint_warning_for(reference, raw)
+
+
+# --- fix 提示只报结论，不泄漏流水线中间态 ---
+
+def test_prefix_and_unit_case_both_wrong_reports_single_conclusion():
+    # 3.9Nf 前缀和单位都写错了，要走两条大小写规则。逐条记录会先吐一条
+    # 「修正: 3.9Nf → 3.9NF」——那是下一条规则马上要推翻的中间态，用户在
+    # 导入预览里读到就是「被修正成 3.9NF」，是错的建议。只报最终结论。
+    value, issues = lint_part("C1", "3.9Nf")
+    assert value == "3.9nF"
+    assert issues == [LintIssue("fix", "修正: 3.9Nf → 3.9nF")]
+
+
+def test_multi_step_normalization_reports_single_conclusion():
+    # 空白 + 内部空格 + 单位别名三步连击，同样只报一条原值 → 最终值。
+    value, issues = lint_part("R1", " 10 ohm ")
+    assert value == "10R"
+    assert issues == [LintIssue("fix", "修正: 10 ohm → 10R")]
+
+
+def test_single_step_fix_keeps_its_own_wording():
+    # 只触发一条规则时保持原有措辞（含「去除前后空白」这种没有中间态的说法）。
+    assert lint_part("C1", "1000pF")[1] == [LintIssue("fix", "修正: 1000pF → 1nF")]
+    assert lint_part("U1", " OP27 ")[1] == [LintIssue("fix", "修正: 去除前后空白 → OP27")]
+
+
+def test_consolidated_fix_still_carries_warning():
+    # 合并 fix 不能把 warning 一起吞掉：230R 那类非标准值提示要照常带出来。
+    value, issues = lint_part("R1", " 0.23 kohm ")
+    assert value == "230R"
+    assert [i.level for i in issues] == ["fix", "warning"]
+    assert issues[0] == LintIssue("fix", "修正: 0.23 kohm → 230R")
+    assert "最接近的标准值" in issues[1].message
+
+
+def test_single_fix_with_warning_is_not_merged():
+    # 只有一条 fix 时走 _consolidate_fixes 的早返回分支：不合并、warning 照常保留。
+    # 该分支的输出恰好与合并形式同形（「X → Y」），容易在重构时被误并进合并路径，
+    # 因此单独锁一条。
+    value, issues = lint_part("R1", "0.23kR")
+    assert value == "230R"
+    assert issues == [
+        LintIssue("fix", "修正: 0.23kR → 230R"),
+        LintIssue("warning", "警告: 阻值不是标准阻值（230R），最接近的标准值：229R"),
+    ]
+
+
+def test_consolidation_preserves_position_relative_to_warnings():
+    # 合并后的 fix 占第一条 fix 原来的位置，不把 fix 一律提到 warning 前面——
+    # 避免依赖「warning 永远排在所有 fix 之后」这个当前恰好成立的不变式。
+    from app.component_lint import _consolidate_fixes
+    warn = LintIssue("warning", "警告: 假想的中段警告")
+    issues = [warn,
+              LintIssue("fix", "修正: a → b"),
+              LintIssue("fix", "修正: b → c")]
+    assert _consolidate_fixes("a", "c", issues) == [warn, LintIssue("fix", "修正: a → c")]
