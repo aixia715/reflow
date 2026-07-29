@@ -711,3 +711,62 @@ def test_compare_missing_param_404(client):
     nid = _node_ids(client, board_id)[0]
     r = client.get(f"/board/{board_id}/compare?left={nid}")   # 缺 right
     assert r.status_code == 404
+
+
+def test_changes_panel_flags_non_standard_value_with_warning_badge(client):
+    """网速慢时输入框失焦 lint 来不及看，用户直接点了「应用修正」——所以修改面板
+    自己要标出有问题的行：⚠ 标签 + title 悬停给出警告全文。"""
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "230R"})
+    ws = _workspace_id(client, board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert "lint-warn" in r.text
+    assert "最接近的标准值：229R" in r.text
+
+
+def test_changes_panel_stays_clean_for_standard_value(client):
+    # 47kR 是标准阻值且带单位，没有任何可报的问题——面板保持干净。
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "47kR"})
+    ws = _workspace_id(client, board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert "lint-warn" not in r.text
+
+
+def test_edit_response_fragment_carries_warning_badge(client):
+    """编辑接口直接返回 _node_update（OOB 换 #changes-panel），警告要当场出现，
+    不能等用户手动刷新页面才看到。"""
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
+                    data={"reference": "R1", "op": "modify", "part": "230R"})
+    assert "lint-warn" in r.text
+    assert "最接近的标准值：229R" in r.text
+
+
+def test_removed_row_has_no_warning_badge(client):
+    # 「不贴」行没有元器件值，不参与 lint。
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
+                    data={"reference": "R1", "op": "remove", "part": ""})
+    assert "lint-warn" not in r.text
+
+
+def test_committed_node_also_flags_non_standard_value(client):
+    # 已合入的历史修改同样是有效信息，提交后不该把警告藏起来。
+    loc = _setup_board(client)
+    board_id = loc.rsplit("/", 1)[-1]
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "230R"})
+    committed = _workspace_id(client, board_id)
+    client.post(f"/board/{board_id}/commit", data={"message": "S1"})
+    r = client.get(f"/board/{board_id}/node/{committed}")
+    assert "已合入修改（1）" in r.text
+    assert "lint-warn" in r.text

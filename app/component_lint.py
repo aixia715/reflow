@@ -142,6 +142,23 @@ def lint_part(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
     return body, issues
 
 
+def lint_warning_for(reference: str, part: str | None) -> str | None:
+    """取某个**已落库**的元器件值的警告文案，没问题返回 None。
+
+    落库前 `_lint_or_none` 已经把 fix 级问题（空白、单位大小写、量级）消化掉了，
+    存的就是标准化后的值，所以这里重跑 lint 只会剩下 warning 级——即「格式认不出」
+    或「不是标准值」这类需要人来判断、工具不该擅自改的问题。
+    渲染时实时算而不是落库时存，是因为 lint 规则会演进，值才是唯一事实来源。
+    每个值至多触发一条 warning（格式警告会提前返回），故取第一条即可。
+    """
+    if part is None:
+        return None
+    for issue in lint_part(reference, part)[1]:
+        if issue.level == "warning":
+            return issue.message
+    return None
+
+
 def _normalize_internal_space(body: str, issues: list[LintIssue]) -> str:
     normalized = re.sub(r"(\d)\s+(?=[a-zA-ZΩ])", r"\1", body)
     if normalized != body:

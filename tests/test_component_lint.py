@@ -1,11 +1,14 @@
 """元器件值 Lint（纯逻辑，零 Web/DB 依赖）。"""
 
+import pytest
+
 from app.component_lint import (
     _E24_MANTISSAS,
     _E96_MANTISSAS,
     _E192_MANTISSAS,
     LintIssue,
     lint_part,
+    lint_warning_for,
 )
 
 # IEC 60063 权威数值（用于校验硬编码表没有手抄错误，来源与 E192/E24/E96 相同）。
@@ -287,3 +290,54 @@ def test_rcl_reference_with_ic_like_value_still_warns():
     value, issues = lint_part("R1", "555")
     assert value == "555"
     assert issues == [LintIssue("warning", "警告: 无法识别的规格格式（555）")]
+
+
+# --- lint_warning_for：给已落库的值取警告文案（渲染层用） ---
+
+def test_lint_warning_for_returns_message_for_non_standard_value():
+    assert lint_warning_for("R1", "230R") == "警告: 阻值不是标准阻值（230R），最接近的标准值：229R"
+
+
+def test_lint_warning_for_returns_none_when_value_is_fine():
+    assert lint_warning_for("R1", "10pF") is None
+
+
+def test_lint_warning_for_returns_none_for_missing_part():
+    # 「不贴」行没有值，不参与 lint。
+    assert lint_warning_for("R1", None) is None
+
+
+def test_lint_warning_for_ignores_fix_level_issues():
+    # fix 级问题落库前已经被 _lint_or_none 消化掉，渲染时只关心 warning。
+    assert lint_warning_for("U1", " 555 ") is None
+
+
+# 幂等性是「渲染时实时算 lint、不落库」这个方案的地基：面板对已归一化的存量值
+# 重跑 lint，必须给出与首次相同的警告、且不再冒出 fix。覆盖各条会改写值的规则
+# （空白/单位别名/大小写/量级）× 各档标准值序列（E24/E96/E192、电容电感封顶到
+# E96）的代表值，防止以后动 _normalize_magnitude / _check_standard_value 时
+# 悄悄破坏前提。
+@pytest.mark.parametrize("reference, raw", [
+    # 干净的标准值：两遍都不该有任何问题
+    ("R1", "47kR"), ("C1", "100nF"), ("L1", "4.7uH"),
+    # 非标准值（warning，值不变）——各档序列的落点
+    ("R1", "230R"),           # E24/E192 之间
+    ("R2", "1.01kR"),         # E192 命中，E24 不中
+    ("C2", "230nF"),          # 电容封顶 E96
+    ("L2", "230uH"),          # 电感封顶 E96
+    # 格式无法识别（warning，值不变）
+    ("R3", "555"), ("R4", "47k"), ("C3", "3n3F"),
+    # fix 级：量级归一 / 单位别名 / 大小写 / 空白，第二遍必须已无 fix
+    ("C1", "1000pF"), ("R5", "0.5kR"), ("R6", " 10 ohm "),
+    ("R7", "10K"), ("C4", "100NF"), ("L3", "1.5Hy"), ("R8", " 47kR "),
+    # 非 R/C/L 位号：只 trim，不套规则
+    ("U1", " 555 "), ("Q1", "2N7002"),
+])
+def test_lint_is_idempotent_on_already_linted_value(reference, raw):
+    linted, first = lint_part(reference, raw)
+    again, issues = lint_part(reference, linted)
+    assert again == linted, "第二遍不该再改写值"
+    assert [i for i in issues if i.level == "fix"] == [], "第二遍不该再产生 fix"
+    assert ([i for i in issues if i.level == "warning"]
+            == [i for i in first if i.level == "warning"]), "两遍的 warning 必须一致"
+    assert lint_warning_for(reference, linted) == lint_warning_for(reference, raw)

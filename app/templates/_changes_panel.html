@@ -4,6 +4,7 @@
 <div class="change-row">
   <span><code>{{ c.reference }}</code>
     {% if c.op == 'remove' %}不贴{% elif c.op == 'add' %}新增 → {{ c.part }}{% else %}修改 → {{ c.part }}{% endif %}
+    {% if c.lint_warning %}<span class="lint-warn" title="{{ c.lint_warning }}" aria-label="{{ c.lint_warning }}">⚠</span>{% endif %}
   </span>
   {% if not node.is_committed %}
   <span class="row-icons">

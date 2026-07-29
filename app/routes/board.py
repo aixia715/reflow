@@ -9,7 +9,7 @@ from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom
 from app.bom_export import bom_to_csv
-from app.component_lint import lint_part
+from app.component_lint import lint_part, lint_warning_for
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
     parse_bom_csv, plan_full_changes, full_bom_csv_template, lint_entries,
@@ -69,7 +69,8 @@ def _node_context(conn, board_id: int, node) -> dict:
     return {
         "board": board, "board_id": board_id, "node": node,
         "rows": rows, "removed": removed,
-        "changes": list(changes.values()),
+        "changes": [{**dict(c), "lint_warning": lint_warning_for(c["reference"], c["part"])}
+                    for c in changes.values()],
         "all_refs": sorted(known),
         "total": len(full), "mine_count": len(changes), "removed_count": len(removed),
         "attachments": models.list_node_attachments(conn, node["id"]),
@@ -88,6 +89,12 @@ def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
     前端 blur 时已经 lint 过一次，但那只是体验优化——用户按 Enter 直接提交
     （不触发 blur）或绕过浏览器直接调接口时，服务端必须自己再 lint 一遍，
     不能只信前端传回来的值。
+
+    契约：**任何写入 changeset / initial_bom 的路径都必须先经本函数或
+    `lint_entries`**（现有写入方：节点编辑、工作区编辑、CSV 导入、插入节点、
+    建板初始 BOM；复制到草稿搬的是已归一化的值）。渲染修改面板的
+    `lint_warning_for` 依赖这一点——它只报 warning 级，新增写入路径若漏掉
+    lint，fix 级问题会被静默吞掉：既不修正，也不在界面上提示。
     """
     if op == "remove" or part is None:
         return None
