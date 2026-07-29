@@ -376,3 +376,26 @@ def test_consolidated_fix_still_carries_warning():
     assert [i.level for i in issues] == ["fix", "warning"]
     assert issues[0] == LintIssue("fix", "修正: 0.23 kohm → 230R")
     assert "最接近的标准值" in issues[1].message
+
+
+def test_single_fix_with_warning_is_not_merged():
+    # 只有一条 fix 时走 _consolidate_fixes 的早返回分支：不合并、warning 照常保留。
+    # 该分支的输出恰好与合并形式同形（「X → Y」），容易在重构时被误并进合并路径，
+    # 因此单独锁一条。
+    value, issues = lint_part("R1", "0.23kR")
+    assert value == "230R"
+    assert issues == [
+        LintIssue("fix", "修正: 0.23kR → 230R"),
+        LintIssue("warning", "警告: 阻值不是标准阻值（230R），最接近的标准值：229R"),
+    ]
+
+
+def test_consolidation_preserves_position_relative_to_warnings():
+    # 合并后的 fix 占第一条 fix 原来的位置，不把 fix 一律提到 warning 前面——
+    # 避免依赖「warning 永远排在所有 fix 之后」这个当前恰好成立的不变式。
+    from app.component_lint import _consolidate_fixes
+    warn = LintIssue("warning", "警告: 假想的中段警告")
+    issues = [warn,
+              LintIssue("fix", "修正: a → b"),
+              LintIssue("fix", "修正: b → c")]
+    assert _consolidate_fixes("a", "c", issues) == [warn, LintIssue("fix", "修正: a → c")]

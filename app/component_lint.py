@@ -121,12 +121,23 @@ def _consolidate_fixes(raw_part: str, value: str, issues: list[LintIssue]) -> li
     最终改成了什么，顺带也让「已自动修正 N 处」按值计数而不是按步。
     单条 fix 无中间态可言，保留原措辞（「去除前后空白 → X」这类说法没有等价
     的原值→最终值写法）。原值取 strip 后的，避免提示里出现看不见的首尾空白。
+
+    合并后的那条占据**第一条 fix 原来的位置**，非 fix 条目按原顺序保留：这样
+    就不依赖「warning 永远排在所有 fix 之后」这个当前恰好成立的不变式（格式
+    warning 提前 return、标准值 warning 在最后一步），日后谁在流水线中段插入
+    一条 warning 也不会被本函数静默重排。
     """
-    fixes = [i for i in issues if i.level == "fix"]
-    if len(fixes) < 2:
+    if sum(1 for i in issues if i.level == "fix") < 2:
         return issues
-    rest = [i for i in issues if i.level != "fix"]
-    return [LintIssue("fix", f"修正: {raw_part.strip()} → {value}")] + rest
+    merged = LintIssue("fix", f"修正: {raw_part.strip()} → {value}")
+    out: list[LintIssue] = []
+    for issue in issues:
+        if issue.level != "fix":
+            out.append(issue)
+        elif merged is not None:
+            out.append(merged)
+            merged = None
+    return out
 
 
 def _lint_part_steps(reference: str, raw_part: str) -> tuple[str, list[LintIssue]]:
