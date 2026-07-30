@@ -28,8 +28,9 @@
     </div>
     {% endfor %}
     {% if changes|length > 10 %}
+    {# 计数只说「还有几条」：问题行不参与折叠，说「全部 N 条」会跟屏幕上的行数对不上 #}
     <button type="button" class="btn-link" x-show="!showAll"
-            @click="showAll = true">查看全部 {{ changes|length }} 条修改…</button>
+            @click="showAll = true">查看全部（还有 {{ changes|length - 10 }} 条修改）</button>
     {% endif %}
   </div>
 {% endif %}

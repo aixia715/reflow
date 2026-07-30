@@ -82,7 +82,7 @@ def test_rows_beyond_ten_are_collapsed_behind_show_all(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
     r = _preview(client, board_id, ws, _ELEVEN)
-    assert "查看全部" in r.text
+    assert "查看全部（还有 1 条修改）" in r.text
     assert r.text.count("x-show=\"showAll\"") == 1  # 第 11 行被折叠
 
 
@@ -199,6 +199,37 @@ def test_undo_all_rejected_on_committed_node(client):
     r = client.post(f"/board/{board_id}/node/{committed}/undo-all")
     assert "已提交" in r.text
     assert len(_changeset(committed)) == 1  # 未被清空
+
+
+def test_workspace_draft_is_always_the_chain_tail(client):
+    """undo-all 不做传播的前提：草稿永远挂在链末、没有下游节点。
+
+    一次删光整个 changeset 会同时改动 N 个位号的解析值；只有「草稿无下游」这条
+    结构不变量成立，才轮不到冲突检测。这里守住它，别让日后新增的挂接路径打破。
+    """
+    board_id = _setup_board(client)
+    conn = get_conn()
+    ws = _workspace_id(board_id)
+    assert conn.execute("SELECT COUNT(*) FROM nodes WHERE parent_id=?",
+                        (ws,)).fetchone()[0] == 0
+
+    # 提交后：旧草稿转正、新开的空草稿仍在链末
+    client.post(f"/board/{board_id}/node/{ws}/edit",
+                data={"reference": "R1", "op": "modify", "part": "47k"})
+    client.post(f"/board/{board_id}/commit", data={"message": "m"},
+                follow_redirects=False)
+    ws2 = _workspace_id(board_id)
+    assert ws2 != ws
+    assert conn.execute("SELECT COUNT(*) FROM nodes WHERE parent_id=?",
+                        (ws2,)).fetchone()[0] == 0
+
+    # 插入节点也不会给草稿挂下游：父子两端都必须是已提交节点
+    r = client.post(f"/board/{board_id}/node/{ws}/insert",
+                    data={"changes": '[{"reference":"R1","op":"modify","part":"1k"}]',
+                          "message": "x", "committed_at": "2026-01-01T00:00:00+00:00"})
+    assert "不可插入" in r.text
+    assert conn.execute("SELECT COUNT(*) FROM nodes WHERE parent_id=?",
+                        (ws2,)).fetchone()[0] == 0
 
 
 def test_changes_panel_shows_clear_all_only_when_there_are_changes(client):
