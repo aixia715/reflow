@@ -72,8 +72,21 @@ def test_lint_icons_use_data_tip_not_native_title(client):
     assert 'data-tip="修正: 1000pF → 1nF"' in r.text
     assert 'data-tip="警告: ' in r.text
     assert "lint-note" in r.text and 'title="修正' not in r.text
-    # 键盘/触屏也要能唤出，故图标可聚焦
-    assert 'class="lint-note lint-fix" tabindex="0"' in r.text
+    # 键盘/触屏也要能唤出，故图标可聚焦；role 让读屏器播报 aria-label
+    assert 'class="lint-note lint-fix" tabindex="0" role="img"' in r.text
+
+
+def test_edit_form_decorative_icon_carries_no_tip(client):
+    """编辑表单那个 ⓘ 旁边就跟着明文，是纯装饰：不能带 data-tip。
+
+    带了才会弹气泡，而它不在 .change-row 里、没有定位祖先，气泡会跑到视口
+    右下角去。CSS 侧已用 `.lint-note[data-tip]` 兜底，这里守住模板不要乱加。
+    """
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    html = client.get(f"/board/{board_id}/node/{ws}").text
+    decorative = '<span class="lint-note lint-fix"><svg class="ico">'
+    assert decorative in html
 
 
 def test_changes_panel_lint_icon_also_uses_data_tip(client):
