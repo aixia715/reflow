@@ -1,10 +1,17 @@
-<div class="panel-title">{% if node.is_committed %}已合入修改{% else %}本节点修改{% endif %}（{{ changes|length }}）</div>
+<div class="panel-title with-action">{% if node.is_committed %}已合入修改{% else %}本节点修改{% endif %}（{{ changes|length }}）
+  {% if not node.is_committed and changes %}
+  <button type="button" class="btn-link danger ml-auto" data-testid="clear-all-changes"
+          hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo-all"
+          hx-confirm="确认清除工作区草稿的全部 {{ changes|length }} 条修改？这些位号将恢复为继承上游的值，不可恢复。"
+          hx-target="#bom" hx-swap="innerHTML">清除全部修改</button>
+  {% endif %}
+</div>
 {% if not changes %}<p class="muted">还没有修改</p>{% endif %}
 {% for c in changes %}
 <div class="change-row">
   <span><code>{{ c.reference }}</code>
     {% if c.op == 'remove' %}不贴{% elif c.op == 'add' %}新增 → {{ c.part }}{% else %}修改 → {{ c.part }}{% endif %}
-    {% if c.lint_warning %}<span class="lint-warn" title="{{ c.lint_warning }}" aria-label="{{ c.lint_warning }}">⚠</span>{% endif %}
+    {%- with fix='', warning=c.lint_warning or '' %}{% include "_lint_icons.html" %}{% endwith %}
   </span>
   {% if not node.is_committed %}
   <span class="row-icons">

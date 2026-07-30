@@ -73,7 +73,8 @@ def test_preview_shows_lint_notes_and_uses_fixed_value(client):
     ws = _workspace_id(board_id)
     r = _preview(client, board_id, ws, b"Reference,PART,OP\nR9,1000pF,add\n")
     assert r.status_code == 200
-    assert "已自动修正" in r.text
+    # lint 提示不再单列一段，而是并进变更行、挂在 ⓘ 图标的悬停文案上
+    assert "icon-info" in r.text and "修正: 1000pF → 1nF" in r.text
     assert "1nF" in r.text
     assert json.loads(_changes_json(r.text))[0]["part"] == "1nF"
 
