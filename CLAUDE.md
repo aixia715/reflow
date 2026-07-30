@@ -18,7 +18,7 @@ pytest                        # 全部测试（当前 222 passed）
 
 | 文件 | 职责 |
 |---|---|
-| `app/csv_import.py` | ★CSV 解析、拆分合并位号、校验报告；工作区导入的修改清单解析 + op 推断（纯逻辑） |
+| `app/csv_import.py` | ★CSV 解析、拆分合并位号、校验报告；工作区导入的修改清单解析 + op 推断；导入预览的统一行表合成 `build_preview_rows`（纯逻辑） |
 | `app/validation.py` | ★位号编辑校验（纯逻辑） |
 | `app/component_lint.py` | ★元器件值 Lint：单位/SI 前缀标准化、量级归一、标准容差序列校验（电阻 E6~E192，电容/电感封顶 E6~E96），只对 R/C/L 位号生效（纯逻辑） |
 | `app/bom_engine.py` | ★折叠引擎：`fold_bom` / `resolve_reference` 沿差量链求解（纯逻辑） |
@@ -56,7 +56,7 @@ pytest                        # 全部测试（当前 222 passed）
 - 单人使用：`get_conn()` 每请求开一个连接、不显式关闭，对单用户 MVP 可接受。
 - 改动遵循 TDD：先写失败测试再实现。纯逻辑模块（★）是测试投入重点。
 - 前端约定：HTMX 局部刷新 + Alpine.js 客户端小交互（CDN，无构建）。校验失败返回 200 + `HX-Retarget: #form-error`；编辑/撤销成功返回 `_node_update.html`（主体换 `#bom`，OOB 换 `#changes-panel`、清 `#form-error`）+ `HX-Trigger: {"showToast": …}`（json.dumps 保持 ASCII）；整页跳转用 `?flash=` 显示 toast。htmx 事件在 Alpine 里监听要加 `.camel` 修饰符；模板向 hx-vals/JS 传值一律 `|tojson` 且属性用单引号。表单内某个字段需要独立于整表单提交做「输入即请求」的小交互（如失焦校验/联想），给该字段单独挂 `hx-post`/`hx-trigger`，返回 204 + `HX-Trigger: {"xxxLinted": {...}}` 携带数据，Alpine 用 `@xxx-linted.camel` 接收；此时表单级 `@htmx:after-request` 处理器必须用 `$event.target === $el` 排除这类嵌套请求，否则会被误判为表单提交成功（参考 `_edit_form.html` 的 `/lint-part`）。
-- 撤销仅限工作区草稿（is_committed=0），实现为删 changeset 行，不记审计日志。
+- 撤销仅限工作区草稿（is_committed=0），实现为删 changeset 行，不记审计日志。「清除全部修改」（`/undo-all`）同语义，只是一次删光整个 changeset。
 - 冲突确认是弹窗（`_conflict_modal.html`），取消 ≡ 全部「保留下游值」。
 - 新建单板是唯一创建入口（`/board/new`），BOM 版本随之隐式创建；校验有问题禁止创建。
 - **时间统一**：存储层一律 canonical UTC（`YYYY-MM-DDTHH:MM:SS+00:00`，见 `models._now`）；硬更改 `occurred_at` 由前端在提交时转 UTC；展示层用 `<time class="local-dt" datetime="UTC">` + `base.html` 的 `renderLocalDates()` 渲染为浏览器本地时间。历史旧数据用 `scripts/migrate_occurred_at_utc.py`（按新加坡 +08:00）一次性迁移。

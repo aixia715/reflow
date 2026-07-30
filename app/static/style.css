@@ -131,8 +131,29 @@ table.bom tr:hover .hover-only{visibility:visible}
 .change-row{display:flex;justify-content:space-between;align-items:center;
   padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
 .change-row:first-of-type{border-top:none}
-/* 元器件值 lint 警告标签：值本身照常落库，只做提示，悬停 title 看全文 */
-.lint-warn{color:var(--yellow-badge-fg);cursor:help;margin-left:2px}
+/* 行内 lint 图标：ⓘ=已自动修正、⚠=需人工判断的警告。值本身照常落库，
+   只做提示，悬停 title 看全文；图标随 currentColor 上色 */
+.lint-note{display:inline-flex;vertical-align:-2px;cursor:help;margin-left:3px}
+.lint-note .ico{width:13px;height:13px}
+.lint-warn{color:var(--yellow-badge-fg)}
+.lint-fix{color:var(--blue)}
+/* 编辑表单里「已自动修正」的行内说明（图标 + 文案） */
+.lint-inline{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+/* 服务端 lint 进行中的状态条：平时不占位，htmx 给它挂 .htmx-request 时才显示 */
+.lint-status{display:none;font-size:12px;color:var(--muted)}
+.lint-status.htmx-request{display:flex;align-items:center;gap:6px}
+.lint-status::before{content:"";width:10px;height:10px;flex:none;border-radius:50%;
+  border:2px solid var(--border);border-top-color:var(--blue);animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.lint-status::before{animation:none}}
+/* 预览里的问题行：红字 + 浅红底，与可导入的变更行一眼分开 */
+.change-row.row-problem{background:var(--red-bg);color:var(--red);
+  padding-left:6px;padding-right:6px;border-radius:var(--radius)}
+.change-row.row-problem code{color:inherit}
+/* 一行并排的按钮组（应用 / 取消） */
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+/* 带右侧操作按钮的面板标题 */
+.panel-title.with-action{display:flex;align-items:center;gap:8px}
 .form-stack{display:flex;flex-direction:column;gap:10px;max-width:420px}
 .edit-form{display:flex;flex-direction:column;gap:8px}
 .commit-box{display:flex;flex-direction:column;gap:8px}

@@ -74,9 +74,11 @@
     {% if not node.is_committed %}
     <details class="panel" x-data="{ mode: 'diff' }">
       <summary>从 CSV 导入修改…</summary>
-      <form class="edit-form" hx-post="/board/{{ board_id }}/node/{{ node.id }}/import/preview"
+      <form id="import-form" class="edit-form"
+            hx-post="/board/{{ board_id }}/node/{{ node.id }}/import/preview"
             hx-target="#import-preview" hx-swap="innerHTML"
-            hx-encoding="multipart/form-data" hx-trigger="change">
+            hx-encoding="multipart/form-data" hx-trigger="change"
+            hx-indicator="#import-status">
         <div class="seg">
           <label :class="{on: mode==='diff'}"><input type="radio" name="mode" value="diff" x-model="mode">差异</label>
           <label :class="{on: mode==='full'}"><input type="radio" name="mode" value="full" x-model="mode">全量</label>
@@ -88,6 +90,7 @@
         <p class="muted"><a class="btn-link"
              :href="'/board/{{ board_id }}/node/{{ node.id }}/import/template?mode=' + mode">下载模板</a></p>
       </form>
+      <div class="lint-status" id="import-status">正在检查 CSV，请稍候…</div>
       <div id="import-preview"></div>
     </details>
     <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit">
@@ -102,10 +105,18 @@
 </div>
 
 <script>
+// 「取消全部」：丢弃这份预览。必须连文件输入框的值一起清掉——否则再选同一个
+// 文件不会触发 change 事件，导入就此卡死。mode 单选归 Alpine 管，不动它。
+function cancelImport(){
+  const input = document.querySelector('#import-form input[type=file]');
+  if (input) input.value = '';
+  const box = document.getElementById('import-preview');
+  if (box) box.innerHTML = '';
+}
 function bomPage(){
   return {
     q: '', tab: 'all',
-    ref: '', op: 'modify', part: '', partWarning: '',
+    ref: '', op: 'modify', part: '', partWarning: '', partFix: '',
     rowVisible(el){
       const d = el.dataset;
       if (this.tab === 'mine' && d.state !== 'mine') return false;
@@ -125,7 +136,7 @@ function bomPage(){
       }
       return null;
     },
-    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; this.partWarning = '';
+    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; this.partWarning = ''; this.partFix = '';
       const det = this.$refs.editDetails; if (det && !det.open) det.open = true;
       const panel = det || this.$refs.editPanel;
       if (panel) panel.scrollIntoView({behavior: 'smooth', block: 'nearest'}); },

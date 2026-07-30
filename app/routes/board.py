@@ -13,6 +13,7 @@ from app.component_lint import lint_part, lint_warning_for
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
     parse_bom_csv, plan_full_changes, full_bom_csv_template, lint_entries,
+    build_preview_rows,
 )
 from app.validation import validate_edit, validate_insert_time, validate_changes_payload
 from app import compare
@@ -197,12 +198,18 @@ def edit_node_info(board_id: int, node_id: int,
 @router.post("/board/{board_id}/node/{node_id}/lint-part")
 def lint_part_route(board_id: int, node_id: int,
                     reference: str = Form(""), part: str = Form("")):
-    """编辑表单 Part 输入框失焦时实时 lint：fix 级由前端静默改写输入框内容，
-    warning 级只作提示、不阻塞提交。纯函数调用，不查库。"""
+    """编辑表单 Part 输入框失焦时实时 lint：fix 级改写输入框内容并回报改法，
+    warning 级只作提示、不阻塞提交。纯函数调用，不查库。
+
+    fix 文案要回报给前端而不是静默改写：值被悄悄改掉却不说改成了什么，用户会
+    以为自己填错了。前端拿它挂在输入框旁的 ⓘ 图标上，与导入预览的行内提示一致。
+    """
     fixed, issues = lint_part(reference.strip(), part)
     warning = next((i.message for i in issues if i.level == "warning"), "")
+    fix = next((i.message for i in issues if i.level == "fix"), "")
     return Response(status_code=204, headers={
-        "HX-Trigger": json.dumps({"partLinted": {"part": fixed, "warning": warning}})})
+        "HX-Trigger": json.dumps(
+            {"partLinted": {"part": fixed, "warning": warning, "fix": fix}})})
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit")
@@ -261,6 +268,28 @@ def undo_change(request: Request, board_id: int, node_id: int,
     return templates.TemplateResponse(
         request, "_node_update.html", _node_context(conn, board_id, node),
         headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已撤销 {reference} 的修改"})})
+
+
+@router.post("/board/{board_id}/node/{node_id}/undo-all")
+def undo_all_changes(request: Request, board_id: int, node_id: int):
+    """一键撤销草稿节点的**全部**修改。仅限未提交节点。
+
+    与单条撤销同语义：删 changeset 行、不记审计日志（草稿从未对外可见，撤销不是
+    历史事件）。存在的理由是导入几十条修改后逐条撤销不现实。
+    """
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    if node["is_committed"]:
+        return templates.TemplateResponse(
+            request, "_form_error.html",
+            {"message": "已提交节点不能撤销，请使用右侧「修订」"},
+            headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
+    count = models.clear_changes(conn, node_id)
+    return templates.TemplateResponse(
+        request, "_node_update.html", _node_context(conn, board_id, node),
+        headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已清除全部 {count} 条修改"})})
 
 
 def _check_deletable(conn, board_id, node_id):
@@ -402,7 +431,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
         return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
 
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
-           "changes": [], "problems": [], "lint_notes": [], "ready": False,
+           "changes": [], "problems": [], "rows": [], "ready": False,
            "mode": mode, "unchanged": 0,
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
 
@@ -436,7 +465,10 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     problems = problems + invalid
     dicts = [c._asdict() for c in changes]
     ctx.update(
-        changes=dicts, problems=problems, lint_notes=lint_notes,
+        changes=dicts, problems=problems,
+        # 变更行、问题行、lint 提示合成一张表渲染；changes_json 仍取自 changes，
+        # 应用接口的载荷不因为界面合并而多带字段。
+        rows=build_preview_rows(changes, problems, lint_notes),
         ready=bool(changes) and not problems,
         counts={op: sum(1 for c in changes if c.op == op)
                 for op in ("add", "modify", "remove")},

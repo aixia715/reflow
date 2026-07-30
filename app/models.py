@@ -114,6 +114,13 @@ def delete_change(conn, node_id, reference) -> None:
     conn.commit()
 
 
+def clear_changes(conn, node_id) -> int:
+    """清空某节点的整个 changeset，返回删掉的条数（一键撤销草稿全部修改用）。"""
+    cur = conn.execute("DELETE FROM node_changes WHERE node_id=?", (node_id,))
+    conn.commit()
+    return cur.rowcount
+
+
 def delete_node(conn, node_id) -> list[str]:
     """物理删除一个节点：把它的子节点重接到它的父节点，再删其 changeset、附件、节点行本身。
     线性链中至多一个子节点；草稿也按子节点重接（4-A）。

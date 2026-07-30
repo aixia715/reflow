@@ -1,0 +1,4 @@
+{# 行内 lint 图标：ⓘ=已自动修正的写法、⚠=需人工判断的警告；悬停看具体内容。
+   调用方用 {% with fix=…, warning=… %} 传值，两者都可为空串。 #}
+{%- if fix %}<span class="lint-note lint-fix" title="{{ fix }}" aria-label="{{ fix }}"><svg class="ico"><use href="#icon-info"></use></svg></span>{% endif -%}
+{%- if warning %}<span class="lint-note lint-warn" title="{{ warning }}" aria-label="{{ warning }}"><svg class="ico"><use href="#icon-warn"></use></svg></span>{% endif -%}
