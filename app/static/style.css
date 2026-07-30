@@ -128,13 +128,30 @@ table.bom tr:hover .hover-only{visibility:visible}
    宽度不够时在容器内横滚，页面不横滚 */
 .table-scroll{width:100%;overflow-x:auto}
 
-.change-row{display:flex;justify-content:space-between;align-items:center;
+/* position:relative 是 .lint-note 提示气泡的定位锚点：气泡对齐到行的右边缘
+   （而不是图标），图标靠左时才不会把气泡顶出屏幕 */
+.change-row{position:relative;display:flex;justify-content:space-between;align-items:center;
   padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
 .change-row:first-of-type{border-top:none}
 /* 行内 lint 图标：ⓘ=已自动修正、⚠=需人工判断的警告。值本身照常落库，
    只做提示，悬停 title 看全文；图标随 currentColor 上色 */
-.lint-note{display:inline-flex;vertical-align:-2px;cursor:help;margin-left:3px}
+/* 命中区靠 padding 撑到 21x19（对齐 .icon-btn 的 19x19），负 margin 抵消占位，
+   免得 13x13 的图标在 274px 宽的行里太难瞄——右边一大片空白是没有提示的 */
+.lint-note{display:inline-flex;vertical-align:-2px;cursor:help;
+  padding:3px 4px;margin:-3px 1px -3px 0}
 .lint-note .ico{width:13px;height:13px}
+/* 提示气泡不用原生 title：原生的要停悬约 1 秒才出、几秒后自动消失、且不离开
+   元素就不再复现，扫视列表时基本等于不出现。这里 hover/focus 即时显示、不消失。
+   定位锚点是 .change-row（见上），贴着行的右下角向左生长，两端都不会溢出屏幕；
+   祖先都没有 overflow:hidden，气泡可以画到 panel 外面。 */
+.lint-note::after{content:attr(data-tip);position:absolute;top:calc(100% - 3px);right:0;
+  z-index:20;width:max-content;max-width:230px;white-space:normal;text-align:left;
+  background:var(--toast-bg);color:var(--toast-fg);border-radius:var(--radius);
+  padding:5px 8px;font-size:12px;line-height:1.45;box-shadow:0 4px 12px rgba(0,0,0,.25);
+  opacity:0;visibility:hidden;pointer-events:none}
+/* :focus 而不只是 :focus-visible——触屏点按只给 focus，不给 focus-visible */
+.lint-note:hover::after,.lint-note:focus::after{opacity:1;visibility:visible}
+.lint-note:focus-visible{outline:2px solid var(--accent-soft);outline-offset:1px;border-radius:var(--radius)}
 .lint-warn{color:var(--yellow-badge-fg)}
 .lint-fix{color:var(--blue)}
 /* 编辑表单里「已自动修正」的行内说明（图标 + 文案） */
