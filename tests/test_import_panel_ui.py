@@ -153,11 +153,30 @@ def test_preview_offers_a_red_cancel_all_button(client):
     assert "btn-outline danger" in r.text
 
 
-def test_preview_with_problems_has_no_cancel_button(client):
-    """没有可应用的修改时不需要「取消全部」——只有一个文件选择框要清。"""
+def test_preview_with_problems_still_offers_cancel_without_apply(client):
+    """有问题行时预览照样占着一屏，必须给清除入口；但不能给应用按钮。"""
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
     r = _preview(client, board_id, ws, b"Reference,Part,OP\nR1,22k,add\n")
+    assert "取消全部" in r.text
+    assert "应用这" not in r.text and "hx-vals" not in r.text
+
+
+def test_unreadable_file_message_also_offers_cancel(client):
+    """文件被拒时最需要这个按钮：改好同名文件再选一次不触发 change 事件。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview(client, board_id, ws, "Reference,Part\nR1,电阻\n".encode("gbk"))
+    assert "UTF-8" in r.text
+    assert "取消全部" in r.text
+
+
+def test_empty_preview_has_no_buttons(client):
+    """一条修改都没有、也没问题的 CSV：没什么可取消的，不摆按钮。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview(client, board_id, ws, b"Reference,Part,OP\n")
+    assert "没有可导入的修改" in r.text
     assert "取消全部" not in r.text
 
 

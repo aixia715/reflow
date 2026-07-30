@@ -23,49 +23,6 @@ class LintNote(NamedTuple):
     detail: str
 
 
-class PreviewRow(NamedTuple):
-    """导入预览里的一行。op/part 为 None 且 error 非空即「问题行」，不可导入。
-
-    fix / warning 是挂在该位号上的元器件值 lint 提示（分别对应界面上的 ⓘ / ⚠
-    图标的悬停文案），空串表示没有。
-    """
-    reference: str
-    op: str | None
-    part: str | None
-    fix: str
-    warning: str
-    error: str
-
-
-def build_preview_rows(
-    changes: list, problems: list[CsvProblem], lint_notes: list[LintNote]
-) -> list[PreviewRow]:
-    """把「变更 / 问题 / lint 提示」合成一张统一的预览行表（纯逻辑）。
-
-    问题行排在最前：界面只默认展开前若干行，问题行若混在后面会被折叠隐藏，
-    用户就看不到「为什么没有应用按钮」。
-
-    lint 提示按位号挂回对应行，每级至多取第一条（与 `lint_warning_for` 的约定
-    一致：一个值至多触发一条 warning）。问题行同样挂——全量模式下问题位号被两端
-    剔除、不产生变更行，其 lint 提示只有挂在问题行上才不会丢。
-
-    没有对应行的提示直接丢弃：全量模式里「修正后与现值相同」的位号本就不是一条
-    变更，单独列出来只是噪音，汇总条的「其余 N 个位号无变化」已经覆盖。
-    """
-    first: dict[tuple[str, str], str] = {}
-    for note in lint_notes:
-        first.setdefault((note.level, note.reference), note.detail)
-
-    def _notes(reference: str) -> tuple[str, str]:
-        return first.get(("fix", reference), ""), first.get(("warning", reference), "")
-
-    rows = [PreviewRow(p.reference, None, None, *_notes(p.reference), p.detail)
-            for p in problems]
-    rows += [PreviewRow(c.reference, c.op, c.part, *_notes(c.reference), "")
-             for c in changes]
-    return rows
-
-
 def lint_entries(entries: list):
     """对一批已解析的 CSV 条目（CsvEntry 或 ChangeEntry）逐条跑元器件值 lint。
 
@@ -277,3 +234,47 @@ def plan_full_changes(
             continue
         changes.append(PlannedChange(ref, op, part))
     return changes, problems
+
+
+class PreviewRow(NamedTuple):
+    """导入预览里的一行。op/part 为 None 且 error 非空即「问题行」，不可导入。
+
+    fix / warning 是挂在该位号上的元器件值 lint 提示（分别对应界面上的 ⓘ / ⚠
+    图标的悬停文案），空串表示没有。
+    """
+    reference: str
+    op: str | None
+    part: str | None
+    fix: str
+    warning: str
+    error: str
+
+
+def build_preview_rows(
+    changes: list[PlannedChange], problems: list[CsvProblem],
+    lint_notes: list[LintNote],
+) -> list[PreviewRow]:
+    """把「变更 / 问题 / lint 提示」合成一张统一的预览行表（纯逻辑）。
+
+    问题行排在最前：界面只默认展开前若干行，问题行若混在后面会被折叠隐藏，
+    用户就看不到「为什么没有应用按钮」。
+
+    lint 提示按位号挂回对应行，每级至多取第一条（与 `lint_warning_for` 的约定
+    一致：一个值至多触发一条 warning）。问题行同样挂——全量模式下问题位号被两端
+    剔除、不产生变更行，其 lint 提示只有挂在问题行上才不会丢。
+
+    没有对应行的提示直接丢弃：全量模式里「修正后与现值相同」的位号本就不是一条
+    变更，单独列出来只是噪音，汇总条的「其余 N 个位号无变化」已经覆盖。
+    """
+    first: dict[tuple[str, str], str] = {}
+    for note in lint_notes:
+        first.setdefault((note.level, note.reference), note.detail)
+
+    def _notes(reference: str) -> tuple[str, str]:
+        return first.get(("fix", reference), ""), first.get(("warning", reference), "")
+
+    rows = [PreviewRow(p.reference, None, None, *_notes(p.reference), p.detail)
+            for p in problems]
+    rows += [PreviewRow(c.reference, c.op, c.part, *_notes(c.reference), "")
+             for c in changes]
+    return rows

@@ -17,7 +17,7 @@
   <div x-data="{ showAll: false }">
     {% for r in rows %}
     <div class="change-row{% if r.error %} row-problem{% endif %}"
-         {%- if not r.error and loop.index0 - problems|length >= 10 %} x-show="showAll" x-cloak{% endif %}>
+         {%- if not r.error and loop.index0 - (problems|length) >= 10 %} x-show="showAll" x-cloak{% endif %}>
       <span><code>{{ r.reference }}</code>
         {%- if r.error %} {{ r.error }}
         {%- elif r.op == 'remove' %} 不贴
@@ -35,14 +35,18 @@
   </div>
 {% endif %}
 <div id="import-error"></div>
-{% if ready %}
+{# 只要屏幕上有预览内容就给「取消全部」——有问题行时预览同样占着一屏，
+   却没有应用按钮，若不给清除入口就只能重选文件或刷新页面。 #}
+{% if ready or rows or message %}
 <div class="btn-row">
+  {% if ready %}
   <button type="button" class="btn btn-outline"
           hx-post="/board/{{ board_id }}/node/{{ node_id }}/import"
           hx-vals='{{ {"changes": changes_json} | tojson }}'
           hx-target="#import-error" hx-swap="innerHTML">
     应用这 {{ changes|length }} 条修改
   </button>
+  {% endif %}
   <button type="button" class="btn btn-outline danger" onclick="cancelImport()"
           title="丢弃这份预览，不写入草稿">取消全部</button>
 </div>
