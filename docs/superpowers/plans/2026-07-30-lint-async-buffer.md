@@ -19,7 +19,8 @@
 - TDD：每步先写失败测试，跑，再实现，再跑，再提交。
 - worktree 内无 `.venv`，一律用主 checkout 的解释器：
   `/home/tong/code/reflow/.venv/bin/python -m pytest`
-- 全量基线约 491 通过；`rename_ui` 的端口竞态 flake 单独重跑即可，不算回归。
+- 全量基线：动手前 651 通过（CLAUDE.md 里写的 222、旧记忆里的 491 都已过时，以实测为准）；
+  `rename_ui` 的端口竞态 flake 单独重跑即可，不算回归。
 
 ---
 
@@ -627,7 +628,7 @@ git commit -m "feat：写入响应带出一次性 ⓘ，告诉用户值被自动
 /home/tong/code/reflow/.venv/bin/python -m pytest -q 2>&1 | tail -20
 ```
 
-Expected: 通过数 ≈ 491 − 6（删掉的旧测试）+ 12（新测试）= 约 497，0 failed。
+Expected: 通过数 ≈ 651 − 6（删掉的旧测试）+ 12（新测试）= 657，0 failed。
 若 `rename_ui` 相关用例失败，单独重跑确认是端口竞态 flake：
 
 ```bash
