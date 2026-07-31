@@ -1,0 +1,4 @@
+{# 带外层容器的修改面板，供 lint-changes 用 outerHTML 整块替换。
+   这里**不挂** hx-trigger="load"——挂了会自我无限触发；异步检查只由
+   node_detail.html 的首次渲染发起一次。 #}
+<div id="changes-panel" class="panel">{% include "_changes_panel.html" %}</div>

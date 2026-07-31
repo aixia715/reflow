@@ -42,8 +42,12 @@ def _last_value(initial, chain, ref):
     return v
 
 
-def _node_context(conn, board_id: int, node) -> dict:
-    """节点页/片段的完整渲染上下文：行数据（含旧值）、不贴行、修改面板、统计。"""
+def _node_context(conn, board_id: int, node, with_lint: bool = True) -> dict:
+    """节点页/片段的完整渲染上下文：行数据（含旧值）、不贴行、修改面板、统计。
+
+    with_lint=False 时跳过逐行 lint，面板渲染路径与检查解耦——节点页首次加载走
+    这条，行先显示「检查中」，再由 /lint-changes 异步补上结果。
+    """
     board = models.get_board(conn, board_id)
     initial, chain = models.get_chain(conn, node["id"])
     full = fold_bom(initial, chain)
@@ -70,8 +74,12 @@ def _node_context(conn, board_id: int, node) -> dict:
     return {
         "board": board, "board_id": board_id, "node": node,
         "rows": rows, "removed": removed,
-        "changes": [{**dict(c), "lint_warning": lint_warning_for(c["reference"], c["part"])}
+        "changes": [{**dict(c),
+                     "lint_warning": lint_warning_for(c["reference"], c["part"]) if with_lint else None}
                     for c in changes.values()],
+        "lint_ready": with_lint,
+        "fixed_ref": None,
+        "fixed_note": "",
         "all_refs": sorted(known),
         "total": len(full), "mine_count": len(changes), "removed_count": len(removed),
         "attachments": models.list_node_attachments(conn, node["id"]),
@@ -82,6 +90,20 @@ def _validate(conn, node_id, reference, op, part) -> str | None:
     """对被编辑节点折叠后的 BOM 做位号编辑校验。"""
     initial, chain = models.get_chain(conn, node_id)
     return validate_edit(fold_bom(initial, chain), reference, op, part)
+
+
+def _lint_with_note(reference: str, op: str, part: str | None) -> tuple[str | None, str]:
+    """落库前归一，并回报本次的 fix 文案。返回 (归一后的值, fix文案)。
+
+    fix 只有在这一刻拿得到：归一后原始写法就不留存了（存的是 3.9nF，不是用户
+    敲的 3.9Nf），对已落库的值重跑 lint 永远只剩 warning 级——见
+    `lint_warning_for` 的 docstring。所以面板上的 ⓘ 是一次性的，只能由执行
+    这次写入的请求顺手带出来，刷新页面后就没了。
+    """
+    if op == "remove" or part is None:
+        return None, ""
+    fixed, issues = lint_part(reference, part)
+    return fixed, next((i.message for i in issues if i.level == "fix"), "")
 
 
 def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
@@ -97,9 +119,7 @@ def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
     `lint_warning_for` 依赖这一点——它只报 warning 级，新增写入路径若漏掉
     lint，fix 级问题会被静默吞掉：既不修正，也不在界面上提示。
     """
-    if op == "remove" or part is None:
-        return None
-    return lint_part(reference, part)[0]
+    return _lint_with_note(reference, op, part)[0]
 
 
 @router.get("/board/{board_id}")
@@ -210,6 +230,22 @@ def lint_part_route(board_id: int, node_id: int,
     return Response(status_code=204, headers={
         "HX-Trigger": json.dumps(
             {"partLinted": {"part": fixed, "warning": warning, "fix": fix}})})
+
+
+@router.post("/board/{board_id}/node/{node_id}/lint-changes")
+def lint_changes(request: Request, board_id: int, node_id: int):
+    """批量取「本节点修改」面板各行的元器件值检查结果。
+
+    面板首次渲染不算 lint（渲染路径与检查解耦），由本端点异步补上，一次请求
+    带回全部行的结果。只会返回 warning 级：面板行的值都已在写入时归一，fix 级
+    问题不复存在（见 `_lint_with_note`）。
+    """
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return templates.TemplateResponse(
+        request, "_changes_panel_block.html", _node_context(conn, board_id, node))
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit")
