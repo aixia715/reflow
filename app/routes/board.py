@@ -240,7 +240,7 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     reference = reference.strip()
-    part_val = _lint_or_none(reference, op, part)
+    part_val, fix_note = _lint_with_note(reference, op, part)
     err = _validate(conn, node_id, reference, op, part_val)
     if err:
         return templates.TemplateResponse(
@@ -258,6 +258,9 @@ def edit_node(request: Request, board_id: int, node_id: int,
 
     node = models.get_node(conn, node_id)
     ctx = _node_context(conn, board_id, node)
+    if fix_note:
+        # ⓘ 只能在这一刻挂上：值已归一，之后任何一次重算都拿不到 fix 级问题。
+        ctx.update({"fixed_ref": reference, "fixed_note": fix_note})
     if conflicts:
         ctx.update({"conflicts": conflicts, "node_id": node_id})
         return templates.TemplateResponse(

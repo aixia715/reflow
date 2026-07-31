@@ -123,3 +123,32 @@ def test_lint_part_route_is_gone(client):
     r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
                     data={"reference": "R1", "part": "1000pF"})
     assert r.status_code == 404
+
+
+def test_edit_response_shows_the_fix_once(client):
+    """写入响应里带 ⓘ 告诉用户值被改成了什么。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    r = _add(client, board_id, ws, "C3", "1000pF")
+    assert "1000pF → 1nF" in r.text
+
+
+def test_fix_note_is_not_persisted(client):
+    """ⓘ 是一次性的：刷新页面后不再出现（原值在归一后不留存，无法重算）。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    _add(client, board_id, ws, "C3", "1000pF")
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert "1000pF → 1nF" not in r.text
+    r2 = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
+    assert "1000pF → 1nF" not in r2.text
+    assert "1nF" in r2.text          # 值本身归一成功了
+
+
+def test_edit_response_carries_warning_and_does_not_retrigger(client):
+    """写入响应自带完整 ⚠，且不挂 load——否则自动刷新会把一次性 ⓘ 冲掉。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    r = _add(client, board_id, ws, "R7", "230R")
+    assert "不是标准" in r.text
+    assert 'hx-trigger="load"' not in r.text
