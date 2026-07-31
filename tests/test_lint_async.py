@@ -10,10 +10,10 @@ def client(tmp_path, monkeypatch):
     return TestClient(create_app())
 
 
-def _setup_board(client):
+def _setup_board(client, board_name="B", board_uid="3"):
     r = client.post("/board/new",
-                    data={"board_name": "B", "pcb_version": "v1",
-                          "bom_version": "bomA", "board_uid": "3"},
+                    data={"board_name": board_name, "pcb_version": "v1",
+                          "bom_version": "bomA", "board_uid": board_uid},
                     files={"file": ("bom.csv", "Reference,Part\nR1,10k\n", "text/csv")},
                     follow_redirects=False)
     return r.headers["location"].split("?")[0].rsplit("/", 1)[-1]
@@ -46,6 +46,8 @@ def test_lint_changes_is_clean_for_standard_value(client):
     ws = _workspace_id(client, board_id)
     _add(client, board_id, ws, "R7", "10k")
     r = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
+    assert r.status_code == 200
+    assert "R7" in r.text
     assert "不是标准" not in r.text
 
 
@@ -66,11 +68,15 @@ def test_lint_changes_response_does_not_retrigger_itself(client):
     ws = _workspace_id(client, board_id)
     _add(client, board_id, ws, "R7", "230R")
     r = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
+    assert r.status_code == 200
+    assert 'id="changes-panel"' in r.text
     assert 'hx-trigger="load"' not in r.text
 
 
 def test_lint_changes_rejects_foreign_node(client):
-    """节点不属于该单板时 404，与其余节点路由一致。"""
-    board_id = _setup_board(client)
-    r = client.post(f"/board/{board_id}/node/99999/lint-changes")
+    """节点存在但属于另一块单板时 404（归属校验分支，不是路由缺失）。"""
+    board_id = _setup_board(client, board_name="B1", board_uid="3")
+    other_board_id = _setup_board(client, board_name="B2", board_uid="4")
+    other_ws = _workspace_id(client, other_board_id)
+    r = client.post(f"/board/{board_id}/node/{other_ws}/lint-changes")
     assert r.status_code == 404
