@@ -688,3 +688,14 @@ gh pr create --draft --title "lint 移出输入路径，改为面板行的异步
 **2. 占位符扫描：** 无 TBD/TODO；每个代码步骤都给出了完整可粘贴的代码。
 
 **3. 类型一致性：** `_lint_with_note` 在 Task 1 定义、Task 4 调用，签名一致（`tuple[str | None, str]`）。context 键 `lint_ready`/`fixed_ref`/`fixed_note` 在 Task 1 产出、Task 2 消费、Task 4 写入，命名一致。`_changes_panel_block.html` 在 Task 1 创建、Task 1 Step 6 引用，文件名一致。
+
+---
+
+## 已知限制（评审补记）
+
+**lint-changes 迟到响应的竞态（纯显示层，不阻塞）**：节点页 `load` 发出的
+`lint-changes` 若在用户极速提交编辑之后才被服务端处理（或在编辑写入前读库、
+响应却晚到浏览器），迟到的响应会用旧 changeset 整块 `outerHTML` 覆盖面板——
+刚提交成功的那行修改会从面板上消失，刷新即恢复。窗口约一个 RTT，单人工具、
+不影响数据正确性。可选修法：给面板挂 `hx-sync` 串行化，或在编辑响应到达时
+abort 在途的 `lint-changes` 请求。暂未实现，等真出现问题再做。

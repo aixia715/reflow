@@ -1,1 +1,5 @@
 <div class="flash flash-error">✕ {{ message }}</div>
+{# 校验失败只换 #form-error，这里顺带用 OOB 清掉上一次编辑留下的一次性 lint 提示
+   （不带位号标签，残留易被误读成与本次失败的提交相关）。页面没有 #lint-flash
+   时 htmx 会忽略这个 OOB，无害。 #}
+<div id="lint-flash" hx-swap-oob="true"></div>

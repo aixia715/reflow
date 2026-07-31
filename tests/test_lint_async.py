@@ -208,3 +208,18 @@ def test_workspace_edit_does_not_duplicate_orphan_warning(client):
     assert r.status_code == 200
     assert "不是标准" in r.text          # 面板行的 ⚠ 仍在
     assert "flash flash-warn" not in r.text  # 但没有多出一份兜底 flash
+
+
+def test_validation_failure_clears_lint_flash(client):
+    """校验失败的响应只换 #form-error，必须顺带 OOB 清空 #lint-flash——否则上一次
+    成功编辑留下的一次性提示（不带位号标签）会残留在表单下方，容易被误读成与
+    这次失败的提交相关。"""
+    board_id = _setup_board(client)
+    root = _root_node_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{root}/edit",
+                    data={"reference": "R99", "op": "modify", "part": "10k"})
+    assert r.status_code == 200
+    assert r.headers.get("HX-Retarget") == "#form-error"
+    assert "不存在" in r.text
+    assert '<div id="lint-flash" hx-swap-oob="true"></div>' in r.text
+    assert "flash-info" not in r.text

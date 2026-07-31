@@ -123,9 +123,8 @@ def _lint_with_note(reference: str, op: str, part: str | None) -> tuple[str | No
 def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
     """落库前的服务端归一：remove/缺失原样传 None，否则跑 lint_part 拿修正值。
 
-    前端 blur 时已经 lint 过一次，但那只是体验优化——用户按 Enter 直接提交
-    （不触发 blur）或绕过浏览器直接调接口时，服务端必须自己再 lint 一遍，
-    不能只信前端传回来的值。
+    输入路径上没有任何前端 lint（blur lint 已删），服务端不能只信表单传回来
+    的值——用户可能绕过浏览器直接调接口，落库前必须自己归一。
 
     契约：**任何写入 changeset / initial_bom 的路径都必须先经本函数或
     `lint_entries`**（现有写入方：节点编辑、工作区编辑、CSV 导入、插入节点、

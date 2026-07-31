@@ -173,7 +173,7 @@ def test_edit_rejects_unknown_reference(client):
 
 
 def test_edit_lints_part_value_server_side(client):
-    # 前端 blur 只是体验优化，服务端落库必须自己再 lint 一遍，不能只信表单传回的值。
+    # 输入路径没有前端 lint，服务端落库必须自己归一，不能只信表单传回的值。
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
     ws = _workspace_id(client, board_id)
