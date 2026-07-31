@@ -11,7 +11,11 @@
 <div class="change-row">
   <span><code>{{ c.reference }}</code>
     {% if c.op == 'remove' %}不贴{% elif c.op == 'add' %}新增 → {{ c.part }}{% else %}修改 → {{ c.part }}{% endif %}
-    {%- with fix='', warning=c.lint_warning or '' %}{% include "_lint_icons.html" %}{% endwith %}
+    {%- if lint_ready %}
+      {%- with fix=(fixed_note if fixed_ref == c.reference else ''), warning=c.lint_warning or '' %}{% include "_lint_icons.html" %}{% endwith %}
+    {%- else %}
+      <span class="lint-note lint-checking" title="正在检查元器件值…" aria-label="正在检查元器件值…"></span>
+    {%- endif %}
   </span>
   {% if not node.is_committed %}
   <span class="row-icons">

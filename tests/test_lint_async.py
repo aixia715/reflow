@@ -80,3 +80,27 @@ def test_lint_changes_rejects_foreign_node(client):
     other_ws = _workspace_id(client, other_board_id)
     r = client.post(f"/board/{board_id}/node/{other_ws}/lint-changes")
     assert r.status_code == 404
+
+
+def test_node_page_defers_lint_to_async_request(client):
+    """节点页首次渲染不算 lint，只挂异步触发器 + 占位。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    _add(client, board_id, ws, "R7", "230R")
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert r.status_code == 200
+    assert "lint-changes" in r.text
+    assert 'hx-trigger="load"' in r.text
+    assert "lint-checking" in r.text
+    assert "不是标准" not in r.text
+
+
+def test_panel_shows_warning_once_lint_arrives(client):
+    """异步结果回来后，占位换成 ⚠，且不再有占位。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    _add(client, board_id, ws, "R7", "230R")
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
+    assert r.status_code == 200
+    assert "不是标准" in r.text
+    assert "lint-checking" not in r.text

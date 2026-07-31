@@ -158,7 +158,8 @@ def node_detail(request: Request, board_id: int, node_id: int):
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     return templates.TemplateResponse(
-        request, "node_detail.html", _node_context(conn, board_id, node))
+        request, "node_detail.html",
+        _node_context(conn, board_id, node, with_lint=False))
 
 
 def _content_disposition(filename: str) -> str:

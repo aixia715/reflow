@@ -137,6 +137,10 @@ table.bom tr:hover .hover-only{visibility:visible}
 .lint-note .ico{width:13px;height:13px}
 .lint-warn{color:var(--yellow-badge-fg)}
 .lint-fix{color:var(--blue)}
+.lint-checking{width:13px;height:13px;border-radius:50%;background:var(--border);
+  animation:lint-pulse 1.2s ease-in-out infinite}
+@keyframes lint-pulse{0%,100%{opacity:.35}50%{opacity:.9}}
+@media (prefers-reduced-motion:reduce){.lint-checking{animation:none}}
 /* 编辑表单里「已自动修正」的行内说明（图标 + 文案） */
 .lint-inline{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
 /* 服务端 lint 进行中的状态条：平时不占位，htmx 给它挂 .htmx-request 时才显示 */
