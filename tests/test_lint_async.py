@@ -104,3 +104,22 @@ def test_panel_shows_warning_once_lint_arrives(client):
     assert r.status_code == 200
     assert "不是标准" in r.text
     assert "lint-checking" not in r.text
+
+
+def test_edit_form_has_no_blur_lint(client):
+    """输入路径上不能再有任何 lint 往返——这是本次改动的核心诉求。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    r = client.get(f"/board/{board_id}/node/{ws}")
+    assert "lint-part" not in r.text
+    assert 'hx-trigger="blur"' not in r.text
+    assert "lint-indicator" not in r.text
+
+
+def test_lint_part_route_is_gone(client):
+    """旧的单值 lint 路由已删除，不留死路由。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
+                    data={"reference": "R1", "part": "1000pF"})
+    assert r.status_code == 404

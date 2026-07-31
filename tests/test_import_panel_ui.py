@@ -116,33 +116,6 @@ def test_import_form_has_a_checking_indicator(client):
     assert "正在检查" in r.text
 
 
-def test_edit_form_part_input_has_a_lint_indicator(client):
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    r = client.get(f"/board/{board_id}/node/{ws}")
-    assert "lint-indicator" in r.text
-
-
-def test_lint_part_route_reports_the_fix_message(client):
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R9", "part": "1000pF"})
-    import json as _json
-    trigger = _json.loads(r.headers["HX-Trigger"])["partLinted"]
-    assert trigger["part"] == "1nF"
-    assert "1000pF → 1nF" in trigger["fix"]
-
-
-def test_lint_part_route_reports_empty_fix_when_value_is_clean(client):
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R9", "part": "1nF"})
-    import json as _json
-    assert _json.loads(r.headers["HX-Trigger"])["partLinted"]["fix"] == ""
-
-
 # ── 4. 取消全部 / 清除全部修改 ──────────────────────────────────
 
 def test_preview_offers_a_red_cancel_all_button(client):

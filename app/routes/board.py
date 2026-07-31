@@ -216,23 +216,6 @@ def edit_node_info(board_id: int, node_id: int,
         f"/board/{board_id}/node/{node_id}?flash=✓ 已更新节点信息", status_code=303)
 
 
-@router.post("/board/{board_id}/node/{node_id}/lint-part")
-def lint_part_route(board_id: int, node_id: int,
-                    reference: str = Form(""), part: str = Form("")):
-    """编辑表单 Part 输入框失焦时实时 lint：fix 级改写输入框内容并回报改法，
-    warning 级只作提示、不阻塞提交。纯函数调用，不查库。
-
-    fix 文案要回报给前端而不是静默改写：值被悄悄改掉却不说改成了什么，用户会
-    以为自己填错了。前端拿它挂在输入框旁的 ⓘ 图标上，与导入预览的行内提示一致。
-    """
-    fixed, issues = lint_part(reference.strip(), part)
-    warning = next((i.message for i in issues if i.level == "warning"), "")
-    fix = next((i.message for i in issues if i.level == "fix"), "")
-    return Response(status_code=204, headers={
-        "HX-Trigger": json.dumps(
-            {"partLinted": {"part": fixed, "warning": warning, "fix": fix}})})
-
-
 @router.post("/board/{board_id}/node/{node_id}/lint-changes")
 def lint_changes(request: Request, board_id: int, node_id: int):
     """批量取「本节点修改」面板各行的元器件值检查结果。

@@ -4,7 +4,7 @@
 <form class="edit-form"
       hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit"
       hx-target="#bom" hx-swap="innerHTML"
-      @htmx:after-request.camel="if ($event.target === $el && $event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; partWarning=''; partFix=''; $nextTick(() => $refs.filterInput && $refs.filterInput.select()); }">
+      @htmx:after-request.camel="if ($event.target === $el && $event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; $nextTick(() => $refs.filterInput && $refs.filterInput.select()); }">
   <input class="input" name="reference" x-model="ref" list="refs"
          placeholder="位号（自动补全）" required autocomplete="off">
   <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
@@ -15,18 +15,7 @@
   </div>
   <input class="input" name="part" x-model="part" x-ref="partInput"
          placeholder="新 Part 值" :disabled="op==='remove'"
-         hx-post="/board/{{ board_id }}/node/{{ node.id }}/lint-part"
-         hx-trigger="blur" hx-include="closest form" hx-swap="none"
-         hx-indicator="#lint-indicator-{{ node.id }}"
-         @part-linted.camel="part = $event.detail.part; partWarning = $event.detail.warning; partFix = $event.detail.fix"
-         @input="partWarning = ''; partFix = ''"
          @keydown.enter.prevent="$el.closest('form').requestSubmit()">
-  <div class="lint-status" id="lint-indicator-{{ node.id }}">正在检查元器件值…</div>
-  <div class="lint-inline" x-show="partFix" x-cloak>
-    <span class="lint-note lint-fix"><svg class="ico"><use href="#icon-info"></use></svg></span>
-    <span x-text="partFix"></span>
-  </div>
-  <div class="flash flash-warn" x-show="partWarning" x-cloak x-text="partWarning"></div>
   <button class="btn btn-primary">应用修正</button>
   <div id="form-error"></div>
 </form>

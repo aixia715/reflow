@@ -212,43 +212,6 @@ def test_edit_rejects_add_existing(client):
     assert "已存在" in r.text
 
 
-def test_lint_part_endpoint_returns_fix_via_hx_trigger(client):
-    import json
-    loc = _setup_board(client)
-    board_id = loc.rsplit("/", 1)[-1]
-    ws = _workspace_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R1", "part": "1000pF"})
-    assert r.status_code == 204
-    trigger = json.loads(r.headers["HX-Trigger"])
-    assert trigger["partLinted"]["part"] == "1nF"
-    assert trigger["partLinted"]["warning"] == ""
-
-
-def test_lint_part_endpoint_returns_warning_without_changing_value(client):
-    import json
-    loc = _setup_board(client)
-    board_id = loc.rsplit("/", 1)[-1]
-    ws = _workspace_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R1", "part": "230R"})
-    trigger = json.loads(r.headers["HX-Trigger"])
-    assert trigger["partLinted"]["part"] == "230R"
-    assert "不是标准" in trigger["partLinted"]["warning"]
-
-
-def test_lint_part_endpoint_skips_non_rcl_reference(client):
-    import json
-    loc = _setup_board(client)
-    board_id = loc.rsplit("/", 1)[-1]
-    ws = _workspace_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "U1", "part": "555"})
-    trigger = json.loads(r.headers["HX-Trigger"])
-    assert trigger["partLinted"]["part"] == "555"
-    assert trigger["partLinted"]["warning"] == ""
-
-
 def test_workspace_edit_rejects_invalid(client):
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
