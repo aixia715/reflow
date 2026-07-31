@@ -86,6 +86,20 @@ def _node_context(conn, board_id: int, node, with_lint: bool = True) -> dict:
     }
 
 
+def _panel_context(conn, board_id: int, node) -> dict:
+    """只给「本节点修改」面板用的轻量上下文。
+
+    lint-changes 是页面加载后补一次检查结果的小端点，没必要为渲染一个面板重算
+    整个节点上下文（`_node_context` 里有两次 fold_bom 和一次附件查询）。
+    """
+    return {
+        "board_id": board_id, "node": node,
+        "changes": [{**dict(c), "lint_warning": lint_warning_for(c["reference"], c["part"])}
+                    for c in models.get_changeset(conn, node["id"])],
+        "lint_ready": True, "fixed_ref": None, "fixed_note": "",
+    }
+
+
 def _validate(conn, node_id, reference, op, part) -> str | None:
     """对被编辑节点折叠后的 BOM 做位号编辑校验。"""
     initial, chain = models.get_chain(conn, node_id)
@@ -229,7 +243,7 @@ def lint_changes(request: Request, board_id: int, node_id: int):
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     return templates.TemplateResponse(
-        request, "_changes_panel_block.html", _node_context(conn, board_id, node))
+        request, "_changes_panel_block.html", _panel_context(conn, board_id, node))
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit")
@@ -261,6 +275,11 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if fix_note:
         # ⓘ 只能在这一刻挂上：值已归一，之后任何一次重算都拿不到 fix 级问题。
         ctx.update({"fixed_ref": reference, "fixed_note": fix_note})
+    # 根节点的改动写 initial_bom 不写 node_changes，面板里没有这一行可挂图标，
+    # lint 提示会无处落地——用表单下方的一次性提示兜底。
+    if not any(c["reference"] == reference for c in ctx["changes"]):
+        ctx["orphan_fix"] = fix_note
+        ctx["orphan_warning"] = lint_warning_for(reference, part_val) or ""
     if conflicts:
         ctx.update({"conflicts": conflicts, "node_id": node_id})
         return templates.TemplateResponse(

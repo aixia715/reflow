@@ -25,6 +25,14 @@ def _workspace_id(client, board_id):
     return models.workspace_node(get_conn(), int(board_id))["id"]
 
 
+def _root_node_id(client, board_id):
+    from app import models
+    from app.main import get_conn
+    nodes = models.list_nodes(get_conn(), int(board_id))
+    root = next(n for n in nodes if n["parent_id"] is None)
+    return root["id"]
+
+
 def _add(client, board_id, ws, reference, part, op="add"):
     return client.post(f"/board/{board_id}/node/{ws}/edit",
                        data={"reference": reference, "op": op, "part": part})
@@ -139,6 +147,7 @@ def test_fix_note_is_not_persisted(client):
     ws = _workspace_id(client, board_id)
     _add(client, board_id, ws, "C3", "1000pF")
     r = client.get(f"/board/{board_id}/node/{ws}")
+    assert r.status_code == 200
     assert "1000pF → 1nF" not in r.text
     r2 = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
     assert "1000pF → 1nF" not in r2.text
@@ -152,3 +161,50 @@ def test_edit_response_carries_warning_and_does_not_retrigger(client):
     r = _add(client, board_id, ws, "R7", "230R")
     assert "不是标准" in r.text
     assert 'hx-trigger="load"' not in r.text
+
+
+def test_root_edit_shows_orphan_warning(client):
+    """根节点的改动写 initial_bom 不进 node_changes，面板恒空、没有行可挂 ⚠——
+    靠表单下方的一次性提示兜底，否则这条反馈会完全消失（见修复报告第 1 项）。"""
+    board_id = _setup_board(client)
+    root = _root_node_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{root}/edit",
+                    data={"reference": "R1", "op": "modify", "part": "230R"})
+    assert r.status_code == 200
+    assert "不是标准" in r.text
+
+
+def test_root_edit_standard_value_has_no_warning(client):
+    """负对照：标准值不应触发兜底警告。"""
+    board_id = _setup_board(client)
+    root = _root_node_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{root}/edit",
+                    data={"reference": "R1", "op": "modify", "part": "10k"})
+    assert r.status_code == 200
+    assert "不是标准" not in r.text
+
+
+def test_root_edit_shows_orphan_fix(client):
+    """根节点提交会被归一的写法（1000pF → 1nF），兜底位也要带上 ⓘ 文案。"""
+    r0 = client.post("/board/new",
+                      data={"board_name": "RootFix", "pcb_version": "v1",
+                            "bom_version": "bomA", "board_uid": "9"},
+                      files={"file": ("bom.csv",
+                                      "Reference,Part\nR1,10k\nC1,100pF\n", "text/csv")},
+                      follow_redirects=False)
+    board_id = r0.headers["location"].split("?")[0].rsplit("/", 1)[-1]
+    root = _root_node_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{root}/edit",
+                    data={"reference": "C1", "op": "modify", "part": "1000pF"})
+    assert r.status_code == 200
+    assert "1000pF → 1nF" in r.text
+
+
+def test_workspace_edit_does_not_duplicate_orphan_warning(client):
+    """普通工作区节点：兜底提示不出现（避免与面板行图标重复），但面板行的 ⚠ 仍在。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(client, board_id)
+    r = _add(client, board_id, ws, "R7", "230R")
+    assert r.status_code == 200
+    assert "不是标准" in r.text          # 面板行的 ⚠ 仍在
+    assert "flash flash-warn" not in r.text  # 但没有多出一份兜底 flash

@@ -57,10 +57,11 @@
     </div>
     {% endif %}
     {# 面板先渲染出来（行显示「检查中」），元器件值检查由这一次异步请求批量补上。
-       响应是 _changes_panel_block.html，它不带 load 触发器，所以只跑一次。 #}
+       响应是 _changes_panel_block.html，它不带 load 触发器，所以只跑一次。
+       没有修改时面板恒空，没有行可挂检查结果——不挂触发器，省一次白发的请求。 #}
     <div id="changes-panel" class="panel"
-         hx-post="/board/{{ board_id }}/node/{{ node.id }}/lint-changes"
-         hx-trigger="load" hx-swap="outerHTML">{% include "_changes_panel.html" %}</div>
+         {% if changes %}hx-post="/board/{{ board_id }}/node/{{ node.id }}/lint-changes"
+         hx-trigger="load" hx-swap="outerHTML"{% endif %}>{% include "_changes_panel.html" %}</div>
     {% include "_attachments.html" %}
     {% if node.is_committed and node.parent_id is not none %}
     <details class="panel">
