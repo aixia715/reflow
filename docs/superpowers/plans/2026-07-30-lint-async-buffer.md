@@ -248,6 +248,7 @@ _node_context 加 with_lint 开关；_lint_with_note 在归一的同时回报 fi
 ### Task 2: 面板行三态 + 节点页异步触发
 
 **Files:**
+- Modify: `app/routes/board.py:134-141`（`node_detail` 路由传 `with_lint=False`）
 - Modify: `app/templates/_changes_panel.html:14`
 - Modify: `app/templates/node_detail.html:59`
 - Modify: `app/static/style.css`（`.lint-note` 一组之后，约 136-148 行区域）
@@ -309,6 +310,27 @@ Expected: FAIL —— `lint-changes` / `lint-checking` 不在节点页 HTML 里�
       <span class="lint-note lint-checking" title="正在检查元器件值…" aria-label="正在检查元器件值…"></span>
     {%- endif %}
 ```
+
+- [ ] **Step 4a: 节点页路由跳过 lint**
+
+`app/routes/board.py` 的 `node_detail` 路由（约 134-141 行），把：
+
+```python
+    return templates.TemplateResponse(
+        request, "node_detail.html", _node_context(conn, board_id, node))
+```
+
+改为：
+
+```python
+    return templates.TemplateResponse(
+        request, "node_detail.html",
+        _node_context(conn, board_id, node, with_lint=False))
+```
+
+这是唯一传 `with_lint=False` 的调用点：节点页要尽快出来，检查由随后的异步请求补上。
+其余调用点（`edit` / `undo` / `undo-all` / 冲突弹窗 / `lint-changes`）都保持默认
+`True`——它们的响应不带 load 触发器，自己不算 lint 就没人补了。
 
 - [ ] **Step 4: 节点页挂异步触发**
 
