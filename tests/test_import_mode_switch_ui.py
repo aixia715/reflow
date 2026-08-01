@@ -40,19 +40,48 @@ def _pick_csv(page: Page, text: str):
     }])
 
 
+def _count_preview_requests(page: Page):
+    """收集发往 /import/preview 的请求。直接数请求，而不是等一会儿看有没有
+    渲染出错误——后者在请求恰好慢过等待时间时会假通过。"""
+    hits: list[str] = []
+    page.on("request",
+            lambda r: hits.append(r.url) if "/import/preview" in r.url else None)
+    return hits
+
+
 def test_switch_mode_without_file_does_not_complain(live_server, page: Page):
     """没选文件时切换差异↔全量：不发预览请求，也就没有「请选择 CSV 文件」。"""
     bid = _api_create_board(live_server, uid="MD1")
     _open_import_panel(page, live_server, bid)
 
+    hits = _count_preview_requests(page)
     preview = page.locator("#import-preview")
     _switch_mode(page, "全量")
     page.wait_for_timeout(500)
+    assert hits == []
     assert "请选择 CSV 文件" not in preview.inner_text()
 
     _switch_mode(page, "差异")
     page.wait_for_timeout(500)
+    assert hits == []
     assert "请选择 CSV 文件" not in preview.inner_text()
+    assert preview.inner_text().strip() == ""
+
+
+def test_switch_mode_after_cancel_all_does_not_complain(live_server, page: Page):
+    """「取消全部」清空文件框后再切模式：同样不发请求、不报错。"""
+    bid = _api_create_board(live_server, name="ModeBoard4", bom="bomD", uid="MD4")
+    _open_import_panel(page, live_server, bid)
+
+    _pick_csv(page, "Reference,Part,OP\nR9,1k,add\n")
+    preview = page.locator("#import-preview")
+    expect(preview).to_contain_text("共 1 条修改")
+
+    page.locator("#import-preview button", has_text="取消全部").click()
+    hits = _count_preview_requests(page)
+    _switch_mode(page, "全量")
+    page.wait_for_timeout(500)
+    assert hits == []
     assert preview.inner_text().strip() == ""
 
 
