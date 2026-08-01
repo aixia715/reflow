@@ -181,3 +181,44 @@ def test_changes_payload_rejects_duplicate_reference_after_strip():
         ' {"reference":" R9 ","op":"add","part":"2u"}]')
     assert got == []
     assert err == "位号重复"
+
+
+# ---- 插入时间的可选边界（供日期控件的 min/max 用，与 validate_insert_time 同源） ----
+
+from app.validation import insert_time_bounds
+
+
+def test_bounds_are_the_first_and_last_selectable_minute():
+    """控件只能产出整分钟值，边界即「严格落在开区间内的最早/最晚整分钟」。"""
+    lo, hi = insert_time_bounds("2026-06-01T10:00:00+00:00", "2026-06-01T11:00:00+00:00")
+    assert lo == "2026-06-01T10:01:00+00:00"
+    assert hi == "2026-06-01T10:59:00+00:00"
+
+
+def test_bounds_round_away_from_the_forbidden_endpoints():
+    """带秒的端点：下界向上进位、上界向下取整，绝不给出会被服务端拒绝的分钟。"""
+    lo, hi = insert_time_bounds("2026-06-01T10:00:30+00:00", "2026-06-01T11:00:30+00:00")
+    assert lo == "2026-06-01T10:01:00+00:00"
+    assert hi == "2026-06-01T11:00:00+00:00"
+
+
+def test_bounds_agree_with_validate_insert_time():
+    """边界本身必须合法，边界再外推一分钟必须非法——两个函数不许各说各话。"""
+    prev, nxt = "2026-06-01T10:00:30+00:00", "2026-06-01T11:00:30+00:00"
+    lo, hi = insert_time_bounds(prev, nxt)
+    assert validate_insert_time(prev, nxt, lo) is None
+    assert validate_insert_time(prev, nxt, hi) is None
+    assert validate_insert_time(prev, nxt, "2026-06-01T10:00:00+00:00") is not None
+    assert validate_insert_time(prev, nxt, "2026-06-01T11:01:00+00:00") is not None
+
+
+def test_bounds_empty_when_no_whole_minute_fits():
+    """两个节点挨得太近（不足一个整分钟）→ 无可选时间，返回 (None, None)。"""
+    assert insert_time_bounds("2026-06-01T10:00:10+00:00",
+                              "2026-06-01T10:00:50+00:00") == (None, None)
+
+
+def test_bounds_naive_input_treated_as_utc():
+    lo, hi = insert_time_bounds("2026-06-01T10:00:00", "2026-06-01T11:00:00")
+    assert lo == "2026-06-01T10:01:00+00:00"
+    assert hi == "2026-06-01T10:59:00+00:00"

@@ -1,7 +1,7 @@
 """位号编辑校验（纯逻辑，零 Web/DB 依赖）。"""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def validate_changes_payload(changes: str) -> tuple[list[dict], str | None]:
@@ -61,6 +61,43 @@ def validate_insert_time(prev_ts: str, next_ts: str, chosen_ts: str | None) -> s
     if chosen >= nxt:
         return "时间必须早于下一个节点"
     return None
+
+
+def insert_time_bounds(prev_ts: str, next_ts: str) -> tuple[str | None, str | None]:
+    """插入时间可选区间的**闭区间**端点，供日期控件的 min/max 用。
+
+    存在的理由是消除一处规则双份：`validate_insert_time` 判的是严格开区间，
+    而 HTML `datetime-local` 的 min/max 是闭区间、且只能产出整分钟值。直接把
+    prev/next 塞进 min/max 会两头漏——控件放行 chosen == prev（等于上一节点，
+    服务端拒绝），截断秒还会把 10:00:30 的下界写成 10:00（比上一节点还早）。
+    于是边界一律由本函数算：**开区间内最早 / 最晚的那个整分钟**，控件放行的
+    每个值都必然能通过 `validate_insert_time`（由测试对拍锁定）。
+
+    两节点相隔不足一个整分钟时区间里没有可选值，返回 (None, None)——调用方据
+    此提示「无法插入」，而不是摆一个必然被拒的默认值。
+    """
+
+    def _parse(s):
+        d = datetime.fromisoformat(s)
+        return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
+
+    def _floor_minute(d):
+        return d.replace(second=0, microsecond=0)
+
+    prev = _parse(prev_ts)
+    nxt = _parse(next_ts)
+    # 下界：严格晚于 prev 的第一个整分钟（prev 正好压在整分钟上也要进位一分钟）
+    lo = _floor_minute(prev + timedelta(minutes=1))
+    # 上界：严格早于 next 的最后一个整分钟（同理，退一秒再向下取整）
+    hi = _floor_minute(nxt - timedelta(seconds=1))
+    if lo > hi:
+        return None, None
+    return _canonical(lo), _canonical(hi)
+
+
+def _canonical(d: datetime) -> str:
+    """与 `models._now` 同款的 canonical UTC 字面量。"""
+    return d.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
 
 def validate_edit(
