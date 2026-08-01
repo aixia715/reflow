@@ -29,8 +29,10 @@
 
   {% if not min_ts %}
   <div class="flash flash-error">
-    上一节点与下一节点相隔不足一分钟，中间没有可选的插入时间——节点时间精确到分钟。
-    请先在两个节点的「编辑节点信息」里把时间拉开，再回来插入。
+    {# 不要在这里指向「编辑节点信息」——那个表单只改标题和长文本说明，
+       全站没有任何界面能改已提交节点的 committed_at，照着指引去只会扑空。 #}
+    上一节点与下一节点相隔不足一分钟，两者之间没有可选的插入时间（时间控件只能选到整分钟），
+    此处无法插入节点。可以改在其他相邻节点之间插入，或直接在工作区记录新的变更并提交。
   </div>
   {% endif %}
 
@@ -136,9 +138,12 @@
       <div class="panel">
         <div class="panel-title">添加修改</div>
         <div class="edit-form">
+          {# 位号框回车先补 Part 再提交：这里回车往往是在 datalist 里选中候选，
+             此时 Part 还空着，直接发 check 只会闪一条「必须填写新 Part 值」。 #}
           <input class="input" x-model="ref" list="refs"
                  placeholder="位号（自动补全）" autocomplete="off"
-                 @keydown.enter.prevent="$refs.addBtn.click()">
+                 @keydown.enter.prevent="(op === 'remove' || part.trim())
+                     ? $refs.addBtn.click() : $refs.partInput.focus()">
           <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
           <div class="seg">
             <label :class="{on: op==='modify'}"><input type="radio" value="modify" x-model="op">修改</label>

@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import urllib.request
 import urllib.error
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -167,4 +168,13 @@ def test_time_control_bounds_exclude_neighbour_timestamps(insert_server, page: P
     val = box.input_value()
     assert lo and hi and val
     assert lo < hi and lo <= val <= hi
-    assert lo.endswith(":01") or lo.endswith(":31")   # 上一节点整点 → 进位一分钟（含半时区）
+    # 控件里是浏览器本地时间，换算回 UTC 再断言：直接看本地字面量的分钟位，
+    # 在 45 分钟偏移的时区（Asia/Kathmandu +05:45）下会假失败。
+    def _to_utc(local_str):
+        off = page.evaluate(  # getTimezoneOffset：UTC = 本地 + off 分钟，按当时的 DST 取
+            f"new Date('{local_str}').getTimezoneOffset()")
+        return datetime.fromisoformat(local_str) + timedelta(minutes=off)
+
+    # c1=06-01T00:00:00Z、c2=06-10T00:00:00Z → 开区间内最早/最晚的整分钟
+    assert _to_utc(lo) == datetime(2026, 6, 1, 0, 1)
+    assert _to_utc(hi) == datetime(2026, 6, 9, 23, 59)
