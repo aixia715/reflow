@@ -56,7 +56,12 @@
       {% include "_edit_form.html" %}
     </div>
     {% endif %}
-    <div id="changes-panel" class="panel">{% include "_changes_panel.html" %}</div>
+    {# 面板先渲染出来（行显示「检查中」），元器件值检查由这一次异步请求批量补上。
+       响应是 _changes_panel_block.html，它不带 load 触发器，所以只跑一次。
+       没有修改时面板恒空，没有行可挂检查结果——不挂触发器，省一次白发的请求。 #}
+    <div id="changes-panel" class="panel"
+         {% if changes %}hx-post="/board/{{ board_id }}/node/{{ node.id }}/lint-changes"
+         hx-trigger="load" hx-swap="outerHTML"{% endif %}>{% include "_changes_panel.html" %}</div>
     {% include "_attachments.html" %}
     {% if node.is_committed and node.parent_id is not none %}
     <details class="panel">
@@ -116,7 +121,7 @@ function cancelImport(){
 function bomPage(){
   return {
     q: '', tab: 'all',
-    ref: '', op: 'modify', part: '', partWarning: '', partFix: '',
+    ref: '', op: 'modify', part: '',
     rowVisible(el){
       const d = el.dataset;
       if (this.tab === 'mine' && d.state !== 'mine') return false;
@@ -136,7 +141,7 @@ function bomPage(){
       }
       return null;
     },
-    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || ''; this.partWarning = ''; this.partFix = '';
+    setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || '';
       const det = this.$refs.editDetails; if (det && !det.open) det.open = true;
       const panel = det || this.$refs.editPanel;
       if (panel) panel.scrollIntoView({behavior: 'smooth', block: 'nearest'}); },
