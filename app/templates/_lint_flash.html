@@ -1,0 +1,7 @@
+{# 编辑表单下方的一次性 lint 提示。只在面板里没有这一行时才有内容——
+   根节点的改动写 initial_bom 不写 node_changes，面板恒空，图标无处可挂，
+   靠这里兜底。普通节点走面板行的 ⓘ/⚠，这里恒为空并顺带清掉上一次的提示。 #}
+<div id="lint-flash" hx-swap-oob="true">
+  {% if orphan_fix %}<div class="flash flash-info">{{ orphan_fix }}</div>{% endif %}
+  {% if orphan_warning %}<div class="flash flash-warn">{{ orphan_warning }}</div>{% endif %}
+</div>

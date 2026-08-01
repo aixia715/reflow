@@ -76,26 +76,31 @@ def test_lint_icons_use_data_tip_not_native_title(client):
     assert 'class="lint-note lint-fix" tabindex="0" role="img"' in r.text
 
 
-def test_edit_form_decorative_icon_carries_no_tip(client):
-    """编辑表单那个 ⓘ 旁边就跟着明文，是纯装饰：不能带 data-tip。
+def test_checking_placeholder_also_uses_data_tip(client):
+    """面板首屏那个「检查中」占位圆点也是 .lint-note，提示同样走 data-tip。
 
-    带了才会弹气泡，而它不在 .change-row 里、没有定位祖先，气泡会跑到视口
-    右下角去。CSS 侧已用 `.lint-note[data-tip]` 兜底，这里守住模板不要乱加。
+    它跟异步补上来的 ⓘ/⚠ 在同一个位置前后脚出现，命中区和气泡必须是同一套：
+    留着原生 title 的话，一个要停悬 1 秒、一个即时，且两者宽度不一致会让行抖。
     """
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    html = client.get(f"/board/{board_id}/node/{ws}").text
-    decorative = '<span class="lint-note lint-fix"><svg class="ico">'
-    assert decorative in html
-
-
-def test_changes_panel_lint_icon_also_uses_data_tip(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
     client.post(f"/board/{board_id}/node/{ws}/edit",
                 data={"reference": "R1", "op": "modify", "part": "230R"})
     html = client.get(f"/board/{board_id}/node/{ws}").text
+    assert "lint-checking" in html
+    assert 'data-tip="正在检查元器件值' in html
+    assert 'title="正在检查' not in html
+
+
+def test_changes_panel_lint_icon_also_uses_data_tip(client):
+    """面板行的 lint 结果由 /lint-changes 异步补上，那条路径也必须是 data-tip。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    client.post(f"/board/{board_id}/node/{ws}/edit",
+                data={"reference": "R1", "op": "modify", "part": "230R"})
+    html = client.post(f"/board/{board_id}/node/{ws}/lint-changes").text
     assert 'data-tip="警告: ' in html
+    assert "title=\"警告" not in html
 
 
 def test_problem_row_is_inline_and_still_blocks_apply(client):
@@ -149,33 +154,6 @@ def test_import_form_has_a_checking_indicator(client):
     r = client.get(f"/board/{board_id}/node/{ws}")
     assert "hx-indicator" in r.text
     assert "正在检查" in r.text
-
-
-def test_edit_form_part_input_has_a_lint_indicator(client):
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    r = client.get(f"/board/{board_id}/node/{ws}")
-    assert "lint-indicator" in r.text
-
-
-def test_lint_part_route_reports_the_fix_message(client):
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R9", "part": "1000pF"})
-    import json as _json
-    trigger = _json.loads(r.headers["HX-Trigger"])["partLinted"]
-    assert trigger["part"] == "1nF"
-    assert "1000pF → 1nF" in trigger["fix"]
-
-
-def test_lint_part_route_reports_empty_fix_when_value_is_clean(client):
-    board_id = _setup_board(client)
-    ws = _workspace_id(board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R9", "part": "1nF"})
-    import json as _json
-    assert _json.loads(r.headers["HX-Trigger"])["partLinted"]["fix"] == ""
 
 
 # ── 4. 取消全部 / 清除全部修改 ──────────────────────────────────

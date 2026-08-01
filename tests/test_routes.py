@@ -173,7 +173,7 @@ def test_edit_rejects_unknown_reference(client):
 
 
 def test_edit_lints_part_value_server_side(client):
-    # 前端 blur 只是体验优化，服务端落库必须自己再 lint 一遍，不能只信表单传回的值。
+    # 输入路径没有前端 lint，服务端落库必须自己归一，不能只信表单传回的值。
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
     ws = _workspace_id(client, board_id)
@@ -210,43 +210,6 @@ def test_edit_rejects_add_existing(client):
                     data={"reference": "R1", "op": "add", "part": "1k"})
     assert r.headers.get("HX-Retarget") == "#form-error"
     assert "已存在" in r.text
-
-
-def test_lint_part_endpoint_returns_fix_via_hx_trigger(client):
-    import json
-    loc = _setup_board(client)
-    board_id = loc.rsplit("/", 1)[-1]
-    ws = _workspace_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R1", "part": "1000pF"})
-    assert r.status_code == 204
-    trigger = json.loads(r.headers["HX-Trigger"])
-    assert trigger["partLinted"]["part"] == "1nF"
-    assert trigger["partLinted"]["warning"] == ""
-
-
-def test_lint_part_endpoint_returns_warning_without_changing_value(client):
-    import json
-    loc = _setup_board(client)
-    board_id = loc.rsplit("/", 1)[-1]
-    ws = _workspace_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "R1", "part": "230R"})
-    trigger = json.loads(r.headers["HX-Trigger"])
-    assert trigger["partLinted"]["part"] == "230R"
-    assert "不是标准" in trigger["partLinted"]["warning"]
-
-
-def test_lint_part_endpoint_skips_non_rcl_reference(client):
-    import json
-    loc = _setup_board(client)
-    board_id = loc.rsplit("/", 1)[-1]
-    ws = _workspace_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{ws}/lint-part",
-                    data={"reference": "U1", "part": "555"})
-    trigger = json.loads(r.headers["HX-Trigger"])
-    assert trigger["partLinted"]["part"] == "555"
-    assert trigger["partLinted"]["warning"] == ""
 
 
 def test_workspace_edit_rejects_invalid(client):
@@ -715,25 +678,30 @@ def test_compare_missing_param_404(client):
 
 def test_changes_panel_flags_non_standard_value_with_warning_badge(client):
     """网速慢时输入框失焦 lint 来不及看，用户直接点了「应用修正」——所以修改面板
-    自己要标出有问题的行：⚠ 标签 + title 悬停给出警告全文。"""
+    自己要标出有问题的行：⚠ 标签 + title 悬停给出警告全文。
+
+    检查已异步化：节点页首次渲染不再同步带出结果，这里改为直接命中
+    `/lint-changes`（节点页 load 时触发的同一个端点），断言的还是同一份
+    「面板行要标出问题」的产出，只是取值时机挪到了异步请求上。"""
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
     client.post(f"/board/{board_id}/workspace/edit",
                 data={"reference": "R1", "op": "modify", "part": "230R"})
     ws = _workspace_id(client, board_id)
-    r = client.get(f"/board/{board_id}/node/{ws}")
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
     assert "lint-warn" in r.text
     assert "最接近的标准值：229R" in r.text
 
 
 def test_changes_panel_stays_clean_for_standard_value(client):
     # 47kR 是标准阻值且带单位，没有任何可报的问题——面板保持干净。
+    # 同上，检查已异步化，改为直接命中 `/lint-changes` 取结果。
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
     client.post(f"/board/{board_id}/workspace/edit",
                 data={"reference": "R1", "op": "modify", "part": "47kR"})
     ws = _workspace_id(client, board_id)
-    r = client.get(f"/board/{board_id}/node/{ws}")
+    r = client.post(f"/board/{board_id}/node/{ws}/lint-changes")
     assert "lint-warn" not in r.text
 
 
@@ -761,12 +729,14 @@ def test_removed_row_has_no_warning_badge(client):
 
 def test_committed_node_also_flags_non_standard_value(client):
     # 已合入的历史修改同样是有效信息，提交后不该把警告藏起来。
+    # 检查已异步化，改为直接命中 `/lint-changes` 取结果（`已合入修改（1）` 这句
+    # 面板标题本就渲染在 `_changes_panel.html` 里，POST 响应同样带出）。
     loc = _setup_board(client)
     board_id = loc.rsplit("/", 1)[-1]
     client.post(f"/board/{board_id}/workspace/edit",
                 data={"reference": "R1", "op": "modify", "part": "230R"})
     committed = _workspace_id(client, board_id)
     client.post(f"/board/{board_id}/commit", data={"message": "S1"})
-    r = client.get(f"/board/{board_id}/node/{committed}")
+    r = client.post(f"/board/{board_id}/node/{committed}/lint-changes")
     assert "已合入修改（1）" in r.text
     assert "lint-warn" in r.text

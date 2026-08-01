@@ -42,8 +42,12 @@ def _last_value(initial, chain, ref):
     return v
 
 
-def _node_context(conn, board_id: int, node) -> dict:
-    """节点页/片段的完整渲染上下文：行数据（含旧值）、不贴行、修改面板、统计。"""
+def _node_context(conn, board_id: int, node, with_lint: bool = True) -> dict:
+    """节点页/片段的完整渲染上下文：行数据（含旧值）、不贴行、修改面板、统计。
+
+    with_lint=False 时跳过逐行 lint，面板渲染路径与检查解耦——节点页首次加载走
+    这条，行先显示「检查中」，再由 /lint-changes 异步补上结果。
+    """
     board = models.get_board(conn, board_id)
     initial, chain = models.get_chain(conn, node["id"])
     full = fold_bom(initial, chain)
@@ -70,11 +74,29 @@ def _node_context(conn, board_id: int, node) -> dict:
     return {
         "board": board, "board_id": board_id, "node": node,
         "rows": rows, "removed": removed,
-        "changes": [{**dict(c), "lint_warning": lint_warning_for(c["reference"], c["part"])}
+        "changes": [{**dict(c),
+                     "lint_warning": lint_warning_for(c["reference"], c["part"]) if with_lint else None}
                     for c in changes.values()],
+        "lint_ready": with_lint,
+        "fixed_ref": None,
+        "fixed_note": "",
         "all_refs": sorted(known),
         "total": len(full), "mine_count": len(changes), "removed_count": len(removed),
         "attachments": models.list_node_attachments(conn, node["id"]),
+    }
+
+
+def _panel_context(conn, board_id: int, node) -> dict:
+    """只给「本节点修改」面板用的轻量上下文。
+
+    lint-changes 是页面加载后补一次检查结果的小端点，没必要为渲染一个面板重算
+    整个节点上下文（`_node_context` 里有两次 fold_bom 和一次附件查询）。
+    """
+    return {
+        "board_id": board_id, "node": node,
+        "changes": [{**dict(c), "lint_warning": lint_warning_for(c["reference"], c["part"])}
+                    for c in models.get_changeset(conn, node["id"])],
+        "lint_ready": True, "fixed_ref": None, "fixed_note": "",
     }
 
 
@@ -84,12 +106,25 @@ def _validate(conn, node_id, reference, op, part) -> str | None:
     return validate_edit(fold_bom(initial, chain), reference, op, part)
 
 
+def _lint_with_note(reference: str, op: str, part: str | None) -> tuple[str | None, str]:
+    """落库前归一，并回报本次的 fix 文案。返回 (归一后的值, fix文案)。
+
+    fix 只有在这一刻拿得到：归一后原始写法就不留存了（存的是 3.9nF，不是用户
+    敲的 3.9Nf），对已落库的值重跑 lint 永远只剩 warning 级——见
+    `lint_warning_for` 的 docstring。所以面板上的 ⓘ 是一次性的，只能由执行
+    这次写入的请求顺手带出来，刷新页面后就没了。
+    """
+    if op == "remove" or part is None:
+        return None, ""
+    fixed, issues = lint_part(reference, part)
+    return fixed, next((i.message for i in issues if i.level == "fix"), "")
+
+
 def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
     """落库前的服务端归一：remove/缺失原样传 None，否则跑 lint_part 拿修正值。
 
-    前端 blur 时已经 lint 过一次，但那只是体验优化——用户按 Enter 直接提交
-    （不触发 blur）或绕过浏览器直接调接口时，服务端必须自己再 lint 一遍，
-    不能只信前端传回来的值。
+    输入路径上没有任何前端 lint（blur lint 已删），服务端不能只信表单传回来
+    的值——用户可能绕过浏览器直接调接口，落库前必须自己归一。
 
     契约：**任何写入 changeset / initial_bom 的路径都必须先经本函数或
     `lint_entries`**（现有写入方：节点编辑、工作区编辑、CSV 导入、插入节点、
@@ -97,9 +132,7 @@ def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
     `lint_warning_for` 依赖这一点——它只报 warning 级，新增写入路径若漏掉
     lint，fix 级问题会被静默吞掉：既不修正，也不在界面上提示。
     """
-    if op == "remove" or part is None:
-        return None
-    return lint_part(reference, part)[0]
+    return _lint_with_note(reference, op, part)[0]
 
 
 @router.get("/board/{board_id}")
@@ -138,7 +171,8 @@ def node_detail(request: Request, board_id: int, node_id: int):
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     return templates.TemplateResponse(
-        request, "node_detail.html", _node_context(conn, board_id, node))
+        request, "node_detail.html",
+        _node_context(conn, board_id, node, with_lint=False))
 
 
 def _content_disposition(filename: str) -> str:
@@ -195,21 +229,20 @@ def edit_node_info(board_id: int, node_id: int,
         f"/board/{board_id}/node/{node_id}?flash=✓ 已更新节点信息", status_code=303)
 
 
-@router.post("/board/{board_id}/node/{node_id}/lint-part")
-def lint_part_route(board_id: int, node_id: int,
-                    reference: str = Form(""), part: str = Form("")):
-    """编辑表单 Part 输入框失焦时实时 lint：fix 级改写输入框内容并回报改法，
-    warning 级只作提示、不阻塞提交。纯函数调用，不查库。
+@router.post("/board/{board_id}/node/{node_id}/lint-changes")
+def lint_changes(request: Request, board_id: int, node_id: int):
+    """批量取「本节点修改」面板各行的元器件值检查结果。
 
-    fix 文案要回报给前端而不是静默改写：值被悄悄改掉却不说改成了什么，用户会
-    以为自己填错了。前端拿它挂在输入框旁的 ⓘ 图标上，与导入预览的行内提示一致。
+    面板首次渲染不算 lint（渲染路径与检查解耦），由本端点异步补上，一次请求
+    带回全部行的结果。只会返回 warning 级：面板行的值都已在写入时归一，fix 级
+    问题不复存在（见 `_lint_with_note`）。
     """
-    fixed, issues = lint_part(reference.strip(), part)
-    warning = next((i.message for i in issues if i.level == "warning"), "")
-    fix = next((i.message for i in issues if i.level == "fix"), "")
-    return Response(status_code=204, headers={
-        "HX-Trigger": json.dumps(
-            {"partLinted": {"part": fixed, "warning": warning, "fix": fix}})})
+    conn = get_conn()
+    node = models.get_node(conn, node_id)
+    if node is None or node["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return templates.TemplateResponse(
+        request, "_changes_panel_block.html", _panel_context(conn, board_id, node))
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit")
@@ -220,7 +253,7 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     reference = reference.strip()
-    part_val = _lint_or_none(reference, op, part)
+    part_val, fix_note = _lint_with_note(reference, op, part)
     err = _validate(conn, node_id, reference, op, part_val)
     if err:
         return templates.TemplateResponse(
@@ -238,6 +271,14 @@ def edit_node(request: Request, board_id: int, node_id: int,
 
     node = models.get_node(conn, node_id)
     ctx = _node_context(conn, board_id, node)
+    if fix_note:
+        # ⓘ 只能在这一刻挂上：值已归一，之后任何一次重算都拿不到 fix 级问题。
+        ctx.update({"fixed_ref": reference, "fixed_note": fix_note})
+    # 根节点的改动写 initial_bom 不写 node_changes，面板里没有这一行可挂图标，
+    # lint 提示会无处落地——用表单下方的一次性提示兜底。
+    if not any(c["reference"] == reference for c in ctx["changes"]):
+        ctx["orphan_fix"] = fix_note
+        ctx["orphan_warning"] = lint_warning_for(reference, part_val) or ""
     if conflicts:
         ctx.update({"conflicts": conflicts, "node_id": node_id})
         return templates.TemplateResponse(

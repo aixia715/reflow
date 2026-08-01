@@ -134,8 +134,8 @@ table.bom tr:hover .hover-only{visibility:visible}
   padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
 .change-row:first-of-type{border-top:none}
 /* 行内 lint 图标：ⓘ=已自动修正、⚠=需人工判断的警告。值本身照常落库，
-   只做提示；图标随 currentColor 上色。基础规则只管尺寸与颜色——编辑表单里
-   那个 ⓘ 旁边就跟着明文，纯装饰，不该有指针样式也不该弹气泡。 */
+   只做提示；图标随 currentColor 上色。基础规则只管尺寸与颜色——将来若有
+   旁边已跟着明文的纯装饰图标，不传 data-tip 即可，不会有指针样式和气泡。 */
 .lint-note{display:inline-flex;vertical-align:-2px;margin-left:3px}
 .lint-note .ico{width:13px;height:13px}
 /* 以下只作用于**带 data-tip 的**图标。用属性选择器兜住，漏传 data-tip 时
@@ -162,8 +162,14 @@ table.bom tr:hover .hover-only{visibility:visible}
   border-radius:var(--radius)}
 .lint-warn{color:var(--yellow-badge-fg)}
 .lint-fix{color:var(--blue)}
-/* 编辑表单里「已自动修正」的行内说明（图标 + 文案） */
-.lint-inline{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+/* 「检查中」占位圆点。它同样是 .lint-note[data-tip]，命中区/气泡跟着上面那套走，
+   占位与最终换上的图标同宽，异步结果补上时行内不会抖。圆点本体画在 ::before 上：
+   [data-tip] 的 padding 命中区在 box-sizing:border-box 下会把直接设在外层的 13px
+   压成 5x7，而 ::after 已经被气泡占了 */
+.lint-checking::before{content:"";width:13px;height:13px;border-radius:50%;
+  background:var(--border);animation:lint-pulse 1.2s ease-in-out infinite}
+@keyframes lint-pulse{0%,100%{opacity:.35}50%{opacity:.9}}
+@media (prefers-reduced-motion:reduce){.lint-checking::before{animation:none}}
 /* 服务端 lint 进行中的状态条：平时不占位，htmx 给它挂 .htmx-request 时才显示 */
 .lint-status{display:none;font-size:12px;color:var(--muted)}
 .lint-status.htmx-request{display:flex;align-items:center;gap:6px}
