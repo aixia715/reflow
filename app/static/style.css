@@ -128,19 +128,48 @@ table.bom tr:hover .hover-only{visibility:visible}
    宽度不够时在容器内横滚，页面不横滚 */
 .table-scroll{width:100%;overflow-x:auto}
 
-.change-row{display:flex;justify-content:space-between;align-items:center;
+/* position:relative 是 .lint-note 提示气泡的定位锚点：气泡对齐到行的右边缘
+   （而不是图标），图标靠左时才不会把气泡顶出屏幕 */
+.change-row{position:relative;display:flex;justify-content:space-between;align-items:center;
   padding:5px 0;border-top:1px solid var(--border-soft);font-size:13px}
 .change-row:first-of-type{border-top:none}
 /* 行内 lint 图标：ⓘ=已自动修正、⚠=需人工判断的警告。值本身照常落库，
-   只做提示，悬停 title 看全文；图标随 currentColor 上色 */
-.lint-note{display:inline-flex;vertical-align:-2px;cursor:help;margin-left:3px}
+   只做提示；图标随 currentColor 上色。基础规则只管尺寸与颜色——将来若有
+   旁边已跟着明文的纯装饰图标，不传 data-tip 即可，不会有指针样式和气泡。 */
+.lint-note{display:inline-flex;vertical-align:-2px;margin-left:3px}
 .lint-note .ico{width:13px;height:13px}
+/* 以下只作用于**带 data-tip 的**图标。用属性选择器兜住，漏传 data-tip 时
+   `content:attr(data-tip)` 会取到空串——空串不等于 content:none，照样生成一个
+   带 padding/底色/阴影的空气泡；且那种图标多半不在 .change-row 里，没有定位
+   祖先，气泡会跑到初始包含块（视口）的右下角去。 */
+/* 命中区靠 padding 撑到 21x19（对齐 .icon-btn 的 19x19），上下负 margin 抵消
+   占位保持行高不变（左右净占位由 16px 增至 22px，视觉无碍）——免得 13x13 的
+   图标在 274px 宽的行里太难瞄，右边一大片空白是没有提示的 */
+.lint-note[data-tip]{cursor:help;padding:3px 4px;margin:-3px 1px -3px 0}
+/* 提示气泡不用原生 title：原生的要停悬约 1 秒才出、几秒后自动消失、且不离开
+   元素就不再复现，扫视列表时基本等于不出现。这里 hover/focus 即时显示、不消失。
+   定位锚点是 .change-row（见上），贴着行的右下角向左生长，两端都不会溢出屏幕；
+   祖先都没有 overflow:hidden，气泡可以画到 panel 外面。 */
+.lint-note[data-tip]::after{content:attr(data-tip);position:absolute;
+  top:calc(100% - 3px);right:0;
+  z-index:20;width:max-content;max-width:230px;white-space:normal;text-align:left;
+  background:var(--toast-bg);color:var(--toast-fg);border-radius:var(--radius);
+  padding:5px 8px;font-size:12px;line-height:1.45;box-shadow:0 4px 12px rgba(0,0,0,.25);
+  opacity:0;visibility:hidden;pointer-events:none}
+/* :focus 而不只是 :focus-visible——触屏点按只给 focus，不给 focus-visible */
+.lint-note[data-tip]:hover::after,.lint-note[data-tip]:focus::after{opacity:1;visibility:visible}
+.lint-note[data-tip]:focus-visible{outline:2px solid var(--accent-soft);outline-offset:1px;
+  border-radius:var(--radius)}
 .lint-warn{color:var(--yellow-badge-fg)}
 .lint-fix{color:var(--blue)}
-.lint-checking{width:13px;height:13px;border-radius:50%;background:var(--border);
-  animation:lint-pulse 1.2s ease-in-out infinite}
+/* 「检查中」占位圆点。它同样是 .lint-note[data-tip]，命中区/气泡跟着上面那套走，
+   占位与最终换上的图标同宽，异步结果补上时行内不会抖。圆点本体画在 ::before 上：
+   [data-tip] 的 padding 命中区在 box-sizing:border-box 下会把直接设在外层的 13px
+   压成 5x7，而 ::after 已经被气泡占了 */
+.lint-checking::before{content:"";width:13px;height:13px;border-radius:50%;
+  background:var(--border);animation:lint-pulse 1.2s ease-in-out infinite}
 @keyframes lint-pulse{0%,100%{opacity:.35}50%{opacity:.9}}
-@media (prefers-reduced-motion:reduce){.lint-checking{animation:none}}
+@media (prefers-reduced-motion:reduce){.lint-checking::before{animation:none}}
 /* 服务端 lint 进行中的状态条：平时不占位，htmx 给它挂 .htmx-request 时才显示 */
 .lint-status{display:none;font-size:12px;color:var(--muted)}
 .lint-status.htmx-request{display:flex;align-items:center;gap:6px}

@@ -1,4 +1,9 @@
 {# 行内 lint 图标：ⓘ=已自动修正的写法、⚠=需人工判断的警告；悬停看具体内容。
-   调用方用 {% with fix=…, warning=… %} 传值，两者都可为空串。 #}
-{%- if fix %}<span class="lint-note lint-fix" title="{{ fix }}" aria-label="{{ fix }}"><svg class="ico"><use href="#icon-info"></use></svg></span>{% endif -%}
-{%- if warning %}<span class="lint-note lint-warn" title="{{ warning }}" aria-label="{{ warning }}"><svg class="ico"><use href="#icon-warn"></use></svg></span>{% endif -%}
+   调用方用 {% with fix=…, warning=… %} 传值，两者都可为空串。
+   提示文案放 data-tip 由 CSS 气泡渲染，不用 title——原生 title 要停悬约 1 秒
+   才出、几秒后自己消失、且不移出元素就不再复现，两者并存还会叠出两个气泡。
+   tabindex="0" 让键盘也能唤出（配合 :focus-visible）。
+   **data-tip 不能漏**：气泡规则挂在 `.lint-note[data-tip]` 上兜底，漏传只会退化
+   成一个没有指针样式的纯装饰图标，不会弹出空气泡。 #}
+{%- if fix %}<span class="lint-note lint-fix" tabindex="0" role="img" data-tip="{{ fix }}" aria-label="{{ fix }}"><svg class="ico"><use href="#icon-info"></use></svg></span>{% endif -%}
+{%- if warning %}<span class="lint-note lint-warn" tabindex="0" role="img" data-tip="{{ warning }}" aria-label="{{ warning }}"><svg class="ico"><use href="#icon-warn"></use></svg></span>{% endif -%}

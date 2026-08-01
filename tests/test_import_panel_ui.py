@@ -63,6 +63,46 @@ def test_warning_note_renders_as_inline_warn_icon(client):
     assert "不是标准件" not in r.text  # 旧的独立汇总条文案已移除
 
 
+def test_lint_icons_use_data_tip_not_native_title(client):
+    """提示走 data-tip + CSS 气泡：原生 title 要停悬约 1 秒才出、几秒后自动消失、
+    且不移出元素就不再复现，扫视列表时基本等于不出现。两者并存还会叠出两个气泡。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    r = _preview(client, board_id, ws, b"Reference,Part,OP\nR9,1000pF,add\nR8,230R,add\n")
+    assert 'data-tip="修正: 1000pF → 1nF"' in r.text
+    assert 'data-tip="警告: ' in r.text
+    assert "lint-note" in r.text and 'title="修正' not in r.text
+    # 键盘/触屏也要能唤出，故图标可聚焦；role 让读屏器播报 aria-label
+    assert 'class="lint-note lint-fix" tabindex="0" role="img"' in r.text
+
+
+def test_checking_placeholder_also_uses_data_tip(client):
+    """面板首屏那个「检查中」占位圆点也是 .lint-note，提示同样走 data-tip。
+
+    它跟异步补上来的 ⓘ/⚠ 在同一个位置前后脚出现，命中区和气泡必须是同一套：
+    留着原生 title 的话，一个要停悬 1 秒、一个即时，且两者宽度不一致会让行抖。
+    """
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    client.post(f"/board/{board_id}/node/{ws}/edit",
+                data={"reference": "R1", "op": "modify", "part": "230R"})
+    html = client.get(f"/board/{board_id}/node/{ws}").text
+    assert "lint-checking" in html
+    assert 'data-tip="正在检查元器件值' in html
+    assert 'title="正在检查' not in html
+
+
+def test_changes_panel_lint_icon_also_uses_data_tip(client):
+    """面板行的 lint 结果由 /lint-changes 异步补上，那条路径也必须是 data-tip。"""
+    board_id = _setup_board(client)
+    ws = _workspace_id(board_id)
+    client.post(f"/board/{board_id}/node/{ws}/edit",
+                data={"reference": "R1", "op": "modify", "part": "230R"})
+    html = client.post(f"/board/{board_id}/node/{ws}/lint-changes").text
+    assert 'data-tip="警告: ' in html
+    assert "title=\"警告" not in html
+
+
 def test_problem_row_is_inline_and_still_blocks_apply(client):
     board_id = _setup_board(client)
     ws = _workspace_id(board_id)
