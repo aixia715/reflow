@@ -141,6 +141,23 @@ function bomPage(){
     fill(ref, op, part){
       window.dispatchEvent(new CustomEvent('fill-form', {detail: {ref, op, part}}));
     },
+    // 表格里该位号当前的 Part（只看在贴的行；不贴行没有「现值」可带）
+    partOf(ref){
+      const table = document.querySelector('#bom table.bom');
+      if (!table || !ref) return '';
+      for (const tr of table.querySelectorAll('tbody tr[data-removed="0"]'))
+        if (tr.dataset.ref === ref) return tr.dataset.part || '';
+      return '';
+    },
+    refEnter(el){
+      // 不贴时 Part 框是禁用的，没有可补的值，直接提交
+      if (this.op === 'remove') { el.closest('form').requestSubmit(); return; }
+      if (!this.part.trim()) this.part = this.partOf(this.ref.trim());
+      this.$nextTick(() => {
+        const p = this.$refs.partInput;
+        if (p) { p.focus(); p.select(); }
+      });
+    },
     firstVisibleRow(){
       const table = document.querySelector('#bom table.bom');
       if (!table) return null;

@@ -7,6 +7,7 @@
 {% endblock %}
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}">状态图</a>
+<a href="/board/{{ board_id }}/log">审计日志</a>
 {% endblock %}
 {% block content %}
 <div x-data='insertPage({
@@ -15,7 +16,11 @@
        minTs: {{ min_ts | tojson }},
        maxTs: {{ max_ts | tojson }}
      })'
-     @insert-checked.camel="onChecked($event.detail)">
+     @insert-checked.camel="onChecked($event.detail)"
+     {# 本页改动只在浏览器里，误刷一次全没。saving 见下方保存表单上的开关。 #}
+     x-init="window.addEventListener('beforeunload', e => {
+               if (pendingCount && !saving) e.preventDefault();
+             })">
   <div class="page-head">
     <h1>在 #{{ parent.id }} 之后插入变更节点</h1>
     <span class="badge badge-blue"><span x-text="pendingCount"></span> 条修改</span>
@@ -36,9 +41,17 @@
   </div>
   {% endif %}
 
+  {# 保存成功走 204 + HX-Redirect，htmx 改 window.location 也是一次 unload——
+     不解除守卫就会「存成功了还问你要不要离开」。失败路径必须重新武装：校验
+     没过回 HX-Retarget:#form-error、有冲突回 HX-Retarget:#modal，两种都留在
+     本页，暂存还在。$event.target === $el 是 CLAUDE.md 的约定（htmx 事件冒泡）。 #}
   <form class="panel"
         hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert"
-        hx-target="#form-error" hx-swap="innerHTML">
+        hx-target="#form-error" hx-swap="innerHTML"
+        @htmx:before-request="saving = true"
+        @htmx:after-request="if ($event.target === $el)
+            saving = $event.detail.successful
+                     && !$event.detail.xhr.getResponseHeader('HX-Retarget')">
     <label>节点时间（须在上一节点之后、下一节点之前）
       {# min/max 由服务端 insert_time_bounds 算好：控件是闭区间且只能产出整分钟，
          直接塞 prev/next 会放行「正好等于相邻节点」和被截掉秒的更早时间，保存时
@@ -69,8 +82,10 @@
     <div>
       <div class="toolbar">
         <span class="input-clearable">
+          {# 回车取筛选结果第一行的位号与 Part（无匹配才退回键入值），
+             与 _bom_table.html 的 firstVisibleRow() 一套行为。 #}
           <input class="input" placeholder="筛选位号 / Part…" x-model="q" x-ref="filterInput"
-                 @keydown.enter.prevent="if (q.trim()) { fill(q.trim(),'modify',''); $nextTick(() => $refs.partInput && $refs.partInput.focus()); }">
+                 @keydown.enter.prevent="filterEnter()">
           <button type="button" class="input-clear" x-show="q" x-cloak
                   @click="q=''" title="清空" tabindex="-1">×</button>
         </span>
@@ -135,15 +150,13 @@
       </div>
     </div>
     <aside>
-      <div class="panel">
+      <div class="panel" x-ref="editPanel">
         <div class="panel-title">添加修改</div>
         <div class="edit-form">
-          {# 位号框回车先补 Part 再提交：这里回车往往是在 datalist 里选中候选，
-             此时 Part 还空着，直接发 check 只会闪一条「必须填写新 Part 值」。 #}
+          {# 位号框回车先补 Part 再提交，与 _edit_form.html 的 refEnter 同一行为 #}
           <input class="input" x-model="ref" list="refs"
                  placeholder="位号（自动补全）" autocomplete="off"
-                 @keydown.enter.prevent="(op === 'remove' || part.trim())
-                     ? $refs.addBtn.click() : $refs.partInput.focus()">
+                 @keydown.enter.prevent="refEnter()">
           <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
           <div class="seg">
             <label :class="{on: op==='modify'}"><input type="radio" value="modify" x-model="op">修改</label>
@@ -156,16 +169,27 @@
           {# 校验、op 推断、元器件值 lint 全在服务端做（/insert/check），这里只发请求和显示结果：
              规则曾在本页 JS 里抄过一份，与 app/validation.py 各改各的必然漂移。
              返回 204 + HX-Trigger，由外层 @insert-checked.camel 接住。 #}
+          {# 请求失败时 htmx 收不到 HX-Trigger，onChecked 不会跑——没有这两个
+             处理器，点「添加这条」就毫无反应，用户只会以为没点上。全站没有
+             htmx 错误兜底（base.html 只挂了 htmx:afterSwap）。 #}
           <button type="button" class="btn btn-primary" x-ref="addBtn"
                   hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert/check"
                   hx-swap="none"
                   :hx-vals="JSON.stringify({reference: ref, op: op, part: part, changes: changesJson()})"
+                  @htmx:response-error.camel="editError = '检查失败（服务端返回 ' + $event.detail.xhr.status + '），请重试'"
+                  @htmx:send-error.camel="editError = '检查失败：连不上服务，请确认服务在运行后重试'"
                   >添加这条</button>
           <div class="flash flash-error" x-show="editError" x-cloak x-text="editError"></div>
         </div>
       </div>
       <div class="panel">
-        <div class="panel-title">本次插入的修改（<span x-text="pendingCount"></span>）</div>
+        {# 与 _changes_panel.html 的「清除全部修改」同款：同样的类名、同样的
+           二次确认。那边是 hx-confirm（htmx 用的就是 window.confirm），这里
+           改动只在浏览器里，直接 confirm()，观感一致。 #}
+        <div class="panel-title with-action">本次插入的修改（<span x-text="pendingCount"></span>）
+          <button type="button" class="btn-link danger ml-auto" data-testid="clear-all-changes"
+                  x-show="pendingCount" x-cloak @click="clearAll()">清除全部修改</button>
+        </div>
         <p class="muted" x-show="pendingCount===0">还没有修改。至少添加一条才能保存。</p>
         <template x-for="c in pendingList()" :key="c.reference">
           <div class="change-row">
@@ -203,6 +227,7 @@ function insertPage(data){
     minTs: data.minTs, maxTs: data.maxTs,
     q: '', tab: 'all', ref: '', op: 'modify', part: '',
     message: '', description: '', editError: '',
+    saving: false,          // 保存插入进行中/已成功 → 解除离开守卫
     pending: {},
     get pendingCount(){ return Object.keys(this.pending).length; },
     get hasSlot(){ return !!this.minTs; },
@@ -264,14 +289,70 @@ function insertPage(data){
       if (!d || !('ok' in d)) return;
       if (!d.ok){ this.editError = d.error || '校验失败'; return; }
       this.editError = '';
-      if (d.action === 'drop') delete this.pending[d.reference];
-      else this.pending[d.reference] = {op: d.op, part: d.part,
-                                        fix: d.fix || '', warning: d.warning || ''};
+      if (d.action === 'drop'){
+        delete this.pending[d.reference];
+        this.toast(`↩ ${d.reference} 已是上游原值，不记这条修改`);
+      } else {
+        this.pending[d.reference] = {op: d.op, part: d.part,
+                                     fix: d.fix || '', warning: d.warning || ''};
+        // 文案与工作区编辑的 toast 对齐（board.edit_node 的 label 表）
+        const label = {add: '已新增', modify: '已修改', remove: '已设为不贴'}[d.op];
+        this.toast(`✓ ${label}：${d.reference}` + (d.part ? ` → ${d.part}` : ''));
+      }
       this.ref = ''; this.part = ''; this.op = 'modify';
       this.$nextTick(() => this.$refs.filterInput && this.$refs.filterInput.focus());
     },
-    undo(ref){ delete this.pending[ref]; },
+    // 复用 base.html 的 toast：htmx 的 HX-Trigger 也是往 body 派这个事件，
+    // 本页改动不落库、没有响应头可挂，只能自己派一个同形状的。
+    toast(msg){
+      document.body.dispatchEvent(
+        new CustomEvent('showToast', {detail: {value: msg}}));
+    },
+    undo(ref){
+      delete this.pending[ref];
+      this.toast(`↩ 已撤销 ${ref} 的修改`);
+    },
+    clearAll(){
+      const n = this.pendingCount;
+      if (!n) return;
+      if (!confirm(`确认清除本次插入的全部 ${n} 条修改？这些位号将恢复为继承上游的值，不可恢复。`)) return;
+      this.pending = {};
+      this.toast(`↩ 已清除全部 ${n} 条修改`);
+    },
+    // 该位号当前的 Part（只看在贴的行；不贴行没有「现值」可带）
+    partOf(ref){
+      if (!ref) return '';
+      const r = this.rows().find(x => x.ref === ref);
+      return r ? (r.part || '') : '';
+    },
+    refEnter(){
+      // 不贴时 Part 框是禁用的，没有可补的值，直接提交
+      if (this.op === 'remove'){ this.$refs.addBtn.click(); return; }
+      if (!this.part.trim()) this.part = this.partOf(this.ref.trim());
+      this.$nextTick(() => {
+        const p = this.$refs.partInput;
+        if (p) { p.focus(); p.select(); }
+      });
+    },
+    // 与 _bom_table.html 的 firstVisibleRow() 对应：这里行是 Alpine 现算的，
+    // 直接按同一套 x-show 条件在数据上找，不去查 DOM。
+    firstVisible(){
+      for (const r of this.rows())
+        if ((this.tab === 'all' || this.tab === 'mine' && r.state === 'mine')
+            && this.matchQ(r)) return r;
+      for (const r of this.removedRows())
+        if ((this.tab === 'all' || this.tab === 'removed') && this.matchQ(r)) return r;
+      return null;
+    },
+    filterEnter(){
+      if (!this.q.trim()) return;
+      const r = this.firstVisible();
+      this.fill(r ? r.ref : this.q.trim(), 'modify', r ? (r.part || '') : '');
+      this.$nextTick(() => this.$refs.partInput && this.$refs.partInput.select());
+    },
     fill(ref, op, part){ this.ref = ref; this.op = op; this.part = part || '';
+      const panel = this.$refs.editPanel;
+      if (panel) panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
       this.$nextTick(() => this.$refs.partInput && this.$refs.partInput.focus()); },
     pendingList(){
       return Object.keys(this.pending).sort().map(ref => ({

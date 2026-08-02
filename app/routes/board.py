@@ -269,7 +269,8 @@ def edit_node(request: Request, board_id: int, node_id: int,
         audit.record_edit(conn, node_id, reference, old_value, part_val, op, "direct")
         conflicts = propagation._detect_downstream_conflicts(conn, node, reference, part_val)
     else:
-        conflicts = propagation.apply_node_edit(conn, node_id, reference, op, part_val)
+        conflicts = propagation.apply_node_edit(
+            conn, node_id, reference, op, part_val, drop_noop=True)
 
     node = models.get_node(conn, node_id)
     ctx = _node_context(conn, board_id, node)
@@ -286,8 +287,14 @@ def edit_node(request: Request, board_id: int, node_id: int,
         return templates.TemplateResponse(
             request, "_conflict_modal.html", ctx,
             headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
-    label = {"add": "已新增", "modify": "已修改", "remove": "已设为不贴"}[op]
-    msg = f"✓ {label}：{reference}" + (f" → {part_val}" if part_val else "")
+    # 改回上游原样时 changeset 行会被丢掉（drop_noop），面板上不会出现这一条——
+    # 沿用「已修改」的文案会和眼前的界面对不上，得说清楚发生了什么。
+    if (not node["is_committed"]
+            and models.get_change(conn, node_id, reference) is None):
+        msg = f"↩ {reference} 已是上游原值，不记这条修改"
+    else:
+        label = {"add": "已新增", "modify": "已修改", "remove": "已设为不贴"}[op]
+        msg = f"✓ {label}：{reference}" + (f" → {part_val}" if part_val else "")
     return templates.TemplateResponse(
         request, "_node_update.html", ctx,
         headers={"HX-Trigger": json.dumps({"showToast": msg})})
@@ -418,7 +425,8 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     err = _validate(conn, ws["id"], reference, op, part_val)
     if err:
         return PlainTextResponse(err, status_code=400)
-    propagation.apply_node_edit(conn, ws["id"], reference, op, part_val)
+    propagation.apply_node_edit(conn, ws["id"], reference, op, part_val,
+                                drop_noop=True)
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
 
 

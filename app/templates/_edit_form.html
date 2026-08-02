@@ -5,8 +5,12 @@
       hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit"
       hx-target="#bom" hx-swap="innerHTML"
       @htmx:after-request.camel="if ($event.target === $el && $event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; $nextTick(() => $refs.filterInput && $refs.filterInput.select()); }">
+  {# 位号框回车：先把 Part 补上再提交。这里回车多半是刚在 datalist 里选中候选，
+     此时 Part 还空着，走浏览器隐式提交只会吃一条「必须填写新 Part 值」。
+     插入页的同名处理器（insert_node.html）行为一致，改一处记得改两处。 #}
   <input class="input" name="reference" x-model="ref" list="refs"
-         placeholder="位号（自动补全）" required autocomplete="off">
+         placeholder="位号（自动补全）" required autocomplete="off"
+         @keydown.enter.prevent="refEnter($el)">
   <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
   <div class="seg">
     <label :class="{on: op==='modify'}"><input type="radio" name="op" value="modify" x-model="op">修改</label>
