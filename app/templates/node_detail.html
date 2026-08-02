@@ -101,7 +101,8 @@
       <div class="lint-status" id="import-status">正在检查 CSV，请稍候…</div>
       <div id="import-preview"></div>
     </details>
-    <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit">
+    <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit"
+          @submit="if (!confirmPendingAttachments()) $event.preventDefault()">
       <div class="panel-title">提交为新节点</div>
       <input class="input" name="message" placeholder="commit 说明" required>
       <textarea class="input" name="description" rows="4"
@@ -152,6 +153,17 @@ function bomPage(){
         if (this.rowVisible(tr)) return tr;
       }
       return null;
+    },
+    // 附件选了文件却没点「上传附件」就提交：提交不会带上它们，先问一句。
+    // 「确定」＝放弃上传照常提交，「取消」＝留在本页，滚到附件面板手动上传。
+    // 每次现查 DOM：附件面板会被 htmx 整块换掉，$refs 可能是换掉前的旧节点。
+    confirmPendingAttachments(){
+      const input = document.querySelector('#attachments input[type="file"]');
+      const n = input && input.files ? input.files.length : 0;
+      if (!n) return true;
+      const ok = confirm(`有 ${n} 个附件已选择但还没上传，提交不会带上它们。继续提交将放弃上传，是否继续？`);
+      if (!ok) document.querySelector('#attachments').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      return ok;
     },
     setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || '';
       const det = this.$refs.editDetails; if (det && !det.open) det.open = true;
