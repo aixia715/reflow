@@ -68,7 +68,8 @@
     <details class="panel">
       <summary>编辑节点信息…</summary>
       <form class="edit-form" method="post"
-            action="/board/{{ board_id }}/node/{{ node.id }}/edit-info">
+            action="/board/{{ board_id }}/node/{{ node.id }}/edit-info"
+            @submit="if (!confirmPendingAttachments()) $event.preventDefault()">
         <input class="input" name="message" value="{{ node.message }}"
                placeholder="标题（提交说明）" autocomplete="off">
         <textarea class="input" name="description" rows="4"
@@ -114,6 +115,27 @@
 </div>
 
 <script>
+// 附件选了文件却没点「上传附件」就提交：这些表单一按就整页跳走，已选的文件被
+// 悄悄丢掉，先问一句。「确定」＝放弃上传照常提交，「取消」＝留在本页手动上传。
+// 附件面板在每个节点页上都有，所以三处提交入口共用这一份：工作区草稿的
+// 「提交为新节点」、已提交节点的「保存信息」、修正历史后的冲突确认框。
+// 放在 bomPage() 外面是因为冲突确认框落在 base.html 的 #modal 里，
+// 不在 .two-col 那个 x-data 的作用域内，够不着组件方法。
+// 每次现查 DOM：附件面板会被 htmx 整块换掉，存下来的节点可能已经是旧的。
+function confirmPendingAttachments(){
+  const input = document.querySelector('#attachments input[type="file"]');
+  const n = input && input.files ? input.files.length : 0;
+  if (!n) return true;
+  const ok = confirm(`有 ${n} 个附件已选择但还没上传，提交不会带上它们。继续提交将放弃上传，是否继续？`);
+  // 冲突确认框盖在页面上时，附件面板在遮罩底下：滚过去看不见、焦点也是隐形的，
+  // 那就什么都不做，用户先关掉弹窗（≡ 全部保留下游值）再上传。
+  if (!ok && !document.querySelector('#modal .modal-overlay')) {
+    // 滚过去还不够：焦点还留在提交按钮上，键盘用户得自己 Tab 回来
+    document.querySelector('#attachments').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    input.focus();
+  }
+  return ok;
+}
 function bomPage(){
   return {
     q: '', tab: 'all',
@@ -153,21 +175,6 @@ function bomPage(){
         if (this.rowVisible(tr)) return tr;
       }
       return null;
-    },
-    // 附件选了文件却没点「上传附件」就提交：提交不会带上它们，先问一句。
-    // 「确定」＝放弃上传照常提交，「取消」＝留在本页，滚到附件面板手动上传。
-    // 每次现查 DOM：附件面板会被 htmx 整块换掉，$refs 可能是换掉前的旧节点。
-    confirmPendingAttachments(){
-      const input = document.querySelector('#attachments input[type="file"]');
-      const n = input && input.files ? input.files.length : 0;
-      if (!n) return true;
-      const ok = confirm(`有 ${n} 个附件已选择但还没上传，提交不会带上它们。继续提交将放弃上传，是否继续？`);
-      if (!ok) {
-        // 滚过去还不够：焦点还留在提交按钮上，键盘用户得自己 Tab 回来
-        document.querySelector('#attachments').scrollIntoView({behavior: 'smooth', block: 'nearest'});
-        input.focus();
-      }
-      return ok;
     },
     setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || '';
       const det = this.$refs.editDetails; if (det && !det.open) det.open = true;
