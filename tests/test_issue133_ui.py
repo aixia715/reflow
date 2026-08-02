@@ -4,11 +4,12 @@ issue #133：附件表单的文件选择框里已选文件、但还没点「上�
 弹确认框——「是」＝放弃上传继续提交，「否」＝停留在原页面手动上传。
 
 附件面板在**每个节点页**上都有（工作区草稿 + 已提交的修改节点），所以凡是
-「提交一按就整页跳走、把已选文件悄悄丢掉」的表单都要拦：
+「一按就整页跳走、把已选文件悄悄丢掉」的入口都要拦：
   - 工作区草稿的「提交为新节点」（/commit）
   - 已提交节点的「编辑节点信息 → 保存信息」（/edit-info）
   - 修正历史节点后弹出的冲突确认框「确认」（/resolve）
-插入节点页没有附件功能，不在范围内。
+  - 已提交节点的「📥 添加到草稿」（/copy-to-draft，HX-Redirect 跳去草稿页）
+插入节点页没有附件功能，不在范围内；删除节点不拦（节点连同附件本来就要没）。
 """
 import re
 
@@ -282,5 +283,59 @@ def test_conflict_resolve_no_prompt_without_pending(live_server, page: Page):
     page.on("dialog", lambda d: (seen.append(d.message), d.accept()))
     page.locator("#modal button.btn-primary").click()
     page.wait_for_url(re.compile(rf"/node/{node_id}\?flash="))
+
+    assert not seen, f"没有待上传附件时不该弹确认框，却弹了：{seen}"
+
+
+def _click_copy_to_draft(page: Page):
+    """顶部菜单里的「📥 添加到草稿」：hx-post 回 HX-Redirect，一按就跳去草稿页。"""
+    page.click(".topnav-menu-btn")
+    page.locator("button", has_text="添加到草稿").click()
+
+
+def test_copy_to_draft_prompts_when_attachment_pending(live_server, page: Page):
+    """「添加到草稿」也会整页跳走（还是跳去别的节点页）：附件已选未上传时先拦一道。"""
+    bid, committed = _api_commit_chain(live_server, "AT11", [("n1", "22k")])
+    node_id = committed[-1]
+    _goto_node(page, live_server, bid, node_id)
+    _pick_attachment(page)
+
+    seen = []
+    page.once("dialog", lambda d: (seen.append(d.message), d.dismiss()))
+    node_url = page.url
+    _click_copy_to_draft(page)
+    page.wait_for_timeout(500)
+
+    assert seen, "「添加到草稿」会跳走并丢掉已选附件，应先弹确认框"
+    assert "附件" in seen[0]
+    assert page.url == node_url
+    expect(page.locator("#attachments input[type=file]")).to_be_focused()
+
+
+def test_copy_to_draft_confirm_proceeds(live_server, page: Page):
+    """选「是」＝放弃上传，照常复制到草稿。"""
+    bid, committed = _api_commit_chain(live_server, "AT12", [("n1", "22k")])
+    node_id = committed[-1]
+    _goto_node(page, live_server, bid, node_id)
+    _pick_attachment(page)
+
+    page.once("dialog", lambda d: d.accept())
+    _click_copy_to_draft(page)
+    page.wait_for_url(re.compile(r"/node/\d+\?flash="))
+
+    assert "已复制" in page.url or "复制" in page.locator("#toast-zone").inner_text()
+    assert str(node_id) not in page.url.split("/node/")[1].split("?")[0]
+
+
+def test_copy_to_draft_no_prompt_without_pending(live_server, page: Page):
+    """没选附件时「添加到草稿」不该被拦。"""
+    bid, committed = _api_commit_chain(live_server, "AT13", [("n1", "22k")])
+    node_id = committed[-1]
+    _goto_node(page, live_server, bid, node_id)
+
+    seen = []
+    page.on("dialog", lambda d: (seen.append(d.message), d.accept()))
+    _click_copy_to_draft(page)
+    page.wait_for_url(re.compile(r"/node/\d+\?flash="))
 
     assert not seen, f"没有待上传附件时不该弹确认框，却弹了：{seen}"

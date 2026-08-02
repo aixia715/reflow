@@ -10,8 +10,16 @@
 <a class="btn btn-outline" href="/board/{{ board_id }}/node/{{ node.id }}/download"
    title="下载当前节点的完整 BOM 为 CSV（不贴位号不导出）">⬇ 下载 CSV</a>
 {% if node.is_committed and node.parent_id is not none %}
+{# 这颗按钮回 HX-Redirect，一按就整页跳去草稿页——附件面板里已选未上传的文件
+   跟着没，而且落地页是**另一个节点**的附件面板，更不容易察觉。走 htmx 的请求
+   没有表单 submit 事件可拦，用 htmx:confirm（1.9 起对每个请求都发，与有没有
+   hx-confirm 无关）：先 preventDefault 掐掉请求，确认过再 issueRequest。 #}
 <button type="button" class="btn btn-outline"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/copy-to-draft"
+        @htmx:confirm="if ($event.target === $el) {
+          $event.preventDefault();
+          if (confirmPendingAttachments()) $event.detail.issueRequest();
+        }"
         title="将此节点的修改一键复制到工作区草稿">📥 添加到草稿</button>
 <button type="button" class="btn-link danger" data-testid="delete-node"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/delete"
