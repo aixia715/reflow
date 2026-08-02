@@ -15,7 +15,9 @@ from app.csv_import import (
     parse_bom_csv, plan_full_changes, full_bom_csv_template, lint_entries,
     build_preview_rows,
 )
-from app.validation import validate_edit, validate_insert_time, validate_changes_payload
+from app.validation import (
+    validate_edit, validate_insert_time, validate_changes_payload, insert_time_bounds,
+)
 from app import compare
 from app.models import _now
 
@@ -582,11 +584,83 @@ def insert_page(request: Request, board_id: int, parent_id: int):
     known = _known_refs(initial, chain)
     unplaced = {ref: _last_value(initial, chain, ref)
                 for ref in sorted(known - set(placed))}
+    min_ts, max_ts = insert_time_bounds(parent["committed_at"], child["committed_at"])
     return templates.TemplateResponse(request, "insert_node.html", {
         "board": board, "board_id": board_id, "parent": parent, "child": child,
         "placed": placed, "unplaced": unplaced, "all_refs": sorted(known),
-        "prev_ts": parent["committed_at"], "next_ts": child["committed_at"],
+        # 页面只需要可选区间的两个端点；相邻节点的原始时刻不再下发，免得
+        # 前端又去自己截断秒算边界（那正是与 validate_insert_time 漂移的来源）
+        "min_ts": min_ts, "max_ts": max_ts,
     })
+
+
+@router.post("/board/{board_id}/node/{parent_id}/insert/check")
+def insert_check(board_id: int, parent_id: int, reference: str = Form(""),
+                 op: str = Form(""), part: str = Form(None),
+                 changes: str = Form("[]")):
+    """插入页「添加这条」的服务端校验 + lint 归一。204 + `HX-Trigger` 带回结果。
+
+    插入页的改动暂存在浏览器里，曾因此在 JS 里手抄了一份 `validate_edit`（连
+    中文错误文案一起抄）和一份 op 推断，两份规则各改各的必然漂移；客户端又完全
+    没有 lint，服务端只在保存时静默归一，用户看不到自己敲的 3.9Nf 变成了 3.9nF。
+    本端点把校验、op 推断、lint 三件事都收回服务端，客户端只负责显示与暂存。
+
+    `changes` 是本页已暂存的改动清单：基准 BOM = 父节点折叠结果 + 这些改动，
+    这样「先 add D1 再 modify D1」才判得对。返回的 op 则一律**相对父节点**
+    （暂存里 add 过的位号再改，落库仍是一条 add），与 `insert_save` 的写入一致。
+
+    action 为 drop 表示这次编辑把值改回了父节点原样（或撤掉了本页刚 add 的位号）
+    = 无操作，界面应把这条从暂存里删掉，而不是留一条空转的修改。
+    """
+    conn = get_conn()
+    parent = models.get_node(conn, parent_id)
+    if parent is None or parent["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+
+    def _reply(payload):
+        return Response(status_code=204, headers={
+            "HX-Trigger": json.dumps({"insertChecked": payload})})
+
+    def _bad(msg):
+        return _reply({"ok": False, "error": msg})
+
+    child = _insert_child(conn, parent_id)
+    if not parent["is_committed"] or child is None or not child["is_committed"]:
+        return _bad("该位置不可插入（链末请直接用工作区编辑）")
+    pending, perr = validate_changes_payload(changes)
+    if perr:
+        return _bad(perr)
+
+    reference = (reference or "").strip()
+    part_val, fix_note = _lint_with_note(reference, op, part)
+
+    initial, chain = models.get_chain(conn, parent_id)
+    parent_bom = fold_bom(initial, chain)
+    sim = dict(parent_bom)
+    for ch in pending:
+        ref = (ch.get("reference") or "").strip()
+        if ch.get("op") == "remove":
+            sim.pop(ref, None)
+        else:
+            sim[ref] = ch.get("part")
+
+    err = validate_edit(sim, reference, op, part_val)
+    if err:
+        return _bad(err)
+
+    if op == "remove":
+        # 本页刚 add 出来的位号又被设为不贴 → 两步互相抵消，落库不该留痕
+        action = "set" if reference in parent_bom else "drop"
+        stored_op, stored_part = "remove", None
+    elif reference in parent_bom:
+        action = "drop" if parent_bom[reference] == part_val else "set"
+        stored_op, stored_part = "modify", part_val
+    else:
+        action, stored_op, stored_part = "set", "add", part_val
+
+    return _reply({"ok": True, "action": action, "reference": reference,
+                   "op": stored_op, "part": stored_part, "fix": fix_note,
+                   "warning": lint_warning_for(reference, part_val) or ""})
 
 
 @router.post("/board/{board_id}/node/{parent_id}/insert")

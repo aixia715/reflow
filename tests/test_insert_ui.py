@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import urllib.request
 import urllib.error
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -114,3 +115,66 @@ def test_insert_button_only_on_middle_nodes(insert_server, page: Page):
     # root 与 c1 的子节点都是已提交节点 → 各有插入按钮；c2（最后一个已提交）和草稿没有
     buttons = page.locator("button", has_text="在此后插入")
     expect(buttons).to_have_count(2)
+
+
+def test_add_change_shows_server_lint_fix(insert_server, page: Page):
+    """写法被服务端归一后，暂存面板要出现 ⓘ 说明——插入页原先完全没有 lint 反馈。"""
+    bid, c1, c2 = _make_chain(insert_server)
+    page.goto(f"{insert_server['base']}/board/{bid}/node/{c1}/insert")
+    page.locator("input[placeholder='位号（自动补全）']").fill("C5")
+    page.locator(".edit-form .seg label", has_text="新增").click()
+    page.locator("input[placeholder='新 Part 值']").fill("3.9Nf")
+    page.get_by_role("button", name="添加这条").click()
+    row = page.locator(".change-row", has_text="C5")
+    expect(row).to_contain_text("3.9nF")          # 存的是归一后的值
+    expect(row.locator(".lint-fix")).to_be_visible()
+
+
+def test_add_change_reports_server_validation_error(insert_server, page: Page):
+    """校验文案来自服务端 validate_edit，页面不再自己判一遍。"""
+    bid, c1, c2 = _make_chain(insert_server)
+    page.goto(f"{insert_server['base']}/board/{bid}/node/{c1}/insert")
+    page.locator("input[placeholder='位号（自动补全）']").fill("R1")
+    page.locator(".edit-form .seg label", has_text="新增").click()
+    page.locator("input[placeholder='新 Part 值']").fill("1k")
+    page.get_by_role("button", name="添加这条").click()
+    expect(page.locator(".edit-form .flash-error")).to_contain_text("已存在")
+
+
+def test_editing_value_back_to_upstream_drops_the_entry(insert_server, page: Page):
+    """改回上游原值 = 无操作，这条应从暂存里消失（op 推断与抵消判断都在服务端）。"""
+    bid, c1, c2 = _make_chain(insert_server)
+    page.goto(f"{insert_server['base']}/board/{bid}/node/{c1}/insert")
+    ref_in = page.locator("input[placeholder='位号（自动补全）']")
+    part_in = page.locator("input[placeholder='新 Part 值']")
+    ref_in.fill("R1")
+    part_in.fill("47k")
+    page.get_by_role("button", name="添加这条").click()
+    expect(page.locator(".change-row", has_text="R1")).to_be_visible()
+    ref_in.fill("R1")
+    part_in.fill("10k")           # 父节点原值
+    page.get_by_role("button", name="添加这条").click()
+    expect(page.locator(".change-row", has_text="R1")).to_have_count(0)
+    expect(page.get_by_role("button", name="保存插入")).to_be_disabled()
+
+
+def test_time_control_bounds_exclude_neighbour_timestamps(insert_server, page: Page):
+    """控件 min/max 是服务端算的可选整分钟，不含相邻节点自身的时刻。"""
+    bid, c1, c2 = _make_chain(insert_server)
+    page.goto(f"{insert_server['base']}/board/{bid}/node/{c1}/insert")
+    box = page.locator("input[type='datetime-local']")
+    lo = box.get_attribute("min")
+    hi = box.get_attribute("max")
+    val = box.input_value()
+    assert lo and hi and val
+    assert lo < hi and lo <= val <= hi
+    # 控件里是浏览器本地时间，换算回 UTC 再断言：直接看本地字面量的分钟位，
+    # 在 45 分钟偏移的时区（Asia/Kathmandu +05:45）下会假失败。
+    def _to_utc(local_str):
+        off = page.evaluate(  # getTimezoneOffset：UTC = 本地 + off 分钟，按当时的 DST 取
+            f"new Date('{local_str}').getTimezoneOffset()")
+        return datetime.fromisoformat(local_str) + timedelta(minutes=off)
+
+    # c1=06-01T00:00:00Z、c2=06-10T00:00:00Z → 开区间内最早/最晚的整分钟
+    assert _to_utc(lo) == datetime(2026, 6, 1, 0, 1)
+    assert _to_utc(hi) == datetime(2026, 6, 9, 23, 59)

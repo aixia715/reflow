@@ -209,3 +209,106 @@ def test_insert_conflict_when_downstream_explicit(client):
     conn = get_conn()
     new = conn.execute("SELECT * FROM nodes WHERE parent_id=?", (c1,)).fetchone()
     assert new["id"] != c2
+
+
+# ---- /insert/check：插入页「添加这条」的服务端校验 + lint 归一（校验单一来源） ----
+#
+# 插入页曾在 JS 里手抄一份 validate_edit（含错误文案）和一份 op 推断，两份规则
+# 各改各的必然漂移；且客户端完全没有 lint，服务端在保存时静默归一，用户看不到
+# 自己敲的 3.9Nf 被改成了 3.9nF。本端点把这三件事收回服务端：客户端只负责显示。
+
+
+def _check(client, board_id, parent_id, reference, op, part="", changes="[]"):
+    r = client.post(f"/board/{board_id}/node/{parent_id}/insert/check",
+                    data={"reference": reference, "op": op,
+                          "part": part, "changes": changes})
+    assert r.status_code == 204
+    return json.loads(r.headers["HX-Trigger"])["insertChecked"]
+
+
+def test_check_rejects_add_of_existing_reference(client):
+    """错误文案与 validate_edit 同源，不再由 JS 复述。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    got = _check(client, board_id, c1, "R1", "add", "1k")
+    assert got["ok"] is False
+    assert "已存在" in got["error"]
+
+
+def test_check_rejects_modify_of_unknown_reference(client):
+    board_id, root, c1, c2 = _setup_chain(client)
+    got = _check(client, board_id, c1, "R404", "modify", "1k")
+    assert got["ok"] is False
+    assert "不存在" in got["error"]
+
+
+def test_check_normalizes_part_and_reports_fix(client):
+    """lint 归一发生在服务端，并把一次性的 fix 文案带回给界面显示。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    got = _check(client, board_id, c1, "C5", "add", "3.9Nf")
+    assert got["ok"] is True
+    assert got["part"] == "3.9nF"
+    assert got["fix"]
+
+
+def test_check_folds_pending_changes_into_the_baseline(client):
+    """基准 BOM = 父节点折叠结果 + 本页暂存的改动，后一条能依赖前一条。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    pending = json.dumps([{"reference": "D1", "op": "add", "part": "1uF"}])
+    got = _check(client, board_id, c1, "D1", "modify", "2uF", changes=pending)
+    assert got["ok"] is True
+
+
+def test_check_returns_parent_relative_op(client):
+    """暂存里已 add 过的位号再改，落库 op 仍须是相对父节点的 add（op 推断收归服务端）。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    pending = json.dumps([{"reference": "D1", "op": "add", "part": "1uF"}])
+    got = _check(client, board_id, c1, "D1", "modify", "2uF", changes=pending)
+    assert got["action"] == "set"
+    assert got["op"] == "add"
+
+
+def test_check_drops_entry_when_value_returns_to_upstream(client):
+    """改回父节点原值 = 无操作，暂存里这条应当消失，而不是留一条空转的修改。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    pending = json.dumps([{"reference": "R1", "op": "modify", "part": "47k"}])
+    got = _check(client, board_id, c1, "R1", "modify", "10k", changes=pending)
+    assert got["ok"] is True
+    assert got["action"] == "drop"
+
+
+def test_check_drops_entry_when_removing_a_pending_add(client):
+    board_id, root, c1, c2 = _setup_chain(client)
+    pending = json.dumps([{"reference": "D1", "op": "add", "part": "1uF"}])
+    got = _check(client, board_id, c1, "D1", "remove", changes=pending)
+    assert got["ok"] is True
+    assert got["action"] == "drop"
+
+
+def test_check_marks_remove_of_upstream_reference_as_set(client):
+    board_id, root, c1, c2 = _setup_chain(client)
+    got = _check(client, board_id, c1, "C9", "remove")
+    assert got["action"] == "set"
+    assert got["op"] == "remove"
+    assert got["part"] is None
+
+
+def test_check_rejects_malformed_pending_payload(client):
+    board_id, root, c1, c2 = _setup_chain(client)
+    got = _check(client, board_id, c1, "D1", "add", "1uF", changes="{oops")
+    assert got["ok"] is False
+    assert "格式" in got["error"]
+
+
+def test_check_refuses_uninsertable_position(client):
+    """链末不可插入，校验端点也要挡住，别让界面以为可以攒改动。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    got = _check(client, board_id, c2, "D1", "add", "1uF")
+    assert got["ok"] is False
+
+
+def test_insert_page_bounds_exclude_the_endpoints(client):
+    """日期控件的 min/max 由 insert_time_bounds 算好后下发，不再在 JS 里截断秒。"""
+    board_id, root, c1, c2 = _setup_chain(client)
+    r = client.get(f"/board/{board_id}/node/{c1}/insert")
+    assert "2026-06-01T00:01:00+00:00" in r.text   # 上一节点 00:00:00 → 下界进位一分钟
+    assert "2026-06-09T23:59:00+00:00" in r.text   # 下一节点 00:00:00 → 上界退一分钟

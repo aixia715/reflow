@@ -58,6 +58,7 @@ pytest                        # 全部测试
 - 前端约定：HTMX 局部刷新 + Alpine.js 客户端小交互（CDN，无构建）。校验失败返回 200 + `HX-Retarget: #form-error`；编辑/撤销成功返回 `_node_update.html`（主体换 `#bom`，OOB 换 `#changes-panel`、清 `#form-error`）+ `HX-Trigger: {"showToast": …}`（json.dumps 保持 ASCII）；整页跳转用 `?flash=` 显示 toast。htmx 事件在 Alpine 里监听要加 `.camel` 修饰符；模板向 hx-vals/JS 传值一律 `|tojson` 且属性用单引号。表单内某个字段需要独立于整表单提交做「输入即请求」的小交互（如失焦校验/联想），给该字段单独挂 `hx-post`/`hx-trigger`，返回 204 + `HX-Trigger: {"xxxLinted": {...}}` 携带数据，Alpine 用 `@xxx-linted.camel` 接收；此时表单级 `@htmx:after-request` 处理器必须用 `$event.target === $el` 排除这类嵌套请求（htmx 事件会冒泡），否则会被误判为表单提交成功——现存守卫示例见 `_edit_form.html` 的 `@htmx:after-request` 处理器。
 - 撤销仅限工作区草稿（is_committed=0），实现为删 changeset 行，不记审计日志。「清除全部修改」（`/undo-all`）同语义，只是一次删光整个 changeset。
 - 冲突确认是弹窗（`_conflict_modal.html`），取消 ≡ 全部「保留下游值」。
+- **插入节点页的改动暂存在浏览器，但校验不许留在前端**：位号校验、op 推断、元器件 lint 一律走 `/board/{id}/node/{pid}/insert/check`（204 + `HX-Trigger: insertChecked`），JS 只负责显示与暂存——这三样曾在 `insert_node.html` 里各抄过一份，与 `app/validation.py` 各改各的必然漂移。日期控件的 min/max 同理，由 `validation.insert_time_bounds` 算好下发，与 `validate_insert_time` 的开区间同源（控件是闭区间且只能产出整分钟，自己截秒必然两头漏）。
 - 新建单板是唯一创建入口（`/board/new`），BOM 版本随之隐式创建；校验有问题禁止创建。
 - **时间统一**：存储层一律 canonical UTC（`YYYY-MM-DDTHH:MM:SS+00:00`，见 `models._now`）；硬更改 `occurred_at` 由前端在提交时转 UTC；展示层用 `<time class="local-dt" datetime="UTC">` + `base.html` 的 `renderLocalDates()` 渲染为浏览器本地时间。历史旧数据用 `scripts/migrate_occurred_at_utc.py`（按新加坡 +08:00）一次性迁移。
 

@@ -12,9 +12,10 @@
 <div x-data='insertPage({
        placed: {{ placed | tojson }},
        unplaced: {{ unplaced | tojson }},
-       prevTs: {{ prev_ts | tojson }},
-       nextTs: {{ next_ts | tojson }}
-     })'>
+       minTs: {{ min_ts | tojson }},
+       maxTs: {{ max_ts | tojson }}
+     })'
+     @insert-checked.camel="onChecked($event.detail)">
   <div class="page-head">
     <h1>在 #{{ parent.id }} 之后插入变更节点</h1>
     <span class="badge badge-blue"><span x-text="pendingCount"></span> 条修改</span>
@@ -26,17 +27,25 @@
     本页改动<b>暂存在浏览器</b>，点「保存插入」才会真正建立节点；未保存则什么都不会发生。
   </div>
 
+  {% if not min_ts %}
+  <div class="flash flash-error">
+    {# 不要在这里指向「编辑节点信息」——那个表单只改标题和长文本说明，
+       全站没有任何界面能改已提交节点的 committed_at，照着指引去只会扑空。 #}
+    上一节点与下一节点相隔不足一分钟，两者之间没有可选的插入时间（时间控件只能选到整分钟），
+    此处无法插入节点。可以改在其他相邻节点之间插入，或直接在工作区记录新的变更并提交。
+  </div>
+  {% endif %}
+
   <form class="panel"
         hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert"
         hx-target="#form-error" hx-swap="innerHTML">
     <label>节点时间（须在上一节点之后、下一节点之前）
+      {# min/max 由服务端 insert_time_bounds 算好：控件是闭区间且只能产出整分钟，
+         直接塞 prev/next 会放行「正好等于相邻节点」和被截掉秒的更早时间，保存时
+         才被 validate_insert_time 拒掉。边界与校验同源，控件放行的必然能保存。 #}
       <input class="input" type="datetime-local" name="_local" required x-ref="local"
-             x-init="
-               $el.min = toLocalInput('{{ prev_ts }}');
-               $el.max = toLocalInput('{{ next_ts }}');
-               $el.value = toLocalInput(new Date((Date.parse('{{ prev_ts }}')+Date.parse('{{ next_ts }}'))/2).toISOString());
-               sync();"
-             @input="sync()">
+             {% if not min_ts %}disabled{% endif %}
+             x-init="initTime($el)" @input="sync()">
       <input type="hidden" name="committed_at" x-ref="utc">
     </label>
     <label>标题（可选）
@@ -49,7 +58,8 @@
     </label>
     <input type="hidden" name="changes" :value="changesJson()">
     <div class="form-actions">
-      <button class="btn btn-primary" type="submit" :disabled="pendingCount===0">保存插入</button>
+      <button class="btn btn-primary" type="submit"
+              :disabled="pendingCount===0 || !hasSlot">保存插入</button>
       <a class="btn btn-outline" href="/board/{{ board_id }}">取消</a>
     </div>
     <div id="form-error"></div>
@@ -128,8 +138,12 @@
       <div class="panel">
         <div class="panel-title">添加修改</div>
         <div class="edit-form">
+          {# 位号框回车先补 Part 再提交：这里回车往往是在 datalist 里选中候选，
+             此时 Part 还空着，直接发 check 只会闪一条「必须填写新 Part 值」。 #}
           <input class="input" x-model="ref" list="refs"
-                 placeholder="位号（自动补全）" autocomplete="off">
+                 placeholder="位号（自动补全）" autocomplete="off"
+                 @keydown.enter.prevent="(op === 'remove' || part.trim())
+                     ? $refs.addBtn.click() : $refs.partInput.focus()">
           <datalist id="refs">{% for ref in all_refs %}<option value="{{ ref }}">{% endfor %}</datalist>
           <div class="seg">
             <label :class="{on: op==='modify'}"><input type="radio" value="modify" x-model="op">修改</label>
@@ -138,8 +152,15 @@
           </div>
           <input class="input" x-model="part" x-ref="partInput"
                  placeholder="新 Part 值" :disabled="op==='remove'"
-                 @keydown.enter.prevent="apply()">
-          <button type="button" class="btn btn-primary" @click="apply()">添加这条</button>
+                 @keydown.enter.prevent="$refs.addBtn.click()">
+          {# 校验、op 推断、元器件值 lint 全在服务端做（/insert/check），这里只发请求和显示结果：
+             规则曾在本页 JS 里抄过一份，与 app/validation.py 各改各的必然漂移。
+             返回 204 + HX-Trigger，由外层 @insert-checked.camel 接住。 #}
+          <button type="button" class="btn btn-primary" x-ref="addBtn"
+                  hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert/check"
+                  hx-swap="none"
+                  :hx-vals="JSON.stringify({reference: ref, op: op, part: part, changes: changesJson()})"
+                  >添加这条</button>
           <div class="flash flash-error" x-show="editError" x-cloak x-text="editError"></div>
         </div>
       </div>
@@ -152,6 +173,13 @@
               <span x-show="c.op==='remove'">不贴</span>
               <span x-show="c.op==='add'" x-text="'新增 → '+c.part"></span>
               <span x-show="c.op==='modify'" x-text="'修改 → '+c.part"></span>
+              {# 与 _lint_icons.html 同款：ⓘ=已自动修正的写法、⚠=需人工判断。
+                 那边的值由 Jinja 渲染，这里的改动还没落库、只在浏览器里，
+                 只能由 Alpine 绑同样的类与 data-tip 气泡。 #}
+              <span class="lint-note lint-fix" x-show="c.fix" x-cloak tabindex="0" role="img"
+                    :data-tip="c.fix" :aria-label="c.fix"><svg class="ico"><use href="#icon-info"></use></svg></span>
+              <span class="lint-note lint-warn" x-show="c.warning" x-cloak tabindex="0" role="img"
+                    :data-tip="c.warning" :aria-label="c.warning"><svg class="ico"><use href="#icon-warn"></use></svg></span>
             </span>
             <span class="row-icons">
               <button type="button" class="icon-btn" title="修改" aria-label="修改" @click="fill(c.reference, c.op==='remove' ? 'remove' : 'modify', c.part)">
@@ -172,15 +200,27 @@
 function insertPage(data){
   return {
     placed: data.placed, unplaced: data.unplaced,
+    minTs: data.minTs, maxTs: data.maxTs,
     q: '', tab: 'all', ref: '', op: 'modify', part: '',
     message: '', description: '', editError: '',
     pending: {},
     get pendingCount(){ return Object.keys(this.pending).length; },
+    get hasSlot(){ return !!this.minTs; },
     toLocalInput(iso){ if(!iso) return ''; const d = new Date(iso);
       return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16); },
     toUtc(v){ if(!v) return ''; const d = new Date(v); const p = n => String(n).padStart(2,'0');
       return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}T`
            + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:00+00:00`; },
+    // 边界已是整分钟，slice 到分钟不再丢精度；默认值取两端中点并对齐到整分钟，
+    // 必然落在 [min, max] 内（哪怕两端只差一分钟）。
+    initTime(el){
+      if (!this.hasSlot) return;
+      el.min = this.toLocalInput(this.minTs);
+      el.max = this.toLocalInput(this.maxTs);
+      const mid = (Date.parse(this.minTs) + Date.parse(this.maxTs)) / 2;
+      el.value = this.toLocalInput(new Date(mid - (mid % 60000)).toISOString());
+      this.sync();
+    },
     sync(){ this.$refs.utc.value = this.toUtc(this.$refs.local.value); },
     matchQ(r){
       const q = this.q.trim().toLowerCase();
@@ -218,37 +258,15 @@ function insertPage(data){
       out.sort((a,b)=>a.ref.localeCompare(b.ref));
       return out;
     },
-    currentBom(){ const m = {}; for (const r of this.rows()) m[r.ref] = r.part; return m; },
-    validate(ref, op, part){
-      ref = (ref || '').trim();
-      if (!ref) return '位号不能为空';
-      const cur = this.currentBom();
-      const hasPart = !!(part || '').trim();
-      if (op === 'add'){
-        if (ref in cur) return `位号 ${ref} 已存在，请用「修改」`;
-        if (!hasPart) return '新增位号必须填写 Part';
-      } else if (op === 'modify'){
-        if (!(ref in cur)) return `位号 ${ref} 不存在，无法修改`;
-        if (!hasPart) return '修改必须填写新 Part 值';
-      } else if (op === 'remove'){
-        if (!(ref in cur)) return `位号 ${ref} 不存在或已是不贴状态`;
-      } else return '未知操作类型';
-      return null;
-    },
-    apply(){
-      const ref = (this.ref || '').trim();
-      const err = this.validate(ref, this.op, this.part);
-      if (err){ this.editError = err; return; }
+    // /insert/check 的回执：ok=false 就地报错；ok=true 时 action 决定这条是记下还是抵消。
+    // op / part 一律用服务端给的值——op 是相对父节点算的，part 是 lint 归一后的。
+    onChecked(d){
+      if (!d || !('ok' in d)) return;
+      if (!d.ok){ this.editError = d.error || '校验失败'; return; }
       this.editError = '';
-      const present = this.op !== 'remove';
-      const P = present ? this.part : null;
-      if (present){
-        if (ref in this.placed && this.placed[ref] === P) delete this.pending[ref];
-        else this.pending[ref] = {op: (ref in this.placed) ? 'modify' : 'add', part: P};
-      } else {
-        if (!(ref in this.placed)) delete this.pending[ref];
-        else this.pending[ref] = {op: 'remove', part: null};
-      }
+      if (d.action === 'drop') delete this.pending[d.reference];
+      else this.pending[d.reference] = {op: d.op, part: d.part,
+                                        fix: d.fix || '', warning: d.warning || ''};
       this.ref = ''; this.part = ''; this.op = 'modify';
       this.$nextTick(() => this.$refs.filterInput && this.$refs.filterInput.focus());
     },
@@ -256,10 +274,15 @@ function insertPage(data){
     fill(ref, op, part){ this.ref = ref; this.op = op; this.part = part || '';
       this.$nextTick(() => this.$refs.partInput && this.$refs.partInput.focus()); },
     pendingList(){
-      return Object.keys(this.pending).sort()
-        .map(ref => ({reference: ref, op: this.pending[ref].op, part: this.pending[ref].part}));
+      return Object.keys(this.pending).sort().map(ref => ({
+        reference: ref, op: this.pending[ref].op, part: this.pending[ref].part,
+        fix: this.pending[ref].fix || '', warning: this.pending[ref].warning || ''}));
     },
-    changesJson(){ return JSON.stringify(this.pendingList()); },
+    // 提交给 /insert 与 /insert/check 的载荷只带三个字段，lint 文案不回传服务端
+    changesJson(){
+      return JSON.stringify(this.pendingList().map(
+        c => ({reference: c.reference, op: c.op, part: c.part})));
+    },
   };
 }
 </script>
