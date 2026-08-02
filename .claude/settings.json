@@ -10,6 +10,16 @@
             "statusMessage": "同步 deploy.sh 到 deploy.*.sh..."
           }
         ]
+      },
+      {
+        "matcher": "create_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/pr-subscribe-hint.sh",
+            "statusMessage": "提醒订阅 PR 评审/CI..."
+          }
+        ]
       }
     ]
   }
