@@ -64,6 +64,7 @@ pytest                        # 全部测试
 - **插入页的两张 BOM 不要混用**（`_insert_boms`）：校验与「相对屏幕」的求差用**当前视图**（父节点折叠 + 本页暂存），否则「先手工加一条再导入」会算错；而回给前端落库用的 op 一律用 `bom_engine.stage_change` 按**父节点**换算（暂存里 add 过的位号再改，落库仍是一条 add），值回到父节点原样的标成 `action=drop`。单条编辑与批量导入共用 `stage_change` 这一份判定，别再各写一遍。
 - 新建单板是唯一创建入口（`/board/new`），BOM 版本随之隐式创建；校验有问题禁止创建。
 - **时间统一**：存储层一律 canonical UTC（`YYYY-MM-DDTHH:MM:SS+00:00`，见 `models._now`）；硬更改 `occurred_at` 由前端在提交时转 UTC；展示层用 `<time class="local-dt" datetime="UTC">` + `base.html` 的 `renderLocalDates()` 渲染为浏览器本地时间。历史旧数据用 `scripts/migrate_occurred_at_utc.py`（按新加坡 +08:00）一次性迁移。
+- **开完 PR 立刻订阅它的评审与 CI**（`subscribe_pr_activity`），并跟进到绿灯：`.github/workflows/ci.yml` 只在 PR `opened` 时跑 opencode 评审（`synchronize` 跳过），漏订阅就没人接评审意见和 CI 结果。`.claude/settings.json` 里挂了 PostToolUse hook（`scripts/pr-subscribe-hint.sh`）在建完 PR 后提醒——hook 是 shell 命令、调不动 MCP 工具，只负责回灌提示，订阅调用仍要自己发。matcher 写成 `.*create_pull_request$`：带 `$` 才不会连 `create_pull_request_with_copilot` 一起命中，带 `.*` 才能兼容「全串匹配」语义的实现。
 
 ## 文档
 
