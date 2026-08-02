@@ -67,6 +67,8 @@ def test_pending_attachment_prompts_and_cancel_stays(live_server, page: Page):
     # 停留在原页面，文件仍在选择框里，等用户手动上传
     assert page.url == node_url
     expect(page.locator("#attachments input[type=file]")).to_be_visible()
+    # 焦点落到文件选择框：键盘用户不用自己 Tab 回附件面板
+    expect(page.locator("#attachments input[type=file]")).to_be_focused()
     assert "c-cancel" not in _state_graph_html(live_server, bid)
 
 

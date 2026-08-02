@@ -162,7 +162,11 @@ function bomPage(){
       const n = input && input.files ? input.files.length : 0;
       if (!n) return true;
       const ok = confirm(`有 ${n} 个附件已选择但还没上传，提交不会带上它们。继续提交将放弃上传，是否继续？`);
-      if (!ok) document.querySelector('#attachments').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      if (!ok) {
+        // 滚过去还不够：焦点还留在提交按钮上，键盘用户得自己 Tab 回来
+        document.querySelector('#attachments').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+        input.focus();
+      }
       return ok;
     },
     setFrom(d){ this.ref = d.ref; this.op = d.op; this.part = d.part || '';
