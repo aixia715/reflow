@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse, PlainTextResponse, Response, Fil
 
 from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
-from app.bom_engine import fold_bom
+from app.bom_engine import fold_bom, stage_change
 from app.bom_export import bom_to_csv
 from app.component_lint import lint_part, lint_warning_for
 from app.csv_import import (
@@ -484,6 +484,9 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
            "changes": [], "problems": [], "rows": [], "ready": False,
            "mode": mode, "unchanged": 0,
+           # 显式传 False：模板的 {% if ready and client_apply %} 若靠 Undefined
+           # 为假值，改成 StrictUndefined 那天这里会直接 500
+           "client_apply": False,
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
 
     text, err = await _read_upload(file)
@@ -602,6 +605,106 @@ def insert_page(request: Request, board_id: int, parent_id: int):
     })
 
 
+def _insert_boms(conn, parent_id, pending) -> tuple[dict, dict]:
+    """插入页要用的两张 BOM：(父节点折叠结果, 叠上本页暂存改动后的当前视图)。
+
+    校验和「相对屏幕」的求差用后者——先手工加一条再导入，基准必须是用户眼前
+    看到的表；换算落库用的 op 则用前者，changeset 是相对父节点的。
+    """
+    initial, chain = models.get_chain(conn, parent_id)
+    parent_bom = fold_bom(initial, chain)
+    current = dict(parent_bom)
+    for ch in pending:
+        ref = (ch.get("reference") or "").strip()
+        if ch.get("op") == "remove":
+            current.pop(ref, None)
+        else:
+            current[ref] = ch.get("part")
+    return parent_bom, current
+
+
+@router.post("/board/{board_id}/node/{parent_id}/insert/import/preview")
+async def insert_import_preview(request: Request, board_id: int, parent_id: int,
+                                file: UploadFile | None = File(None),
+                                mode: str = Form("diff"),
+                                changes: str = Form("[]")):
+    """插入页的 CSV 导入预览：**只算不写库**，结果交回浏览器合进暂存。
+
+    与节点页的 `/import/preview` 同一套解析与求差逻辑，两点不同：
+    · 基准是「父节点折叠 BOM + 本页已暂存的改动」，即用户眼前那张表；
+    · 除了展示用的 changes，另外回一份 `staged`——每条按 `stage_change` 换算成
+      相对父节点的 op，值回到父节点原样的标成 drop，与 `/insert/check` 同口径。
+
+    没有「应用」端点：这一页的改动本就不落库，前端拿 staged 合进暂存即可。
+    """
+    conn = get_conn()
+    parent = models.get_node(conn, parent_id)
+    if parent is None or parent["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="节点不存在")
+
+    ctx = {"board_id": board_id, "node_id": parent_id, "message": "",
+           "changes": [], "problems": [], "rows": [], "ready": False,
+           "mode": mode, "unchanged": 0, "client_apply": True, "staged_json": "[]",
+           "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
+
+    def _render(msg=""):
+        ctx["message"] = msg
+        return templates.TemplateResponse(request, "_import_preview.html", ctx)
+
+    child = _insert_child(conn, parent_id)
+    if not parent["is_committed"] or child is None or not child["is_committed"]:
+        return _render("该位置不可插入（链末请直接用工作区编辑）")
+    pending, perr = validate_changes_payload(changes)
+    if perr:
+        return _render(perr)
+
+    text, err = await _read_upload(file)
+    if err:
+        return _render(err)
+
+    parent_bom, current = _insert_boms(conn, parent_id, pending)
+    try:
+        if mode == "full":
+            entries, problems = parse_bom_csv(text, forbid_op=True)
+            entries, lint_notes = lint_entries(entries)
+            bad = {p.reference for p in problems}
+            target = {e.reference: e.part for e in entries if e.reference not in bad}
+            base = {ref: part for ref, part in current.items() if ref not in bad}
+            planned, invalid = plan_full_changes(base, target)
+            ctx["unchanged"] = sum(1 for ref, part in base.items()
+                                   if target.get(ref) == part)
+        else:
+            entries, problems = parse_change_csv(text)
+            entries, lint_notes = lint_entries(entries)
+            planned, invalid = plan_changes(current, entries)
+    except ValueError as e:
+        return _render(str(e))
+
+    problems = problems + invalid
+    # lint 提示随载荷一起带回：手工「添加这条」的暂存行有 ⓘ/⚠，预览行也有，
+    # 唯独导入进暂存后消失的话，同一条改动在三处观感不一致。
+    notes = {n.reference: n for n in lint_notes}
+    staged = []
+    for c in planned:
+        action, op_, part = stage_change(
+            parent_bom, c.reference, None if c.op == "remove" else c.part)
+        note = notes.get(c.reference)
+        staged.append({
+            "reference": c.reference, "op": op_, "part": part, "action": action,
+            "fix": note.detail if note and note.level == "fix" else "",
+            "warning": note.detail if note and note.level == "warning" else "",
+        })
+    ctx.update(
+        changes=[c._asdict() for c in planned], problems=problems,
+        rows=build_preview_rows(planned, problems, lint_notes),
+        ready=bool(planned) and not problems,
+        counts={op_: sum(1 for c in planned if c.op == op_)
+                for op_ in ("add", "modify", "remove")},
+        staged_json=json.dumps(staged, ensure_ascii=False),
+    )
+    return _render()
+
+
 @router.post("/board/{board_id}/node/{parent_id}/insert/check")
 def insert_check(board_id: int, parent_id: int, reference: str = Form(""),
                  op: str = Form(""), part: str = Form(None),
@@ -642,29 +745,14 @@ def insert_check(board_id: int, parent_id: int, reference: str = Form(""),
     reference = (reference or "").strip()
     part_val, fix_note = _lint_with_note(reference, op, part)
 
-    initial, chain = models.get_chain(conn, parent_id)
-    parent_bom = fold_bom(initial, chain)
-    sim = dict(parent_bom)
-    for ch in pending:
-        ref = (ch.get("reference") or "").strip()
-        if ch.get("op") == "remove":
-            sim.pop(ref, None)
-        else:
-            sim[ref] = ch.get("part")
-
+    parent_bom, sim = _insert_boms(conn, parent_id, pending)
     err = validate_edit(sim, reference, op, part_val)
     if err:
         return _bad(err)
 
-    if op == "remove":
-        # 本页刚 add 出来的位号又被设为不贴 → 两步互相抵消，落库不该留痕
-        action = "set" if reference in parent_bom else "drop"
-        stored_op, stored_part = "remove", None
-    elif reference in parent_bom:
-        action = "drop" if parent_bom[reference] == part_val else "set"
-        stored_op, stored_part = "modify", part_val
-    else:
-        action, stored_op, stored_part = "set", "add", part_val
+    # op 相对父节点算、抵消判定为 drop——与 CSV 批量导入共用同一套换算
+    action, stored_op, stored_part = stage_change(
+        parent_bom, reference, None if op == "remove" else part_val)
 
     return _reply({"ok": True, "action": action, "reference": reference,
                    "op": stored_op, "part": stored_part, "fix": fix_note,
