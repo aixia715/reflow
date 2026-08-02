@@ -299,8 +299,12 @@ function insertPage(data){
         const label = {add: '已新增', modify: '已修改', remove: '已设为不贴'}[d.op];
         this.toast(`✓ ${label}：${d.reference}` + (d.part ? ` → ${d.part}` : ''));
       }
-      this.ref = ''; this.part = ''; this.op = 'modify';
-      this.$nextTick(() => this.$refs.filterInput && this.$refs.filterInput.focus());
+      // 清空输入框只在「用户还没动过」时做：check 请求飞在路上的这段时间，
+      // 手快的人已经在敲下一条了，无条件清空会把刚敲的位号连同焦点一起抢走。
+      if (this.ref.trim() === d.reference){
+        this.ref = ''; this.part = ''; this.op = 'modify';
+        this.$nextTick(() => this.$refs.filterInput && this.$refs.filterInput.focus());
+      }
     },
     // 复用 base.html 的 toast：htmx 的 HX-Trigger 也是往 body 派这个事件，
     // 本页改动不落库、没有响应头可挂，只能自己派一个同形状的。

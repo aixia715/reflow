@@ -5,6 +5,8 @@
 这条」改走服务端校验后多了一个新失败态——请求失败时页面毫无反应。
 这里逐条锁住。位号框回车（两页共同的新行为）在 test_ref_enter_ui.py。
 """
+import time
+
 import httpx
 import pytest
 from playwright.sync_api import Page, expect
@@ -20,13 +22,22 @@ def _goto_insert(page: Page, base: str, chain):
     return bid
 
 
-def _add(page: Page, ref: str, part: str, op_label: str | None = None):
+def _add(page: Page, ref: str, part: str, op_label: str | None = None,
+         expect_row: bool = True):
+    """加一条修改，默认等它真的进了暂存面板再返回。
+
+    「添加这条」要等 /insert/check 回来才写进暂存。不等就接着敲下一条，慢机器上
+    两次会叠在一起（CI 上就是这么挂的）。expect_row=False 给「本来就不会出现行」
+    的用例用（请求失败、抵消）。
+    """
     page.locator("input[placeholder='位号（自动补全）']").fill(ref)
     if op_label:
         page.locator(".edit-form .seg label", has_text=op_label).click()
     if part is not None:
         page.locator("input[placeholder='新 Part 值']").fill(part)
     page.get_by_role("button", name="添加这条").click()
+    if expect_row:
+        expect(page.locator(".change-row", has_text=ref)).to_be_visible()
 
 
 def test_clear_all_changes_empties_the_pending_panel(live_server, insert_chain, page: Page):
@@ -114,7 +125,7 @@ def test_check_request_failure_reports_error(live_server, insert_chain, page: Pa
     点「添加这条」毫无反应，用户只会以为没点上。"""
     _goto_insert(page, live_server, insert_chain)
     page.route("**/insert/check", lambda route: route.fulfill(status=500, body="boom"))
-    _add(page, "R1", "47k")
+    _add(page, "R1", "47k", expect_row=False)
     expect(page.locator(".edit-form .flash-error")).to_contain_text("检查失败")
 
 
@@ -150,3 +161,25 @@ def test_guard_released_after_successful_save(live_server, insert_chain, page: P
     page.get_by_role("button", name="保存插入").click()
     page.wait_for_load_state("networkidle")
     expect(page.locator(".toast")).to_contain_text("已插入")
+
+
+def test_typing_next_ref_survives_in_flight_response(live_server, insert_chain, page: Page):
+    """check 请求还在飞的时候接着敲下一条，回执不能把新输入和焦点抢走。
+
+    人手快的时候本来就会这样；CI 上我的测试正是被这个竞态咬了一口。
+    """
+    _goto_insert(page, live_server, insert_chain)
+
+    def _slow(route):
+        time.sleep(0.6)
+        route.continue_()
+
+    page.route("**/insert/check", _slow)
+    ref_in = page.locator("input[placeholder='位号（自动补全）']")
+    ref_in.fill("R1")
+    page.locator("input[placeholder='新 Part 值']").fill("47k")
+    page.get_by_role("button", name="添加这条").click()
+    ref_in.fill("D9")                       # 回执还没到就开始敲下一条
+
+    expect(page.locator(".change-row", has_text="R1")).to_be_visible()
+    expect(ref_in).to_have_value("D9")      # 没被抹掉
