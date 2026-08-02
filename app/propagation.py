@@ -50,17 +50,54 @@ def _detect_downstream_conflicts(conn, node, reference, corrected_part) -> list[
     return []
 
 
-def apply_node_edit(conn, node_id, reference, op, part) -> list[Conflict]:
+def apply_node_edit(conn, node_id, reference, op, part,
+                    drop_noop: bool = False) -> list[Conflict]:
     """编辑某节点某位号（修正记录），落库 + 记 direct 日志，返回冲突列表（最多一个）。
-    op: 'add'|'modify'|'remove'；remove 时 part 传 None。"""
+
+    op: 'add'|'modify'|'remove'；remove 时 part 传 None。
+
+    drop_noop 只给**交互式单条编辑**用（工作区编辑、已提交节点的修订走同一路由）：
+    草稿里把值改回父节点原样时不留 changeset 行，见 `is_noop_against_parent`——
+    该函数对已提交节点恒返回 False，所以修订历史节点即便传了 True 也永远不会丢，
+    不必在调用点分情况。批量写入路径
+    （copy-to-draft、插入节点保存）必须保持 False——那里每一条都是用户明确要求
+    写进去的，从紧邻父节点复制时逐条都等于父节点原值，开了会被全部吃掉，界面
+    上就成了「提示复制了 N 条、面板里一条没有」。
+
+    默认 False 是刻意的：漏传只会退回旧行为（多留一条无害的空转记录），传反了
+    才会静默丢数据。
+    """
     old_value = _resolved_value(conn, node_id, reference)
-    models.set_change(conn, node_id, reference, op, part)
     new_value = None if op == "remove" else part
+    node = models.get_node(conn, node_id)
+    if drop_noop and is_noop_against_parent(conn, node, new_value, reference):
+        models.delete_change(conn, node_id, reference)
+    else:
+        models.set_change(conn, node_id, reference, op, part)
+    # 日志无论如何都记：append-only 记的是发生过什么，不是最后长什么样，
+    # 「改成 47k 又改回 10k」是确实发生过的两次编辑。
     audit.record_edit(conn, node_id, reference, old_value, new_value, op, "direct")
 
-    # 刚写入的 changeset 是链末显式值，被编辑节点对该位号的解析值即 new_value
+    # changeset 已是链末显式值（或已删除回落到继承），解析值即 new_value
     node = models.get_node(conn, node_id)
     return _detect_downstream_conflicts(conn, node, reference, new_value)
+
+
+def is_noop_against_parent(conn, node, new_value, reference) -> bool:
+    """这次编辑是否把草稿的该位号改回了父节点原样（＝这条修改等于没发生）。
+
+    留着它只会在「本节点修改」面板上显示成一条改前改后相同的假修改，提交后
+    节点还带一条空内容的 changeset。插入页早就是这个行为（/insert/check 的
+    action=drop），这里把它补给草稿。
+
+    **只对未提交草稿成立**：已提交节点的显式 op 不只是「一条修改」，它还屏蔽
+    上游修正——判定冲突只看下游 changeset 里有没有这条 reference，与值无关。
+    删掉一条值恰好等于父节点的显式 op，会让该节点日后悄悄跟着上游变，而不是
+    停在原值并触发冲突确认。
+    """
+    if node["is_committed"] or node["parent_id"] is None:
+        return False
+    return _resolved_value(conn, node["parent_id"], reference) == new_value
 
 
 def detect_delete_conflicts(conn, node_id) -> list[Conflict]:
