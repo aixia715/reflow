@@ -183,7 +183,8 @@
           <div class="flash flash-error" x-show="editError" x-cloak x-text="editError"></div>
         </div>
       </div>
-      <div class="panel">
+      {# data-testid：导入预览里也是 .change-row，测试要能把「暂存」和「预览」分开 #}
+      <div class="panel" data-testid="insert-changes">
         {# 与 _changes_panel.html 的「清除全部修改」同款：同样的类名、同样的
            二次确认。那边是 hx-confirm（htmx 用的就是 window.confirm），这里
            改动只在浏览器里，直接 confirm()，观感一致。 #}
@@ -217,11 +218,51 @@
           </div>
         </template>
       </div>
+      {# 与节点页的导入面板同一套：同样的双模式、同样的预览片段、同样的守卫
+         （没选文件就切「差异 / 全量」不发请求）。差别只在「应用」不落库，
+         而是把服务端换算好的清单合进浏览器暂存，见 _import_preview.html。 #}
+      <details class="panel" x-data="{ mode: 'diff' }">
+        <summary>从 CSV 导入修改…</summary>
+        <form id="import-form" class="edit-form"
+              hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert/import/preview"
+              hx-target="#import-preview" hx-swap="innerHTML"
+              hx-encoding="multipart/form-data" hx-trigger="change[importHasFile()]"
+              hx-indicator="#import-status"
+              :hx-vals="JSON.stringify({changes: changesJson()})">
+          <div class="seg">
+            <label :class="{on: mode==='diff'}"><input type="radio" name="mode" value="diff" x-model="mode">差异</label>
+            <label :class="{on: mode==='full'}"><input type="radio" name="mode" value="full" x-model="mode">全量</label>
+          </div>
+          <label>CSV 文件
+            <input name="file" type="file" accept=".csv"></label>
+          <p class="muted" x-show="mode==='diff'" x-cloak>差异模式：CSV 只列改动，未列出的位号保持不变。表头需含 Reference 与 Part，可选 OP 列（add / modify / remove），不写 OP 时按位号是否已存在自动判为新增或修改。</p>
+          <p class="muted" x-show="mode==='full'" x-cloak>全量模式：CSV 是插入这一节点后<b>完整的目标 BOM</b>，系统自动求差、自动算不贴，<b>不需要 OP 列</b>。表头只需 Reference 与 Part。</p>
+          <p class="muted"><a class="btn-link"
+               :href="'/board/{{ board_id }}/node/{{ parent.id }}/import/template?mode=' + mode">下载模板</a></p>
+        </form>
+        <div class="lint-status" id="import-status">正在检查 CSV，请稍候…</div>
+        <div id="import-preview"></div>
+      </details>
     </aside>
   </div>
 </div>
 
 <script>
+// 与 node_detail.html 同名同义：表单级 hx-trigger="change" 连 mode 单选的切换
+// 也算数，没选文件就切「差异 / 全量」会发一次注定失败的预览请求。守卫写在
+// 触发条件里，选文件那一次 change 触发时 files 已就位，正常路径不受影响。
+function importHasFile(){
+  const input = document.querySelector('#import-form input[type=file]');
+  return !!(input && input.files && input.files.length);
+}
+// 「取消全部」：丢弃这份预览。必须连文件输入框的值一起清掉——否则再选同一个
+// 文件不会触发 change 事件，导入就此卡死。
+function cancelImport(){
+  const input = document.querySelector('#import-form input[type=file]');
+  if (input) input.value = '';
+  const box = document.getElementById('import-preview');
+  if (box) box.innerHTML = '';
+}
 function insertPage(data){
   return {
     placed: data.placed, unplaced: data.unplaced,
@@ -320,6 +361,25 @@ function insertPage(data){
     undo(ref){
       delete this.pending[ref];
       this.toast(`↩ 已撤销 ${ref} 的修改`);
+    },
+    // 把导入预览换算好的清单合进暂存。op / part 一律用服务端给的值——op 是
+    // 相对父节点算的、part 是 lint 归一后的；action=drop 表示这条回到了父节点
+    // 原样，要从暂存里删掉而不是记一条空转的修改。
+    mergeImported(payload){
+      const list = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      let set = 0, dropped = 0;
+      for (const c of list){
+        if (c.action === 'drop'){
+          if (c.reference in this.pending) dropped++;
+          delete this.pending[c.reference];
+        } else {
+          this.pending[c.reference] = {op: c.op, part: c.part, fix: '', warning: ''};
+          set++;
+        }
+      }
+      cancelImport();
+      const tail = dropped ? `，另有 ${dropped} 条回到上游原值已移除` : '';
+      this.toast(`✓ 已导入 ${set} 条修改${tail}`);
     },
     clearAll(){
       const n = this.pendingCount;

@@ -39,7 +39,14 @@
    却没有应用按钮，若不给清除入口就只能重选文件或刷新页面。 #}
 {% if ready or rows or message %}
 <div class="btn-row">
-  {% if ready %}
+  {% if ready and client_apply %}
+  {# 插入页：改动本就不落库，直接把换算好的清单合进浏览器暂存，不必再走一趟服务端。
+     data-staged 同时是路由测试的取值点。 #}
+  <button type="button" class="btn btn-outline" data-staged='{{ staged_json }}'
+          @click='mergeImported({{ staged_json | tojson }})'>
+    应用这 {{ changes|length }} 条修改
+  </button>
+  {% elif ready %}
   <button type="button" class="btn btn-outline"
           hx-post="/board/{{ board_id }}/node/{{ node_id }}/import"
           hx-vals='{{ {"changes": changes_json} | tojson }}'
