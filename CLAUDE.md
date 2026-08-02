@@ -21,7 +21,7 @@ pytest                        # 全部测试
 | `app/csv_import.py` | ★CSV 解析、拆分合并位号、校验报告；工作区导入的修改清单解析 + op 推断；导入预览的统一行表合成 `build_preview_rows`（纯逻辑） |
 | `app/validation.py` | ★位号编辑校验（纯逻辑） |
 | `app/component_lint.py` | ★元器件值 Lint：单位/SI 前缀标准化、量级归一、标准容差序列校验（电阻 E6~E192，电容/电感封顶 E6~E96），只对 R/C/L 位号生效（纯逻辑） |
-| `app/bom_engine.py` | ★折叠引擎：`fold_bom` / `resolve_reference` 沿差量链求解（纯逻辑） |
+| `app/bom_engine.py` | ★折叠引擎：`fold_bom` / `resolve_reference` 沿差量链求解；`stage_change` 把新值换算成相对父节点的 op 与抵消判定（纯逻辑） |
 | `app/propagation.py` | ★传播 & 冲突检测/确认（核心算法） |
 | `app/models.py` | SQLite 数据访问层（层级 / 节点 / changeset / 取链） |
 | `app/audit.py` | append-only 审计日志 |

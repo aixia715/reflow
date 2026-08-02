@@ -55,6 +55,11 @@ def _preview(client, bid, pid, csv, mode="diff", changes="[]"):
         files={"file": ("x.csv", csv, "text/csv")})
 
 
+def _core(staged):
+    """只取换算相关的四项，便于断言（载荷里还带 lint 文案）。"""
+    return [{k: s[k] for k in ("reference", "op", "part", "action")} for s in staged]
+
+
 def _staged(resp):
     """从预览响应里取出要合进暂存的载荷。"""
     import re
@@ -69,14 +74,14 @@ def test_diff_import_plans_modify_against_parent(client):
     bid, c1, c2 = _setup_chain(client)
     r = _preview(client, bid, c1, "Reference,Part\nR1,47k\n")
     assert r.status_code == 200
-    assert _staged(r) == [{"reference": "R1", "op": "modify",
+    assert _core(_staged(r)) == [{"reference": "R1", "op": "modify",
                            "part": "47k", "action": "set"}]
 
 
 def test_new_reference_is_add(client):
     bid, c1, c2 = _setup_chain(client)
     r = _preview(client, bid, c1, "Reference,Part\nD9,1uF\n")
-    assert _staged(r) == [{"reference": "D9", "op": "add",
+    assert _core(_staged(r)) == [{"reference": "D9", "op": "add",
                            "part": "1uF", "action": "set"}]
 
 
@@ -86,7 +91,7 @@ def test_value_equal_to_parent_is_dropped(client):
     r = _preview(client, bid, c1, "Reference,Part\nR1,10k\n",
                  changes=json.dumps([{"reference": "R1", "op": "modify",
                                       "part": "47k"}]))
-    assert _staged(r) == [{"reference": "R1", "op": "modify",
+    assert _core(_staged(r)) == [{"reference": "R1", "op": "modify",
                            "part": "10k", "action": "drop"}]
 
 
@@ -98,7 +103,7 @@ def test_preview_uses_pending_changes_as_base(client):
     bid, c1, c2 = _setup_chain(client)
     pending = json.dumps([{"reference": "D9", "op": "add", "part": "1uF"}])
     r = _preview(client, bid, c1, "Reference,Part\nD9,2uF\n", changes=pending)
-    assert _staged(r) == [{"reference": "D9", "op": "add",
+    assert _core(_staged(r)) == [{"reference": "D9", "op": "add",
                            "part": "2uF", "action": "set"}]
 
 
@@ -117,7 +122,7 @@ def test_full_mode_diffs_against_pending_view(client):
     bid, c1, c2 = _setup_chain(client)
     # 父节点（c1）折叠后是 R1=10k, C1=100nF, C9=1uF；目标里去掉 C1
     r = _preview(client, bid, c1, "Reference,Part\nR1,10k\nC9,1uF\n", mode="full")
-    assert _staged(r) == [{"reference": "C1", "op": "remove",
+    assert _core(_staged(r)) == [{"reference": "C1", "op": "remove",
                            "part": None, "action": "set"}]
 
 
@@ -172,3 +177,13 @@ def test_values_are_linted_before_staging(client):
     assert staged[0]["part"] == "100nF"
     # 0.1uF 归一成 100nF，恰好等于父节点原值 → 这条其实没改
     assert staged[0]["action"] == "drop"
+
+
+def test_staged_payload_carries_lint_notes(client):
+    """归一提示随载荷回前端——否则导入进暂存的行没有 ⓘ，与手工添加的行观感不一致。"""
+    bid, c1, c2 = _setup_chain(client)
+    r = _preview(client, bid, c1, "Reference,Part\nC1,0.22uF\n")
+    staged = _staged(r)
+    assert staged[0]["part"] == "220nF"
+    assert "0.22uF" in staged[0]["fix"]
+    assert staged[0]["warning"] == ""

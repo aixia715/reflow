@@ -484,6 +484,9 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
            "changes": [], "problems": [], "rows": [], "ready": False,
            "mode": mode, "unchanged": 0,
+           # 显式传 False：模板的 {% if ready and client_apply %} 若靠 Undefined
+           # 为假值，改成 StrictUndefined 那天这里会直接 500
+           "client_apply": False,
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
 
     text, err = await _read_upload(file)
@@ -678,23 +681,26 @@ async def insert_import_preview(request: Request, board_id: int, parent_id: int,
         return _render(str(e))
 
     problems = problems + invalid
-    staged = [
-        dict(zip(("action", "op", "part"),
-                 stage_change(parent_bom, c.reference,
-                              None if c.op == "remove" else c.part)),
-             reference=c.reference)
-        for c in planned
-    ]
+    # lint 提示随载荷一起带回：手工「添加这条」的暂存行有 ⓘ/⚠，预览行也有，
+    # 唯独导入进暂存后消失的话，同一条改动在三处观感不一致。
+    notes = {n.reference: n for n in lint_notes}
+    staged = []
+    for c in planned:
+        action, op_, part = stage_change(
+            parent_bom, c.reference, None if c.op == "remove" else c.part)
+        note = notes.get(c.reference)
+        staged.append({
+            "reference": c.reference, "op": op_, "part": part, "action": action,
+            "fix": note.detail if note and note.level == "fix" else "",
+            "warning": note.detail if note and note.level == "warning" else "",
+        })
     ctx.update(
         changes=[c._asdict() for c in planned], problems=problems,
         rows=build_preview_rows(planned, problems, lint_notes),
         ready=bool(planned) and not problems,
         counts={op_: sum(1 for c in planned if c.op == op_)
                 for op_ in ("add", "modify", "remove")},
-        staged_json=json.dumps(
-            [{"reference": s["reference"], "op": s["op"],
-              "part": s["part"], "action": s["action"]} for s in staged],
-            ensure_ascii=False),
+        staged_json=json.dumps(staged, ensure_ascii=False),
     )
     return _render()
 

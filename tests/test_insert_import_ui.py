@@ -122,3 +122,46 @@ def test_full_mode_computes_removals(live_server, insert_chain, page: Page):
     page.get_by_role("button", name="应用这 1 条修改").click()
     expect(page.locator("[data-testid=insert-changes] .change-row",
                         has_text="C1")).to_contain_text("不贴")
+
+
+def test_imported_rows_keep_lint_icons(live_server, insert_chain, page: Page):
+    """导入进暂存的行也要带 ⓘ/⚠——手工「添加这条」有，预览里也有，
+    唯独应用之后消失的话，同一条改动在三个位置观感不一致。"""
+    _goto_insert(page, live_server, insert_chain)
+    _open_import(page)
+    _upload(page, "Reference,Part\nC1,0.22uF\n")     # 归一成 220nF，带 fix
+    expect(page.locator("#import-preview .lint-fix")).to_be_visible()
+
+    page.get_by_role("button", name="应用这 1 条修改").click()
+
+    row = page.locator("[data-testid=insert-changes] .change-row", has_text="C1")
+    expect(row).to_contain_text("220nF")
+    expect(row.locator(".lint-fix")).to_be_visible()
+
+
+def test_import_of_only_upstream_values_says_so(live_server, insert_chain, page: Page):
+    """导入的条目全部回到上游原值时，别报「已导入 0 条修改」。"""
+    _goto_insert(page, live_server, insert_chain)
+    page.locator("input[placeholder='位号（自动补全）']").fill("R1")
+    page.locator("input[placeholder='新 Part 值']").fill("47k")
+    page.get_by_role("button", name="添加这条").click()
+    expect(page.locator("[data-testid=insert-changes] .change-row")).to_have_count(1)
+
+    _open_import(page)
+    _upload(page, "Reference,Part\nR1,10k\n")        # 10k = 父节点原值
+    page.get_by_role("button", name="应用这 1 条修改").click()
+
+    expect(page.locator("[data-testid=insert-changes] .change-row")).to_have_count(0)
+    # 正向断言新文案：toast 3.5 秒自动消失，「不含旧文案」这种否定断言会等成假绿
+    expect(page.locator(".toast").last).to_contain_text("都是上游原值")
+
+
+def test_preview_request_failure_reports_error(live_server, insert_chain, page: Page):
+    """预览请求失败要就地报错。原先指示条一消失、预览区空着，什么都不说。"""
+    _goto_insert(page, live_server, insert_chain)
+    _open_import(page)
+    page.route("**/insert/import/preview",
+               lambda route: route.fulfill(status=500, body="boom"))
+    _upload(page, DIFF_CSV)
+
+    expect(page.locator("#import-preview")).to_contain_text("导入检查失败")
