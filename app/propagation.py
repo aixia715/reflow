@@ -56,8 +56,10 @@ def apply_node_edit(conn, node_id, reference, op, part,
 
     op: 'add'|'modify'|'remove'；remove 时 part 传 None。
 
-    drop_noop 只给**交互式单条编辑**用（工作区编辑、节点修订）：草稿里把值改回
-    父节点原样时不留 changeset 行，见 `is_noop_against_parent`。批量写入路径
+    drop_noop 只给**交互式单条编辑**用（工作区编辑、已提交节点的修订走同一路由）：
+    草稿里把值改回父节点原样时不留 changeset 行，见 `is_noop_against_parent`——
+    该函数对已提交节点恒返回 False，所以修订历史节点即便传了 True 也永远不会丢，
+    不必在调用点分情况。批量写入路径
     （copy-to-draft、插入节点保存）必须保持 False——那里每一条都是用户明确要求
     写进去的，从紧邻父节点复制时逐条都等于父节点原值，开了会被全部吃掉，界面
     上就成了「提示复制了 N 条、面板里一条没有」。

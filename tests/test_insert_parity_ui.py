@@ -5,10 +5,6 @@
 这条」改走服务端校验后多了一个新失败态——请求失败时页面毫无反应。
 这里逐条锁住。位号框回车（两页共同的新行为）在 test_ref_enter_ui.py。
 """
-import time
-
-import httpx
-import pytest
 from playwright.sync_api import Page, expect
 
 CSV = "Reference,Part\nR1,10k\nR2,22k\nC1,100nF\n"
@@ -152,34 +148,74 @@ def test_unsaved_changes_arm_the_unload_guard(live_server, insert_chain, page: P
     assert _guard_blocks_unload(page) is True
 
 
-def test_guard_released_after_successful_save(live_server, insert_chain, page: Page):
-    """保存成功走 HX-Redirect，那也是一次 unload——存完了还问「要不要离开」纯属恶心人。"""
+def test_guard_released_when_save_starts(live_server, insert_chain, page: Page):
+    """保存一开始就解除守卫：HX-Redirect 也是一次 unload，存成功还问「要不要离开」
+    纯属恶心人；更糟的是选「留下」时节点其实已经建好，再点一次会重复插入。
+
+    直接派 htmx 的 `htmx:beforeRequest`（camelCase，vendored htmx 只发这一种）到
+    保存表单来断言机制本身。不靠「点保存后看有没有弹框」——headless Chromium 对
+    htmx 的 window.location 跳转根本不弹 beforeunload，那样测出来的绿与机制无关。
+    """
     _goto_insert(page, live_server, insert_chain)
     _add(page, "R1", "47k")
-    expect(page.locator(".change-row")).to_have_count(1)
+    assert _guard_blocks_unload(page) is True
+
+    page.evaluate(
+        "document.querySelector('form.panel')"
+        ".dispatchEvent(new CustomEvent('htmx:beforeRequest', {bubbles: true}))")
+    assert _guard_blocks_unload(page) is False
+
+
+def test_save_completes_and_redirects(live_server, insert_chain, page: Page):
+    """保存插入照常落库并跳到新节点。"""
+    _goto_insert(page, live_server, insert_chain)
+    _add(page, "R1", "47k")
 
     page.get_by_role("button", name="保存插入").click()
     page.wait_for_load_state("networkidle")
     expect(page.locator(".toast")).to_contain_text("已插入")
 
 
-def test_typing_next_ref_survives_in_flight_response(live_server, insert_chain, page: Page):
-    """check 请求还在飞的时候接着敲下一条，回执不能把新输入和焦点抢走。
+def _late_checked(page: Page, reference: str, op: str, part: str):
+    """补派一次「迟到的」/insert/check 回执（形状同 HX-Trigger: insertChecked）。
 
-    人手快的时候本来就会这样；CI 上我的测试正是被这个竞态咬了一口。
+    真实竞态是「请求在飞的时候接着敲」。用 route + sleep 去复现会阻塞 Playwright
+    同步驱动、交错不确定（整文件跑时偶发假失败），这里直接把回执补派出来——
+    要锁的本来就是「回执迟到时不许抹掉用户新敲的内容」这条逻辑。
     """
+    page.evaluate(
+        """([reference, op, part]) => {
+             document.querySelector('[x-ref=addBtn]').dispatchEvent(
+               new CustomEvent('insertChecked', {
+                 bubbles: true,
+                 detail: {ok: true, action: 'set', reference: reference,
+                          op: op, part: part, fix: '', warning: ''}}));
+           }""", [reference, op, part])
+
+
+def test_late_response_does_not_wipe_next_ref(live_server, insert_chain, page: Page):
+    """回执迟到时用户已在敲下一条位号，不能把它抹掉。"""
     _goto_insert(page, live_server, insert_chain)
+    _add(page, "R1", "47k")
 
-    def _slow(route):
-        time.sleep(0.6)
-        route.continue_()
-
-    page.route("**/insert/check", _slow)
     ref_in = page.locator("input[placeholder='位号（自动补全）']")
-    ref_in.fill("R1")
-    page.locator("input[placeholder='新 Part 值']").fill("47k")
-    page.get_by_role("button", name="添加这条").click()
-    ref_in.fill("D9")                       # 回执还没到就开始敲下一条
+    ref_in.fill("D9")
+    _late_checked(page, "R1", "modify", "47k")
 
-    expect(page.locator(".change-row", has_text="R1")).to_be_visible()
-    expect(ref_in).to_have_value("D9")      # 没被抹掉
+    expect(ref_in).to_have_value("D9")
+
+
+def test_late_response_does_not_wipe_new_part_for_same_ref(
+        live_server, insert_chain, page: Page):
+    """同一位号只改了 Part 的情况同样不能抹——只比位号的话这一路会漏。"""
+    _goto_insert(page, live_server, insert_chain)
+    _add(page, "R1", "47k")
+
+    ref_in = page.locator("input[placeholder='位号（自动补全）']")
+    part_in = page.locator("input[placeholder='新 Part 值']")
+    ref_in.fill("R1")
+    part_in.fill("48k")
+    _late_checked(page, "R1", "modify", "47k")
+
+    expect(part_in).to_have_value("48k")
+    expect(ref_in).to_have_value("R1")

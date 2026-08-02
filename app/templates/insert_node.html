@@ -48,8 +48,8 @@
   <form class="panel"
         hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert"
         hx-target="#form-error" hx-swap="innerHTML"
-        @htmx:before-request="saving = true"
-        @htmx:after-request="if ($event.target === $el)
+        @htmx:before-request.camel="if ($event.target === $el) saving = true"
+        @htmx:after-request.camel="if ($event.target === $el)
             saving = $event.detail.successful
                      && !$event.detail.xhr.getResponseHeader('HX-Retarget')">
     <label>节点时间（须在上一节点之后、下一节点之前）
@@ -176,6 +176,7 @@
                   hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert/check"
                   hx-swap="none"
                   :hx-vals="JSON.stringify({reference: ref, op: op, part: part, changes: changesJson()})"
+                  @click="submitted = {ref: ref.trim(), op: op, part: part}"
                   @htmx:response-error.camel="editError = '检查失败（服务端返回 ' + $event.detail.xhr.status + '），请重试'"
                   @htmx:send-error.camel="editError = '检查失败：连不上服务，请确认服务在运行后重试'"
                   >添加这条</button>
@@ -228,6 +229,7 @@ function insertPage(data){
     q: '', tab: 'all', ref: '', op: 'modify', part: '',
     message: '', description: '', editError: '',
     saving: false,          // 保存插入进行中/已成功 → 解除离开守卫
+    submitted: null,        // 「添加这条」点击那一刻的 {ref, op, part} 快照
     pending: {},
     get pendingCount(){ return Object.keys(this.pending).length; },
     get hasSlot(){ return !!this.minTs; },
@@ -300,8 +302,11 @@ function insertPage(data){
         this.toast(`✓ ${label}：${d.reference}` + (d.part ? ` → ${d.part}` : ''));
       }
       // 清空输入框只在「用户还没动过」时做：check 请求飞在路上的这段时间，
-      // 手快的人已经在敲下一条了，无条件清空会把刚敲的位号连同焦点一起抢走。
-      if (this.ref.trim() === d.reference){
+      // 手快的人已经在敲下一条了，无条件清空会把刚敲的内容连同焦点一起抢走。
+      // 三项都要比——只比位号的话，同一位号改 Part（R1→47k 的回执未归就改成
+      // R1→48k）仍会被抹掉。submitted 由「添加这条」在点击那一刻快照。
+      const s = this.submitted;
+      if (s && s.ref === this.ref.trim() && s.op === this.op && s.part === this.part){
         this.ref = ''; this.part = ''; this.op = 'modify';
         this.$nextTick(() => this.$refs.filterInput && this.$refs.filterInput.focus());
       }

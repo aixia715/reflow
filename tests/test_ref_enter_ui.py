@@ -8,7 +8,6 @@
 就覆盖）；位号在 BOM 里不存在时 Part 留空；op=不贴 时 Part 框本就禁用，直接提交。
 """
 import httpx
-import pytest
 from playwright.sync_api import Page, expect
 
 CSV = "Reference,Part\nR1,10k\nR2,22k\nC1,100nF\n"
