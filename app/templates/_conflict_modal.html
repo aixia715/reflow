@@ -1,7 +1,10 @@
 <div class="modal-overlay">
   <div class="modal">
     <div class="modal-head">下游节点改过同一位号，请确认</div>
-    <form method="post" action="/board/{{ board_id }}/node/{{ node_id }}/resolve">
+    {# 「确认」是整页 POST，一按就跳走：附件面板里若还有已选未上传的文件会被
+       悄悄丢掉，先问一句（函数在 node_detail.html，本弹窗只由该页弹出）。 #}
+    <form method="post" action="/board/{{ board_id }}/node/{{ node_id }}/resolve"
+          onsubmit="return confirmPendingAttachments()">
       {% for c in conflicts %}
       <fieldset class="conflict">
         <legend><code>{{ c.reference }}</code> 在下游节点 #{{ c.downstream_node_id }} 被显式修改过</legend>
