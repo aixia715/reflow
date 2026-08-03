@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse, PlainTextResponse, Response, Fil
 from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom, stage_change
-from app.bom_export import bom_to_csv
+from app.bom_export import bom_to_csv, changes_to_csv
 from app.component_lint import lint_part, lint_warning_for
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
@@ -183,13 +183,18 @@ def _content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
-def _download_filename(board, node) -> str:
-    """下载文件名：含定位信息，去掉文件系统/HTTP 头敏感字符。"""
+def _download_filename(board, node, scope: str = "full") -> str:
+    """下载文件名：含定位信息，去掉文件系统/HTTP 头敏感字符。
+
+    scope="changes" 时末尾追加「修改项」，与完整 BOM 的文件区分开。
+    """
     if node["is_committed"]:
         label = node["message"] or f"节点{node['id']}"
     else:
         label = "工作区草稿"
     parts = [board["board_name"], board["pcb_version"], board["bom_version"], label]
+    if scope == "changes":
+        parts.append("修改项")
     raw = "_".join(p for p in parts if p)
     # 去掉路径分隔符与控制字符，空白折叠为下划线
     safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", raw)
@@ -198,17 +203,31 @@ def _download_filename(board, node) -> str:
 
 
 @router.get("/board/{board_id}/node/{node_id}/download")
-def download_node_bom(board_id: int, node_id: int):
+def download_node_bom(board_id: int, node_id: int, scope: str = "full"):
+    """下载 CSV：scope=full 为折叠后的完整 BOM，scope=changes 为本节点修改项。
+
+    缺省是 full，已有的链接与书签行为不变。修改项 = 本节点相对父节点的
+    changeset（不是相对初始 BOM 的累计差量）；根节点没有父节点、changeset 恒空，
+    与其给一个只有表头的空文件，不如直接报错——界面上也不给这个入口。
+    """
+    if scope not in ("full", "changes"):
+        raise HTTPException(status_code=400, detail="scope 只能是 full 或 changes")
     conn = get_conn()
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
+    if scope == "changes" and node["parent_id"] is None:
+        raise HTTPException(status_code=400,
+                            detail="初始状态没有「相对父节点的修改」，请下载完整 BOM")
     board = models.get_board(conn, board_id)
-    initial, chain = models.get_chain(conn, node_id)
-    csv_text = bom_to_csv(fold_bom(initial, chain))
+    if scope == "changes":
+        csv_text = changes_to_csv(models.get_changeset(conn, node_id))
+    else:
+        initial, chain = models.get_chain(conn, node_id)
+        csv_text = bom_to_csv(fold_bom(initial, chain))
     # UTF-8 带 BOM，Excel/WPS 打开中文不乱码
     body = ("﻿" + csv_text).encode("utf-8")
-    filename = _download_filename(board, node)
+    filename = _download_filename(board, node, scope)
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",

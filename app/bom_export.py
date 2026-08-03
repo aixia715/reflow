@@ -26,3 +26,21 @@ def bom_to_csv(bom: dict[str, str]) -> str:
     for ref in sorted(bom, key=natural_sort_key):
         writer.writerow([ref, bom[ref]])
     return buf.getvalue()
+
+
+def changes_to_csv(changes: list[dict]) -> str:
+    """把一个节点的 changeset（`models.get_changeset` 的形状）渲染为 CSV 文本。
+
+    - 表头固定 `Reference,Part,OP`，与 `csv_import.change_csv_template()` 一致，
+      故导出的修改项可被「从 CSV 导入修改」原样读回（在别处重放同一批修改）
+    - OP 取 add/modify/remove，与 `csv_import._VALID_OPS` 同源
+    - remove 行 Part 一律留空：该 op 的 part 本就不落库，历史数据里若有残留也不导出
+    - 行按位号自然排序（changeset 的存储顺序是写入顺序，对读者无意义）
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Reference", "Part", "OP"])
+    for c in sorted(changes, key=lambda c: natural_sort_key(c["reference"])):
+        part = "" if c["op"] == "remove" else (c["part"] or "")
+        writer.writerow([c["reference"], part, c["op"]])
+    return buf.getvalue()

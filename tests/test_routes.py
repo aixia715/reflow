@@ -338,7 +338,9 @@ def test_changes_panel_title_differs_by_node_state(client):
 
     r = client.get(f"/board/{board_id}/node/{committed}")
     assert "已合入修改（1）" in r.text
-    assert "本节点修改" not in r.text
+    # 比到面板标题的完整形状（带「（」）：下载菜单里有个「本节点修改项」子项，
+    # 整页裸串匹配会被它误伤
+    assert "本节点修改（" not in r.text
     assert "<summary>修订</summary>" in r.text
 
     draft = _workspace_id(client, board_id)

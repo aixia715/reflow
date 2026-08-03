@@ -335,6 +335,11 @@ a.tl-card{display:block}   /* 节点项内层由整块 a 改为卡片 a，保持
   padding:7px 10px;border-radius:4px;color:var(--fg);white-space:nowrap;text-decoration:none}
 .topnav-actions a:hover,.topnav-actions button:hover{background:var(--surface-2)}
 .topnav-actions .danger{color:var(--red)}
+/* ⋯ 菜单里可展开的一组（下载 CSV 的完整 BOM / 修改项二选一）：
+   二级项缩进 + 次要文字色，与同级菜单项一眼分层；只用现有颜色变量，无需同步夜间值 */
+.menu-group,.menu-sub{display:flex;flex-direction:column}
+.topnav-actions .menu-sub a{padding-left:26px;font-size:12.5px;color:var(--muted)}
+.topnav-actions .menu-sub a:hover{color:var(--fg)}
 /* 内联重命名输入框 */
 .rename-form{display:inline-flex;margin:0}
 .rename-input{border:1px solid var(--blue);border-radius:5px;padding:1px 6px;
