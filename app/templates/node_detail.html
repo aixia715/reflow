@@ -7,8 +7,32 @@
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}">状态图</a>
 <a href="/board/{{ board_id }}/log">审计日志</a>
-<a class="btn btn-outline" href="/board/{{ board_id }}/node/{{ node.id }}/download"
+{% if node.parent_id is none %}
+{# 初始状态没有「相对父节点的修改」（changeset 恒空，内容在 initial_bom 里），
+   不给二选一，直接就是完整 BOM 一条。 #}
+<a href="/board/{{ board_id }}/node/{{ node.id }}/download?scope=full"
    title="下载当前节点的完整 BOM 为 CSV（不贴位号不导出）">⬇ 下载 CSV</a>
+{% else %}
+{# 点开露出二选一。承载 ctxlinks 的 ⋯ 面板挂了 @click="nav=false"，不 stop 的话
+   点父项时整个菜单先关了，子项根本没机会露出来；而加了 stop 就不能用
+   @click.outside（它依赖冒泡），改用 base.html 在捕获阶段广播的 close-menus
+   ——见前端风格指南「弹出菜单的关闭机制」。子项点完自己把 nav 也置回 false，
+   让整个菜单随下载开始一起收起。 #}
+<span class="menu-group" x-data="{dl:false}" @click.stop
+      @close-menus.window="if (!$el.contains($event.detail)) dl=false"
+      @keydown.escape.window="dl=false">
+  <button type="button" @click="dl=!dl" :aria-expanded="dl ? 'true' : 'false'"
+          title="下载当前节点的 CSV：完整 BOM 或本节点修改项">⬇ 下载 CSV <span x-text="dl ? '▾' : '▸'"></span></button>
+  <span class="menu-sub" x-show="dl" x-cloak>
+    <a href="/board/{{ board_id }}/node/{{ node.id }}/download?scope=full"
+       @click="dl=false; nav=false"
+       title="当前节点折叠后的完整 BOM（Reference/Part 两列，不贴位号不导出）">完整 BOM</a>
+    <a href="/board/{{ board_id }}/node/{{ node.id }}/download?scope=changes"
+       @click="dl=false; nav=false"
+       title="仅本节点相对上一个节点的修改（Reference/Part/OP 三列，可再作为修改清单导入）">本节点修改项</a>
+  </span>
+</span>
+{% endif %}
 {% if node.is_committed and node.parent_id is not none %}
 {# 这颗按钮回 HX-Redirect，一按就整页跳去草稿页——附件面板里已选未上传的文件
    跟着没，而且落地页是**另一个节点**的附件面板，更不容易察觉。走 htmx 的请求
