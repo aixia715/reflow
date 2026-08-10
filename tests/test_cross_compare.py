@@ -188,3 +188,79 @@ def test_same_node_redirects_to_node_own_board(client):
                    follow_redirects=False)
     assert r.status_code == 303
     assert r.headers["location"].startswith(f"/board/{bb}?")
+
+
+# ---------- 对比差异 CSV 下载 ----------
+
+def test_download_compare_diff_returns_csv_attachment(client):
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\nC1,100nF\n")
+    _commit_edit(client, ba, "R1", "modify", "22k", "改 R1")
+    ids = _node_ids(client, ba)
+    r = client.get(f"/board/{ba}/compare/download?left={ids[0]}&right={ids[-1]}")
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "attachment" in r.headers["content-disposition"]
+
+
+def test_download_compare_diff_only_diff_rows(client):
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\nC1,100nF\n")
+    _commit_edit(client, ba, "R1", "modify", "22k", "改 R1")
+    ids = _node_ids(client, ba)
+    text = client.get(
+        f"/board/{ba}/compare/download?left={ids[0]}&right={ids[-1]}").text
+    lines = text.lstrip("﻿").splitlines()
+    assert lines[0].startswith("Reference,")
+    assert lines[0].endswith(",Change")
+    assert any(line.startswith("R1,10k,22k,modify") for line in lines[1:])
+    # C1 未变，不应出现在只含差异的导出里
+    assert not any(line.startswith("C1,") for line in lines[1:])
+
+
+def test_download_compare_diff_cross_board(client):
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    bb = _new_board(client, "bomB", "5", "Reference,Part\nR1,22k\n")
+    left = _node_ids(client, ba)[0]
+    right = _node_ids(client, bb)[0]
+    r = client.get(f"/board/{ba}/compare/download?left={left}&right={right}")
+    assert r.status_code == 200
+    text = r.text.lstrip("﻿")
+    assert "R1,10k,22k,modify" in text
+    assert "板 3" in text and "板 5" in text  # 跨板列头带板号前缀
+
+
+def test_download_compare_diff_missing_node_404(client):
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    left = _node_ids(client, ba)[0]
+    r = client.get(f"/board/{ba}/compare/download?left={left}&right=999999")
+    assert r.status_code == 404
+
+
+def test_download_compare_diff_node_not_sibling_404(client):
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    bc = _new_board(client, "bomA", "7", "Reference,Part\nR1,10k\n", pcb_version="v2")
+    left = _node_ids(client, ba)[0]
+    right = _node_ids(client, bc)[0]
+    r = client.get(f"/board/{ba}/compare/download?left={left}&right={right}")
+    assert r.status_code == 404
+
+
+def test_download_compare_diff_filename_present(client):
+    from urllib.parse import unquote
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    _commit_edit(client, ba, "R1", "modify", "22k", "改 R1")
+    ids = _node_ids(client, ba)
+    cd = client.get(
+        f"/board/{ba}/compare/download?left={ids[0]}&right={ids[-1]}"
+    ).headers["content-disposition"]
+    assert "filename=" in cd
+    assert "filename*=UTF-8''" in cd
+    star = cd.split("filename*=UTF-8''", 1)[1]
+    assert unquote(star).endswith(".csv")
+
+
+def test_compare_page_has_download_link(client):
+    ba = _new_board(client, "bomA", "3", "Reference,Part\nR1,10k\n")
+    _commit_edit(client, ba, "R1", "modify", "22k", "改 R1")
+    ids = _node_ids(client, ba)
+    r = client.get(f"/board/{ba}/compare?left={ids[0]}&right={ids[-1]}")
+    assert f"/board/{ba}/compare/download?left={ids[0]}&right={ids[-1]}" in r.text

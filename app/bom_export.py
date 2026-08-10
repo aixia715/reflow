@@ -44,3 +44,20 @@ def changes_to_csv(changes: list[dict]) -> str:
         part = "" if c["op"] == "remove" else (c["part"] or "")
         writer.writerow([c["reference"], part, c["op"]])
     return buf.getvalue()
+
+
+def diff_to_csv(rows: list[dict], left_label: str, right_label: str) -> str:
+    """把对比页的差异行（`compare.diff_boms` 结果，已过滤掉 kind=="same"）渲染为 CSV 文本。
+
+    - 表头 `Reference,{left_label},{right_label},Change`：左右两列头直接用调用方
+      算好的、人可读的节点描述（如 `#12 xxx`），比固定写 Left/Right 更有用
+    - Change 取 add/modify/remove，与 changes_to_csv 的 OP 同源
+    - 左/右值为 None（未populated/不贴）时该格留空——CSV 是数据不是页面，不写「不贴」这类展示文案
+    - 行按位号自然排序（diff_boms 内部是字典序，不是自然序）
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Reference", left_label, right_label, "Change"])
+    for r in sorted(rows, key=lambda r: natural_sort_key(r["reference"])):
+        writer.writerow([r["reference"], r["left"] or "", r["right"] or "", r["kind"]])
+    return buf.getvalue()

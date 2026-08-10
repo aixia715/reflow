@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse, PlainTextResponse, Response, Fil
 from app.main import templates, get_conn
 from app import models, propagation, audit, hard_change, attachments, storage
 from app.bom_engine import fold_bom, stage_change
-from app.bom_export import bom_to_csv, changes_to_csv
+from app.bom_export import bom_to_csv, changes_to_csv, diff_to_csv
 from app.component_lint import lint_part, lint_warning_for
 from app.csv_import import (
     ChangeEntry, parse_change_csv, plan_changes, change_csv_template,
@@ -183,6 +183,12 @@ def _content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
+def _safe_filename(raw: str) -> str:
+    """去掉文件系统/HTTP 头敏感字符，空白折叠为下划线。"""
+    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", raw)
+    return re.sub(r"\s+", "_", safe).strip("_")
+
+
 def _download_filename(board, node, scope: str = "full") -> str:
     """下载文件名：含定位信息，去掉文件系统/HTTP 头敏感字符。
 
@@ -196,10 +202,7 @@ def _download_filename(board, node, scope: str = "full") -> str:
     if scope == "changes":
         parts.append("修改项")
     raw = "_".join(p for p in parts if p)
-    # 去掉路径分隔符与控制字符，空白折叠为下划线
-    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", raw)
-    safe = re.sub(r"\s+", "_", safe).strip("_")
-    return (safe or "bom") + ".csv"
+    return (_safe_filename(raw) or "bom") + ".csv"
 
 
 @router.get("/board/{board_id}/node/{node_id}/download")
@@ -910,6 +913,20 @@ def _node_option_label(n) -> str:
     return f"#{n['id']} {n['message'] or '(无说明)'}"
 
 
+def _sibling_node(conn, sibling_ids: set[int], node_id: int):
+    """取节点并校验其归属单板在可比较范围（siblings）内，否则 404。"""
+    n = models.get_node(conn, node_id)
+    if n is None or n["board_id"] not in sibling_ids:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return n
+
+
+def _compare_side_label(n, b, cross: bool) -> str:
+    """对比页/下载文件里一侧节点的可读描述：跨板时加板号前缀。"""
+    prefix = f"板 {b['board_uid']} · " if cross else ""
+    return prefix + _node_option_label(n)
+
+
 @router.get("/board/{board_id}/compare")
 def compare_nodes(request: Request, board_id: int, left: int | None = None, right: int | None = None):
     conn = get_conn()
@@ -921,9 +938,7 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
     # 可比较范围 = 同「单板名称 + PCB版本」下的兄弟单板（跨 BOM 版本）
     siblings = models.list_sibling_boards(conn, board_id)
     sibling_ids = {s["id"] for s in siblings}
-    ln = models.get_node(conn, left)
-    if ln is None or ln["board_id"] not in sibling_ids:
-        raise HTTPException(status_code=404, detail="节点不存在")
+    ln = _sibling_node(conn, sibling_ids, left)
     if right is None:
         # 跨板入口只带 left：右侧默认取第一块其他兄弟单板的最新已提交节点
         other = next((s for s in siblings if s["id"] != ln["board_id"]), None)
@@ -933,9 +948,7 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
             conn, models.latest_committed_node_id(conn, other["id"]))
         right = rn["id"]
     else:
-        rn = models.get_node(conn, right)
-        if rn is None or rn["board_id"] not in sibling_ids:
-            raise HTTPException(status_code=404, detail="节点不存在")
+        rn = _sibling_node(conn, sibling_ids, right)
     if left == right:
         return RedirectResponse(
             f"/board/{ln['board_id']}?flash=不能和自己比", status_code=303)
@@ -968,22 +981,57 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
         })
     left_board, right_board = boards_by_id[ln["board_id"]], boards_by_id[rn["board_id"]]
 
-    def _side_label(n, b):
-        prefix = f"板 {b['board_uid']} · " if cross else ""
-        return prefix + _node_option_label(n)
-
     return templates.TemplateResponse(request, "compare.html", {
         "board": board, "board_id": board_id,
         "left_node": ln, "right_node": rn,
         "left_board": left_board, "right_board": right_board,
-        "left_label": _side_label(ln, left_board),
-        "right_label": _side_label(rn, right_board),
+        "left_label": _compare_side_label(ln, left_board, cross),
+        "right_label": _compare_side_label(rn, right_board, cross),
         "left_options": next(s["nodes"] for s in selects if s["id"] == ln["board_id"]),
         "right_options": next(s["nodes"] for s in selects if s["id"] == rn["board_id"]),
         "cross": cross, "board_selects": selects, "board_defaults": defaults,
         "diff_rows": diff_rows, "same_rows": same_rows,
         "counts": counts, "hard_changes": between,
     })
+
+
+def _compare_download_filename(board, left_label: str, right_label: str) -> str:
+    """对比差异 CSV 的下载文件名：含单板与两侧节点描述，去掉文件系统/HTTP 头敏感字符。"""
+    raw = "_".join(p for p in [
+        board["board_name"], board["pcb_version"], "对比差异", left_label, right_label,
+    ] if p)
+    return (_safe_filename(raw) or "compare") + ".csv"
+
+
+@router.get("/board/{board_id}/compare/download")
+def download_compare_diff(board_id: int, left: int, right: int):
+    """下载对比页当前差异表的 CSV：只含有差异的行（新增/修改/不贴），不含相同行。"""
+    conn = get_conn()
+    board = models.get_board(conn, board_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
+    siblings = models.list_sibling_boards(conn, board_id)
+    sibling_ids = {s["id"] for s in siblings}
+    ln = _sibling_node(conn, sibling_ids, left)
+    rn = _sibling_node(conn, sibling_ids, right)
+    boards_by_id = {s["id"]: s for s in siblings}
+    left_board, right_board = boards_by_id[ln["board_id"]], boards_by_id[rn["board_id"]]
+    cross = ln["board_id"] != rn["board_id"]
+    li, lc = models.get_chain(conn, left)
+    ri, rc = models.get_chain(conn, right)
+    rows = compare.diff_boms(fold_bom(li, lc), fold_bom(ri, rc))
+    diff_rows = [r for r in rows if r["kind"] != "same"]
+    left_label = _compare_side_label(ln, left_board, cross)
+    right_label = _compare_side_label(rn, right_board, cross)
+    csv_text = diff_to_csv(diff_rows, left_label, right_label)
+    # UTF-8 带 BOM，Excel/WPS 打开中文不乱码
+    body = ("﻿" + csv_text).encode("utf-8")
+    filename = _compare_download_filename(board, left_label, right_label)
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
 
 
 # ---------- 节点附件 ----------

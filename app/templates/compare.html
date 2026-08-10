@@ -34,6 +34,7 @@
   <span class="muted">→</span>
   {{ side_picker("right", right_board, right_options, right_node, false) }}
   <a class="btn btn-outline" href="/board/{{ board_id }}/compare?left={{ right_node.id }}&right={{ left_node.id }}">⇄ 交换</a>
+  <a class="btn btn-outline" href="/board/{{ board_id }}/compare/download?left={{ left_node.id }}&right={{ right_node.id }}">⬇ 下载差异 CSV</a>
 
   <div class="muted" style="width:100%">
     共 {{ counts.add }} 新增 · {{ counts.modify }} 修改 · {{ counts.remove }} 不贴 · {{ counts.same }} 项相同
