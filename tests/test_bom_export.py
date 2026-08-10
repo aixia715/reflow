@@ -1,4 +1,4 @@
-from app.bom_export import bom_to_csv, changes_to_csv, natural_sort_key
+from app.bom_export import bom_to_csv, changes_to_csv, diff_to_csv, natural_sort_key
 from app.csv_import import parse_bom_csv, parse_change_csv
 
 
@@ -115,3 +115,56 @@ def test_changes_roundtrip_through_change_import():
     assert [(e.reference, e.op, e.part) for e in entries] == [
         ("C1", "remove", ""), ("R1", "modify", "47k"), ("U1", "add", "MCU"),
     ]
+
+
+# ---- 对比差异导出（diff_to_csv）----
+
+def test_diff_empty_only_header():
+    assert diff_to_csv([], "左", "右") == "Reference,左,右,Change\r\n"
+
+
+def test_diff_three_kinds():
+    rows = [
+        {"reference": "C12", "left": None, "right": "100nF", "kind": "add"},
+        {"reference": "D2", "left": "LED红", "right": None, "kind": "remove"},
+        {"reference": "R5", "left": "10k", "right": "4.7k", "kind": "modify"},
+    ]
+    lines = diff_to_csv(rows, "左", "右").splitlines()
+    assert lines[0] == "Reference,左,右,Change"
+    assert "C12,,100nF,add" in lines
+    assert "D2,LED红,,remove" in lines
+    assert "R5,10k,4.7k,modify" in lines
+
+
+def test_diff_none_values_blank_not_placeholder_text():
+    # None（未populated/不贴）在 CSV 里是空格子，不是页面上的「—」「不贴」文案
+    rows = [{"reference": "C12", "left": None, "right": "100nF", "kind": "add"}]
+    csv_text = diff_to_csv(rows, "左", "右")
+    assert "—" not in csv_text
+    assert "不贴" not in csv_text
+
+
+def test_diff_uses_caller_supplied_side_labels_as_headers():
+    rows = [{"reference": "R1", "left": "10k", "right": "22k", "kind": "modify"}]
+    lines = diff_to_csv(rows, "#3 改电阻", "板 5 · #7 加电容").splitlines()
+    assert lines[0] == "Reference,#3 改电阻,板 5 · #7 加电容,Change"
+
+
+def test_diff_natural_sort_order():
+    rows = [
+        {"reference": "R10", "left": "a", "right": "b", "kind": "modify"},
+        {"reference": "R2", "left": "a", "right": "b", "kind": "modify"},
+        {"reference": "R1", "left": "a", "right": "b", "kind": "modify"},
+        {"reference": "R100", "left": "a", "right": "b", "kind": "modify"},
+    ]
+    refs = [line.split(",")[0] for line in diff_to_csv(rows, "L", "R").splitlines()[1:]]
+    assert refs == ["R1", "R2", "R10", "R100"]
+
+
+def test_diff_quotes_commas_escaped():
+    rows = [{"reference": "R1", "left": "has,comma", "right": 'has"quote', "kind": "modify"}]
+    csv_text = diff_to_csv(rows, "L", "R")
+    import csv
+    import io
+    parsed = list(csv.reader(io.StringIO(csv_text)))
+    assert parsed[1] == ["R1", "has,comma", 'has"quote', "modify"]
