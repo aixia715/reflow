@@ -21,6 +21,6 @@ jq -n --arg n "${num:-}" '{
        then "刚调用了创建 PR 的工具，但没能从响应里取到 PR 编号——先确认 PR 是否建成、编号是多少。"
        else "PR #" + $n + " 已创建。"
        end)
-      + "本仓库约定：开完 PR 立刻调用 subscribe_pr_activity 订阅该 PR 的评审与 CI 事件（.github/workflows/ci.yml 在 PR opened 时会跑 opencode 评审），之后按订阅协议跟进评审意见和 CI 直到绿灯。工具没加载就先 ToolSearch \"select:subscribe_pr_activity\"。")
+      + "本仓库约定：开完 PR 立刻订阅该 PR 的 CI（.github/workflows/ci.yml 在 opened / reopened / synchronize 时调用 _checks.yml，跑 pytest 与 Docker 冒烟），之后跟进直到绿灯。")
   }
 }'
