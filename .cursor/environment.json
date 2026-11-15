@@ -1,0 +1,11 @@
+{
+  "name": "Reflow",
+  "install": "set -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nsudo apt-get update\nsudo apt-get install -y python3.12-venv python3-pip\nif [ ! -x .venv/bin/python ]; then\n  python3 -m venv .venv\nfi\n. .venv/bin/activate\n# 应用导入时会在仓库根创建 gitignore 的 uploads/。setuptools 扁平发现会把它当成\n# 第二个顶层包，导致之后再跑 pip install -e 失败。安装期间先挪走，装完放回。\nUPLOADS_STASH=\"\"\nrestore_uploads() {\n  if [ -n \"${UPLOADS_STASH}\" ] && [ -d \"${UPLOADS_STASH}\" ]; then\n    mv \"${UPLOADS_STASH}\" uploads\n    UPLOADS_STASH=\"\"\n  fi\n}\nif [ -d uploads ]; then\n  UPLOADS_STASH=\"$(mktemp -d /tmp/reflow-uploads.XXXXXX)\"\n  rmdir \"${UPLOADS_STASH}\"\n  mv uploads \"${UPLOADS_STASH}\"\nfi\ntrap restore_uploads EXIT\npython -m pip install -e \".[dev]\"\ntrap - EXIT\nrestore_uploads\npython -m playwright install --with-deps chromium\n",
+  "start": "set -euo pipefail\nif curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then\n  echo \"reflow already listening on :8000\"\n  exit 0\nfi\nexec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload\n",
+  "ports": [
+    {
+      "name": "web",
+      "port": 8000
+    }
+  ]
+}
