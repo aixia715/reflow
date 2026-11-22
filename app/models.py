@@ -1221,6 +1221,35 @@ def set_password(conn, target_id: int, password: str) -> None:
     update_password(conn, target_id, password)
 
 
+def set_user_admin(conn, actor_id: int, target_id: int, is_admin: bool) -> None:
+    """更改系统管理员身份。不改单板成员，也不吊销会话。
+
+    拒绝：操作者不是未停用的系统管理员；取消自己的管理员身份；
+    取消最后一位仍可登录的系统管理员。已停用账号可以改，
+    「最后一位」只数 disabled_at 为空的管理员。
+    """
+    _enabled_admin(conn, actor_id)
+    target = conn.execute(
+        "SELECT is_admin, disabled_at FROM users WHERE id=?", (target_id,)
+    ).fetchone()
+    if target is None:
+        raise ValueError("没有这个用户")
+    want = 1 if is_admin else 0
+    if target["is_admin"] == want:
+        raise ValueError("已经是系统管理员" if is_admin else "已经不是系统管理员")
+    if not is_admin:
+        if target["is_admin"] and not target["disabled_at"] and count_enabled_admins(conn) <= 1:
+            raise ValueError("不能取消最后一位系统管理员")
+        if actor_id == target_id:
+            raise ValueError("不能取消自己的管理员身份")
+    conn.execute("UPDATE users SET is_admin=? WHERE id=?", (want, target_id))
+    conn.commit()
+    _admin_log.info(
+        "变更管理员 actor=%s target=%s is_admin=%s",
+        actor_id, target_id, want,
+    )
+
+
 def _active_user_for_transfer(conn, username: str):
     user = get_user_by_username(conn, username)
     if user is None:

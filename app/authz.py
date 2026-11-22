@@ -94,6 +94,7 @@ GUARD: dict[tuple[str, str], str] = {
     ("POST", "/admin/users/{user_id}/disable"): "admin",
     ("POST", "/admin/users/{user_id}/enable"): "admin",
     ("POST", "/admin/users/{user_id}/password"): "admin",
+    ("POST", "/admin/users/{user_id}/admin"): "admin",
     ("POST", "/admin/boards/{board_id}/transfer"): "admin",
     ("POST", "/admin/bom-versions/{version_id}/transfer"): "admin",
 }
