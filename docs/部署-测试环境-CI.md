@@ -16,6 +16,18 @@
 
 远端只 `docker stop` / `docker rm` 旧容器，再用同一个 `TEST_DATA_VOLUME` 挂到 `/data` 重新 `docker run`。不执行 `docker volume rm`，不删库。卷里已有的 SQLite 和上传文件会留下来。
 
+端口映射是 `-p 127.0.0.1:${TEST_HOST_PORT}:8000`。容器只听服务器本机。`TEST_HOST_PORT` 仍由仓库 Variable 原样传入，workflow 不另加缺省值。
+
+## 访问测试服务器
+
+在自己的电脑上开一条 SSH 隧道，把本机 `8001` 转到服务器的 `127.0.0.1:8001`（`8001` 即 `TEST_HOST_PORT`）：
+
+```bash
+ssh -N -L 8001:127.0.0.1:8001 <host>
+```
+
+`<host>` 用测试服务器的 SSH 地址（`TEST_SSH_USER@TEST_SSH_HOST`；SSH 端口不是 22 时加上 `-p`）。隧道保持开着，浏览器打开 http://127.0.0.1:8001/ 。
+
 workflow 不创建管理员。带登录的版本第一次部署后，库里还没有用户时，在测试服务器上手动执行：
 
 ```bash
@@ -40,7 +52,7 @@ Variables（同页 → Variables）：
 |---|---|---|
 | `TEST_SSH_PORT` | `22` | SSH 端口（缺省按 22） |
 | `TEST_CONTAINER_NAME` | `reflow-test` | 测试容器名，**必须 ≠ 生产容器名** |
-| `TEST_HOST_PORT` | `8001` | 测试容器对外端口 |
+| `TEST_HOST_PORT` | `8001` | 服务器本机监听端口（只绑 `127.0.0.1`） |
 | `TEST_DATA_VOLUME` | `reflow-test-data` | `/data` 挂载源（命名卷或主机路径）。每次部署都挂这一个卷 |
 
 删除 workflow 文件不会删掉这些 Secrets / Variables。用 gh CLI 设置示例：
@@ -63,7 +75,7 @@ gh variable set TEST_DATA_VOLUME    --body "reflow-test-data"
 2. 本改动合并进 `master` 之后，从 `master` 建立并推送 `test`。这一下 push 就会把当时的 `master` 部署到测试服务器。
 3. 之后把开发 PR 合并进 `test`，或在 Actions 里对 `test` 手动 `workflow_dispatch`。
 4. 看 `deploy-test`：`checks` 通过后才跑 `deploy-test`。检查失败则不替换容器。
-5. `curl http://<TEST_SSH_HOST>:<TEST_HOST_PORT>/` 应返回首页（200）。
+5. 在测试服务器上 `curl -fsS http://127.0.0.1:<TEST_HOST_PORT>/` 应返回首页（200）。自己的电脑上按上面的 SSH 隧道打开 http://127.0.0.1:8001/ 。
 6. 测试服务器上 `docker ps` 应看到名为 `TEST_CONTAINER_NAME` 的容器，镜像为 `reflow:test-<short-sha>`，数据卷仍是 `TEST_DATA_VOLUME`。
 
 ## 已知权衡
