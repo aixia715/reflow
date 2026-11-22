@@ -111,6 +111,18 @@ class BomRevisionError(Exception):
         super().__init__(f"已被 {username} 修改，请刷新")
 
 
+class NodeRevisionError(Exception):
+    """nodes.revision 与提交时带上的值不一致。不写库。"""
+
+    def __init__(self, username: str):
+        self.username = username
+        super().__init__(f"已被 {username} 修改，请刷新")
+
+
+class WriteAborted(Exception):
+    """事务里发现还不能写（例如下游冲突还没选）。调用方负责提示，库保持原样。"""
+
+
 def _actor_label(conn, user_id) -> str:
     """revised_by 为空、或用户行已经不在时，用「其他人」。"""
     if not user_id:
@@ -390,6 +402,48 @@ def get_node(conn, node_id) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM nodes WHERE id=?", (node_id,)).fetchone()
 
 
+def bump_revision(conn, node_id, expected, user_id) -> bool:
+    """版本号对得上才加一。返回是否更新到一行。不提交，由调用方放进同一个事务。"""
+    cur = conn.execute(
+        """UPDATE nodes
+              SET revision = revision + 1, revised_by = ?
+            WHERE id = ? AND revision = ?""",
+        (user_id, node_id, int(expected)),
+    )
+    return cur.rowcount == 1
+
+
+def guarded_write(conn, user_id, locks, fn) -> None:
+    """先按 locks 里的 (node_id, expected_revision) 条件加版本号，再执行 fn。
+
+    fn 里的写必须 commit=False。全部 bump 成功才 commit；有一个对不上，
+    或 fn 抛 WriteAborted，就 rollback，changeset 保持调用前的样子。
+    同一个节点出现多次时只锁第一次。
+    """
+    unique: list[tuple[int, int]] = []
+    seen: set[int] = set()
+    for node_id, expected in locks:
+        node_id = int(node_id)
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        unique.append((node_id, int(expected)))
+    try:
+        for node_id, expected in unique:
+            if not bump_revision(conn, node_id, expected, user_id):
+                fresh = get_node(conn, node_id)
+                who = fresh["revised_by"] if fresh is not None else None
+                raise NodeRevisionError(_actor_label(conn, who))
+        fn()
+        conn.commit()
+    except (NodeRevisionError, WriteAborted):
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def all_committed_nodes(conn) -> list[sqlite3.Row]:
     """全库已提交节点的 (id, board_id)，供哈希解析枚举。"""
     return conn.execute(
@@ -399,14 +453,18 @@ def all_committed_nodes(conn) -> list[sqlite3.Row]:
 
 # ---------- changeset ----------
 
-def set_change(conn, node_id, reference, op, part) -> None:
-    """新增或覆盖某节点对某位号的显式操作（UNIQUE(node_id,reference) upsert）。"""
+def set_change(conn, node_id, reference, op, part, *, commit: bool = True) -> None:
+    """新增或覆盖某节点对某位号的显式操作（UNIQUE(node_id,reference) upsert）。
+
+    commit=False 时留给外层事务，和乐观锁的版本号加一一起提交。
+    """
     conn.execute(
         "INSERT INTO node_changes(node_id,reference,op,part) VALUES(?,?,?,?)"
         " ON CONFLICT(node_id,reference) DO UPDATE SET op=excluded.op, part=excluded.part",
         (node_id, reference, op, part),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def delete_change(conn, node_id, reference, *, commit: bool = True) -> None:
@@ -417,14 +475,15 @@ def delete_change(conn, node_id, reference, *, commit: bool = True) -> None:
         conn.commit()
 
 
-def clear_changes(conn, node_id) -> int:
+def clear_changes(conn, node_id, *, commit: bool = True) -> int:
     """清空某节点的整个 changeset，返回删掉的条数（一键撤销草稿全部修改用）。"""
     cur = conn.execute("DELETE FROM node_changes WHERE node_id=?", (node_id,))
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.rowcount
 
 
-def delete_node(conn, node_id) -> list[str]:
+def delete_node(conn, node_id, *, commit: bool = True) -> list[str]:
     """物理删除一个节点：把它的子节点重接到它的父节点，再删其 changeset、附件、节点行本身。
     线性链中至多一个子节点；草稿也按子节点重接（4-A）。
 
@@ -447,7 +506,8 @@ def delete_node(conn, node_id) -> list[str]:
     conn.execute("DELETE FROM node_attachments WHERE node_id=?", (node_id,))
     conn.execute("UPDATE edit_log SET node_id=? WHERE node_id=?", (parent_id, node_id))
     conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
-    conn.commit()
+    if commit:
+        conn.commit()
     return paths
 
 
@@ -752,7 +812,7 @@ def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, pa
         conn.commit()
 
 
-def commit_workspace(conn, board_id, message, description="") -> int:
+def commit_workspace(conn, board_id, message, description="", *, commit: bool = True) -> int:
     """把工作区草稿翻成正式节点，新开空草稿，返回被提交节点 id。
     message=标题/提交说明，description=长文本说明，二者同时落到被提交节点行。"""
     draft = conn.execute(
@@ -769,11 +829,13 @@ def commit_workspace(conn, board_id, message, description="") -> int:
         " VALUES(?,?,?,?,0,NULL)",
         (board_id, draft["id"], "", now),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return draft["id"]
 
 
-def insert_node_after(conn, parent_id, committed_at, message="", description="") -> int:
+def insert_node_after(conn, parent_id, committed_at, message="", description="",
+                       *, commit: bool = True) -> int:
     """在 parent_id 之后插入一个已提交节点，把 parent 原来的直接子节点改挂到新节点。
 
     用于「在此节点后插入变更节点」：新节点 committed_at 由调用方给定（须落在
@@ -792,17 +854,19 @@ def insert_node_after(conn, parent_id, committed_at, message="", description="")
         conn.execute(
             "UPDATE nodes SET parent_id=? WHERE id=?", (new_id, old_child["id"])
         )
-    conn.commit()
+    if commit:
+        conn.commit()
     return new_id
 
 
-def update_node_info(conn, node_id, message, description) -> None:
+def update_node_info(conn, node_id, message, description, *, commit: bool = True) -> None:
     """更新节点的标题（提交说明）与长文本说明。不改 BOM 内容，不记审计日志。"""
     conn.execute(
         "UPDATE nodes SET message=?, description=? WHERE id=?",
         (message, description, node_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def workspace_node(conn, board_id) -> sqlite3.Row:
@@ -951,14 +1015,15 @@ def delete_hard_change(conn, hc_id) -> list[str]:
 
 # ---------- 节点附件 ----------
 
-def add_node_attachment(conn, node_id, filename, storage_path) -> int:
+def add_node_attachment(conn, node_id, filename, storage_path, *, commit: bool = True) -> int:
     """记录一个附件元数据（不写文件，文件由 storage 层负责）。返回新行 id。"""
     cur = conn.execute(
         "INSERT INTO node_attachments(node_id,filename,storage_path,created_at)"
         " VALUES(?,?,?,?)",
         (node_id, filename, storage_path, _now()),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur.lastrowid
 
 
@@ -975,13 +1040,14 @@ def get_node_attachment(conn, attachment_id) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def delete_node_attachment(conn, attachment_id) -> str | None:
+def delete_node_attachment(conn, attachment_id, *, commit: bool = True) -> str | None:
     """删除一个附件行，返回其 storage_path（供刷盘）；不存在返回 None。"""
     row = get_node_attachment(conn, attachment_id)
     if row is None:
         return None
     conn.execute("DELETE FROM node_attachments WHERE id=?", (attachment_id,))
-    conn.commit()
+    if commit:
+        conn.commit()
     return row["storage_path"]
 
 

@@ -2,6 +2,7 @@
   {% if can_edit and not node.is_committed and changes %}
   <button type="button" class="btn-link danger ml-auto" data-testid="clear-all-changes"
           hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo-all"
+          hx-vals='js:{revision: document.getElementById("node-revision").value}'
           hx-confirm="确认清除工作区草稿的全部 {{ changes|length }} 条修改？这些位号将恢复为继承上游的值，不可恢复。"
           hx-target="#bom" hx-swap="innerHTML">清除全部修改</button>
   {% endif %}
@@ -28,7 +29,7 @@
     </button>
     <button class="icon-btn danger" title="撤销" aria-label="撤销"
             hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
-            hx-vals='{{ {"reference": c.reference} | tojson }}'
+            hx-vals='js:{reference: {{ c.reference | tojson }}, revision: document.getElementById("node-revision").value}'
             hx-target="#bom" hx-swap="innerHTML">
       <svg class="ico"><use href="#icon-undo"></use></svg>
     </button>

@@ -40,6 +40,7 @@
    hx-confirm 无关）：先 preventDefault 掐掉请求，确认过再 issueRequest。 #}
 <button type="button" class="btn btn-outline"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/copy-to-draft"
+        hx-vals='js:{revision: document.getElementById("workspace-revision").value}'
         @htmx:confirm="if ($event.target === $el) {
           $event.preventDefault();
           if (confirmPendingAttachments()) $event.detail.issueRequest();
@@ -47,11 +48,14 @@
         title="将此节点的修改一键复制到工作区草稿">📥 添加到草稿</button>
 <button type="button" class="btn-link danger" data-testid="delete-node"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/delete"
+        hx-vals='js:{revision: document.getElementById("node-revision").value}'
         hx-confirm="确定删除此节点？下游将重接到上一个节点，删除后不可恢复。"
         hx-target="#modal" hx-swap="innerHTML">删除节点</button>
 {% endif %}
 {% endblock %}
 {% block content %}
+<input type="hidden" id="node-revision" value="{{ node.revision }}">
+<input type="hidden" id="workspace-revision" value="{{ workspace_revision }}">
 <script src="/static/csv_import_panel.js"></script>
 <div class="page-head">
   <h1>{% if not node.is_committed %}工作区草稿{% elif node.parent_id is none %}初始状态{% else %}📦 {{ node.message or '(无说明)' }}{% endif %}</h1>
@@ -112,6 +116,7 @@
             action="/board/{{ board_id }}/node/{{ node.id }}/edit-info"
             @submit="if (!confirmPendingAttachments()) $event.preventDefault()">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" class="js-node-revision" value="{{ node.revision }}">
         <input class="input" name="message" value="{{ node.message }}"
                placeholder="标题（提交说明）" autocomplete="off">
         <textarea class="input" name="description" rows="4"
@@ -147,6 +152,7 @@
     <form class="panel commit-box" method="post" action="/board/{{ board_id }}/commit"
           @submit="if (!confirmPendingAttachments()) $event.preventDefault()">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" class="js-node-revision" value="{{ node.revision }}">
       <div class="panel-title">提交为新节点</div>
       <input class="input" name="message" placeholder="commit 说明" required>
       <textarea class="input" name="description" rows="4"
@@ -171,7 +177,7 @@ function confirmPendingAttachments(){
   if (!n) return true;
   const ok = confirm(`有 ${n} 个附件已选择但还没上传，提交不会带上它们。继续提交将放弃上传，是否继续？`);
   // 冲突确认框盖在页面上时，附件面板在遮罩底下：滚过去看不见、焦点也是隐形的，
-  // 那就什么都不做，用户先关掉弹窗（≡ 全部保留下游值）再上传。
+  // 那就什么都不做，用户先关掉弹窗（这次修正还没写入）再上传。
   if (!ok && !document.querySelector('#modal .modal-overlay')) {
     // 滚过去还不够：焦点还留在提交按钮上，键盘用户得自己 Tab 回来
     document.querySelector('#attachments').scrollIntoView({behavior: 'smooth', block: 'nearest'});

@@ -4,7 +4,8 @@
 <form class="edit-form"
       hx-post="/board/{{ board_id }}/node/{{ node.id }}/edit"
       hx-target="#bom" hx-swap="innerHTML"
-      @htmx:after-request.camel="if ($event.target === $el && $event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget')) { ref=''; part=''; op='modify'; $nextTick(() => $refs.filterInput && $refs.filterInput.select()); }">
+      @htmx:after-request.camel="if ($event.target === $el && $event.detail.successful && !$event.detail.xhr.getResponseHeader('HX-Retarget') && $event.detail.xhr.getResponseHeader('HX-Reswap') !== 'none') { ref=''; part=''; op='modify'; $nextTick(() => $refs.filterInput && $refs.filterInput.select()); }">
+  <input type="hidden" name="revision" class="js-node-revision" value="{{ node.revision }}">
   {# 位号框回车：先把 Part 补上再提交。这里回车多半是刚在 datalist 里选中候选，
      此时 Part 还空着，走浏览器隐式提交只会吃一条「必须填写新 Part 值」。
      插入页的同名处理器（insert_node.html）行为一致，改一处记得改两处。 #}

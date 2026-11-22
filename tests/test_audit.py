@@ -175,9 +175,14 @@ def test_resolve_route_stamps_actor_on_propagated_row(tmp_path, monkeypatch):
         data={"reference": "R1", "op": "modify", "part": "5k"},
     )
     assert conflict.status_code == 200, conflict.text
+    # 有冲突时第一次请求不写库：这条仍是提交时的 47k，不是弹窗里的 5k。
+    assert models.get_change(get_conn(), first["id"], "R1")["part"] == "47k"
     resolved = editor.post(
         f"/board/{bid}/node/{first['id']}/resolve",
-        data={"downstream_node_id": str(second["id"]), "reference": "R1", "choice": "take"},
+        data={
+            "edit_reference": "R1", "op": "modify", "part": "5k",
+            "downstream_node_id": str(second["id"]), "reference": "R1", "choice": "take",
+        },
         follow_redirects=False,
     )
     assert resolved.status_code == 303, resolved.text

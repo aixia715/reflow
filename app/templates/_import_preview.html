@@ -49,7 +49,7 @@
   {% elif ready %}
   <button type="button" class="btn btn-outline"
           hx-post="/board/{{ board_id }}/node/{{ node_id }}/import"
-          hx-vals='{{ {"changes": changes_json} | tojson }}'
+          hx-vals='{{ {"changes": changes_json, "revision": revision} | tojson }}'
           hx-target="#import-error" hx-swap="innerHTML">
     应用这 {{ changes|length }} 条修改
   </button>

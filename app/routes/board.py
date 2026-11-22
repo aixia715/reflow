@@ -29,6 +29,70 @@ def _actor_id(request: Request) -> int:
     return request.state.user["id"]
 
 
+def _coerce_revision(raw, node) -> int:
+    """打开页面时的版本号。没带时用当前值，已有测试客户端不用逐个补字段。
+
+    页面和 hx-vals 总会带上。带了旧值才会被拒绝。
+    """
+    if raw is None or (isinstance(raw, str) and str(raw).strip() == ""):
+        return int(node["revision"])
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
+
+
+def _stale(request: Request, username: str, *, fallback: str | None = None):
+    """版本对不上。HTMX：200 + HX-Reswap none，#form-error 与 toast 同一句话。"""
+    message = f"已被 {username} 修改，请刷新"
+    if request.headers.get("HX-Request") or not fallback:
+        return templates.TemplateResponse(
+            request, "_revision_stale.html", {"message": message},
+            status_code=200,
+            headers={
+                "HX-Reswap": "none",
+                "HX-Trigger": json.dumps({"showToast": message}),
+            },
+        )
+    return RedirectResponse(
+        f"{fallback}?flash={quote(message, safe='')}", status_code=303)
+
+
+def _trigger(msg: str, node=None) -> str:
+    payload: dict = {"showToast": msg}
+    if node is not None:
+        payload["revisionBumped"] = {"revision": int(node["revision"])}
+    return json.dumps(payload)
+
+
+def _enriched_conflicts(conn, conflicts) -> list[dict]:
+    """弹窗要带上算出冲突时每个下游节点的 revision。"""
+    out = []
+    for conflict in conflicts:
+        row = models.get_node(conn, conflict.downstream_node_id)
+        item = conflict._asdict()
+        item["downstream_revision"] = int(row["revision"]) if row is not None else -1
+        out.append(item)
+    return out
+
+
+def _downstream_revisions(ids, revs) -> dict[int, int]:
+    found: dict[int, int] = {}
+    for node_id, rev in zip(ids, revs):
+        try:
+            found[int(node_id)] = int(rev)
+        except (TypeError, ValueError):
+            found[int(node_id)] = -1
+    return found
+
+
+def _choice_map(ids, refs, choices) -> dict[tuple[int, str], str]:
+    return {
+        (int(node_id), ref): choice
+        for node_id, ref, choice in zip(ids, refs, choices)
+    }
+
+
 def _known_refs(initial, chain):
     """链上出现过的全部位号（初始 + 任意 add/modify 引入的）。"""
     known = set(initial)
@@ -169,6 +233,7 @@ def state_graph(request: Request, board_id: int):
          "insertable_ids": insertable_ids,
          "attach_node_ids": models.node_ids_with_attachments(conn, board_id),
          "initial_count": initial_count,
+         "workspace_revision": int(models.workspace_node(conn, board_id)["revision"]),
          "has_siblings": len(models.list_sibling_boards(conn, board_id)) > 1})
 
 
@@ -179,6 +244,8 @@ def node_detail(request: Request, board_id: int, node_id: int):
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     ctx = _node_context(conn, board_id, node, with_lint=False)
+    ws = models.workspace_node(conn, board_id)
+    ctx["workspace_revision"] = int(ws["revision"]) if ws is not None else 0
     ctx["bom_version_id"] = None
     ctx["initial_correction"] = None
     if node["parent_id"] is None:
@@ -253,8 +320,9 @@ def download_node_bom(board_id: int, node_id: int, scope: str = "full"):
 
 
 @router.post("/board/{board_id}/node/{node_id}/edit-info")
-def edit_node_info(board_id: int, node_id: int,
-                   message: str = Form(""), description: str = Form("")):
+def edit_node_info(request: Request, board_id: int, node_id: int,
+                   message: str = Form(""), description: str = Form(""),
+                   revision: str = Form(None)):
     """编辑节点的标题（提交说明）与长文本说明。根节点（初始状态）不可改。"""
     conn = get_conn()
     node = models.get_node(conn, node_id)
@@ -262,9 +330,19 @@ def edit_node_info(board_id: int, node_id: int,
         raise HTTPException(status_code=404, detail="节点不存在")
     if node["parent_id"] is None:
         return PlainTextResponse("根节点（初始状态）不支持编辑信息", status_code=400)
-    models.update_node_info(conn, node_id, message.strip(), description.strip())
-    return RedirectResponse(
-        f"/board/{board_id}/node/{node_id}?flash=✓ 已更新节点信息", status_code=303)
+    fallback = f"/board/{board_id}/node/{node_id}"
+
+    def _write():
+        models.update_node_info(
+            conn, node_id, message.strip(), description.strip(), commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(node_id, _coerce_revision(revision, node))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=fallback)
+    return RedirectResponse(f"{fallback}?flash=✓ 已更新节点信息", status_code=303)
 
 
 @router.post("/board/{board_id}/node/{node_id}/lint-changes")
@@ -283,9 +361,45 @@ def lint_changes(request: Request, board_id: int, node_id: int):
         request, "_changes_panel_block.html", _panel_context(conn, board_id, node))
 
 
+def _conflict_modal(request, conn, board_id, node_id, reference, op, part_val, fix_note):
+    """有下游冲突时不写库，只把当时的版本号放进确认框。"""
+    new_value = None if op == "remove" else part_val
+    conflicts = _enriched_conflicts(
+        conn, propagation.preview_edit_conflicts(conn, node_id, reference, new_value))
+    node = models.get_node(conn, node_id)
+    ctx = _node_context(conn, board_id, node)
+    ctx.update({
+        "conflicts": conflicts, "node_id": node_id,
+        "edit_reference": reference, "edit_op": op,
+        "edit_part": "" if part_val is None else part_val,
+        "edit_revision": int(node["revision"]),
+        "fix_note": fix_note,
+    })
+    return templates.TemplateResponse(
+        request, "_conflict_modal.html", ctx,
+        headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
+
+
+def _apply_reference_edit(request, conn, board_id, node, reference, op, part_val, revision):
+    """无冲突则写入并加版本号。有冲突抛 WriteAborted，调用方改弹窗、不留半截修改。"""
+    new_value = None if op == "remove" else part_val
+
+    def _write():
+        if propagation.preview_edit_conflicts(conn, node["id"], reference, new_value):
+            raise models.WriteAborted()
+        propagation.apply_node_edit(
+            conn, node["id"], reference, op, part_val, drop_noop=True,
+            actor_user_id=_actor_id(request), commit=False)
+
+    models.guarded_write(
+        conn, _actor_id(request),
+        [(node["id"], _coerce_revision(revision, node))], _write)
+
+
 @router.post("/board/{board_id}/node/{node_id}/edit")
 def edit_node(request: Request, board_id: int, node_id: int,
-              reference: str = Form(...), op: str = Form(...), part: str = Form(None)):
+              reference: str = Form(...), op: str = Form(...), part: str = Form(None),
+              revision: str = Form(None)):
     conn = get_conn()
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
@@ -306,9 +420,12 @@ def edit_node(request: Request, board_id: int, node_id: int,
         return templates.TemplateResponse(
             request, "_form_error.html", {"message": err},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
-    conflicts = propagation.apply_node_edit(
-        conn, node_id, reference, op, part_val, drop_noop=True,
-        actor_user_id=_actor_id(request))
+    try:
+        _apply_reference_edit(request, conn, board_id, node, reference, op, part_val, revision)
+    except models.WriteAborted:
+        return _conflict_modal(request, conn, board_id, node_id, reference, op, part_val, fix_note)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username)
 
     node = models.get_node(conn, node_id)
     ctx = _node_context(conn, board_id, node)
@@ -320,11 +437,6 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if not any(c["reference"] == reference for c in ctx["changes"]):
         ctx["orphan_fix"] = fix_note
         ctx["orphan_warning"] = lint_warning_for(reference, part_val) or ""
-    if conflicts:
-        ctx.update({"conflicts": conflicts, "node_id": node_id})
-        return templates.TemplateResponse(
-            request, "_conflict_modal.html", ctx,
-            headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
     # 改回上游原样时 changeset 行会被丢掉（drop_noop），面板上不会出现这一条——
     # 沿用「已修改」的文案会和眼前的界面对不上，得说清楚发生了什么。
     if (not node["is_committed"]
@@ -335,12 +447,12 @@ def edit_node(request: Request, board_id: int, node_id: int,
         msg = f"✓ {label}：{reference}" + (f" → {part_val}" if part_val else "")
     return templates.TemplateResponse(
         request, "_node_update.html", ctx,
-        headers={"HX-Trigger": json.dumps({"showToast": msg})})
+        headers={"HX-Trigger": _trigger(msg, node)})
 
 
 @router.post("/board/{board_id}/node/{node_id}/undo")
 def undo_change(request: Request, board_id: int, node_id: int,
-                reference: str = Form(...)):
+                reference: str = Form(...), revision: str = Form(None)):
     """撤销草稿节点对某位号的修改（从 changeset 删除，恢复继承）。仅限未提交节点。"""
     conn = get_conn()
     node = models.get_node(conn, node_id)
@@ -352,14 +464,25 @@ def undo_change(request: Request, board_id: int, node_id: int,
             {"message": "已提交节点不能撤销，请使用右侧「修订」"},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
     reference = reference.strip()
-    models.delete_change(conn, node_id, reference)
+
+    def _write():
+        models.delete_change(conn, node_id, reference, commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(node_id, _coerce_revision(revision, node))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username)
+    node = models.get_node(conn, node_id)
     return templates.TemplateResponse(
         request, "_node_update.html", _node_context(conn, board_id, node),
-        headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已撤销 {reference} 的修改"})})
+        headers={"HX-Trigger": _trigger(f"↩ 已撤销 {reference} 的修改", node)})
 
 
 @router.post("/board/{board_id}/node/{node_id}/undo-all")
-def undo_all_changes(request: Request, board_id: int, node_id: int):
+def undo_all_changes(request: Request, board_id: int, node_id: int,
+                     revision: str = Form(None)):
     """一键撤销草稿节点的**全部**修改。仅限未提交节点。
 
     与单条撤销同语义：删 changeset 行、不记审计日志（草稿从未对外可见，撤销不是
@@ -374,10 +497,21 @@ def undo_all_changes(request: Request, board_id: int, node_id: int):
             request, "_form_error.html",
             {"message": "已提交节点不能撤销，请使用右侧「修订」"},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
-    count = models.clear_changes(conn, node_id)
+    counted = {"n": 0}
+
+    def _write():
+        counted["n"] = models.clear_changes(conn, node_id, commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(node_id, _coerce_revision(revision, node))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username)
+    node = models.get_node(conn, node_id)
     return templates.TemplateResponse(
         request, "_node_update.html", _node_context(conn, board_id, node),
-        headers={"HX-Trigger": json.dumps({"showToast": f"↩ 已清除全部 {count} 条修改"})})
+        headers={"HX-Trigger": _trigger(f"↩ 已清除全部 {counted['n']} 条修改", node)})
 
 
 def _check_deletable(conn, board_id, node_id):
@@ -403,70 +537,135 @@ def _deleted_redirect(board_id, node_id):
     return resp
 
 
+def _delete_modal(request, conn, board_id, node):
+    conflicts = _enriched_conflicts(
+        conn, propagation.detect_delete_conflicts(conn, node["id"]))
+    fresh = models.get_node(conn, node["id"])
+    return templates.TemplateResponse(
+        request, "_delete_conflict_modal.html",
+        {"board_id": board_id, "node_id": node["id"], "node": fresh,
+         "node_revision": int(fresh["revision"]), "conflicts": conflicts},
+        headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
+
+
 @router.post("/board/{board_id}/node/{node_id}/delete")
-def delete_node(request: Request, board_id: int, node_id: int):
+def delete_node(request: Request, board_id: int, node_id: int,
+                revision: str = Form(None)):
     """删除已提交节点：无冲突直接删并跳转；有下游受影响位号则弹确认框（1-A）。"""
     conn = get_conn()
     node, err = _check_deletable(conn, board_id, node_id)
     if err is not None:
         return err
-    conflicts = propagation.detect_delete_conflicts(conn, node_id)
-    if conflicts:
-        return templates.TemplateResponse(
-            request, "_delete_conflict_modal.html",
-            {"board_id": board_id, "node_id": node_id, "node": node,
-             "conflicts": conflicts},
-            headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
-    propagation.delete_node(conn, node_id, actor_user_id=_actor_id(request))
+    try:
+        propagation.delete_node(
+            conn, node_id, {}, actor_user_id=_actor_id(request),
+            expected_revision=_coerce_revision(revision, node),
+            require_choices=True)
+    except models.WriteAborted:
+        return _delete_modal(request, conn, board_id, node)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=f"/board/{board_id}")
     return _deleted_redirect(board_id, node_id)
 
 
 @router.post("/board/{board_id}/node/{node_id}/delete-confirm")
 def delete_node_confirm(request: Request, board_id: int, node_id: int,
                         reference: list[str] = Form(default=[]),
-                        choice: list[str] = Form(default=[])):
+                        choice: list[str] = Form(default=[]),
+                        revision: str = Form(None),
+                        downstream_node_id: list[int] = Form(default=[]),
+                        downstream_revision: list[str] = Form(default=[])):
     """确认删除：按每个受影响位号的 keep/take 选择执行删除（1-A）。"""
     conn = get_conn()
-    _node, err = _check_deletable(conn, board_id, node_id)
+    node, err = _check_deletable(conn, board_id, node_id)
     if err is not None:
         return err
-    propagation.delete_node(
-        conn, node_id, dict(zip(reference, choice)), actor_user_id=_actor_id(request))
+    try:
+        propagation.delete_node(
+            conn, node_id, dict(zip(reference, choice)),
+            actor_user_id=_actor_id(request),
+            expected_revision=_coerce_revision(revision, node),
+            downstream_revisions=_downstream_revisions(
+                downstream_node_id, downstream_revision) or None,
+            require_choices=True)
+    except models.WriteAborted:
+        return _delete_modal(request, conn, board_id, node)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=f"/board/{board_id}")
     return _deleted_redirect(board_id, node_id)
 
 
 @router.post("/board/{board_id}/node/{node_id}/resolve")
 def resolve(request: Request, board_id: int, node_id: int,
-            downstream_node_id: list[int] = Form(...),
-            reference: list[str] = Form(...),
-            choice: list[str] = Form(...)):
+            edit_reference: str = Form(""), op: str = Form(""),
+            part: str = Form(""), revision: str = Form(None),
+            downstream_node_id: list[int] = Form(default=[]),
+            downstream_revision: list[str] = Form(default=[]),
+            reference: list[str] = Form(default=[]),
+            choice: list[str] = Form(default=[])):
+    """确认冲突时才写入。被编辑节点和每个下游节点的版本号在同一事务里核对。"""
     conn = get_conn()
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
-    for ds, ref, ch in zip(downstream_node_id, reference, choice):
-        ds_val = propagation._resolved_value(conn, ds, ref)
-        corrected = propagation._resolved_value(conn, node_id, ref)
-        propagation.resolve_conflict(
-            conn, propagation.Conflict(ds, ref, ds_val, corrected), ch,
-            actor_user_id=_actor_id(request))
-    return RedirectResponse(f"/board/{board_id}/node/{node_id}?flash=✓ 冲突已确认", status_code=303)
+    edit_reference = edit_reference.strip()
+    if op not in ("add", "modify", "remove") or not edit_reference:
+        return PlainTextResponse("缺少待确认的修改", status_code=400)
+    part_val, _fix = _lint_with_note(edit_reference, op, part)
+    err = _validate(conn, node_id, edit_reference, op, part_val)
+    if err:
+        return PlainTextResponse(err, status_code=400)
+    fallback = f"/board/{board_id}/node/{node_id}"
+    ds_revs = _downstream_revisions(downstream_node_id, downstream_revision)
+    for ds in downstream_node_id:
+        ds_revs.setdefault(int(ds), -1 if models.get_node(conn, int(ds)) is None
+                           else int(models.get_node(conn, int(ds))["revision"]))
+    choices = _choice_map(downstream_node_id, reference, choice)
+    new_value = None if op == "remove" else part_val
+
+    def _write():
+        got = propagation.apply_node_edit(
+            conn, node_id, edit_reference, op, part_val, drop_noop=True,
+            actor_user_id=_actor_id(request), commit=False)
+        for conflict in got:
+            picked = choices.get((conflict.downstream_node_id, conflict.reference))
+            if conflict.downstream_node_id not in ds_revs or picked not in ("keep", "take"):
+                raise models.WriteAborted()
+            propagation.resolve_conflict(
+                conn, conflict, picked, actor_user_id=_actor_id(request), commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(node_id, _coerce_revision(revision, node)), *ds_revs.items()],
+            _write)
+    except models.WriteAborted:
+        return _conflict_modal(
+            request, conn, board_id, node_id, edit_reference, op, part_val, _fix)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=fallback)
+    return RedirectResponse(f"{fallback}?flash=✓ 冲突已确认", status_code=303)
 
 
 @router.post("/board/{board_id}/workspace/edit")
 def workspace_edit(request: Request, board_id: int, reference: str = Form(...),
-                   op: str = Form(...), part: str = Form(None)):
+                   op: str = Form(...), part: str = Form(None),
+                   revision: str = Form(None)):
     conn = get_conn()
     ws = models.workspace_node(conn, board_id)
     if ws is None:
         raise HTTPException(status_code=404, detail="单板不存在")
     reference = reference.strip()
-    part_val = _lint_or_none(reference, op, part)
+    part_val, fix_note = _lint_with_note(reference, op, part)
     err = _validate(conn, ws["id"], reference, op, part_val)
     if err:
         return PlainTextResponse(err, status_code=400)
-    propagation.apply_node_edit(conn, ws["id"], reference, op, part_val,
-                                drop_noop=True, actor_user_id=_actor_id(request))
+    try:
+        _apply_reference_edit(request, conn, board_id, ws, reference, op, part_val, revision)
+    except models.WriteAborted:
+        return _conflict_modal(request, conn, board_id, ws["id"], reference, op, part_val, fix_note)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=f"/board/{board_id}/node/{ws['id']}")
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
 
 
@@ -518,10 +717,12 @@ async def import_preview(request: Request, board_id: int, node_id: int,
     mode="full"：CSV 是完整目标 BOM，与当前折叠 BOM 求差得出修改。
     """
     conn = get_conn()
-    if _import_draft(conn, board_id, node_id) is None:
+    draft = _import_draft(conn, board_id, node_id)
+    if draft is None:
         return PlainTextResponse("只有工作区草稿支持导入修改", status_code=400)
 
     ctx = {"board_id": board_id, "node_id": node_id, "message": "",
+           "revision": int(draft["revision"]),
            "changes": [], "problems": [], "rows": [], "ready": False,
            "mode": mode, "unchanged": 0,
            # 显式传 False：模板的 {% if ready and client_apply %} 若靠 Undefined
@@ -573,7 +774,7 @@ async def import_preview(request: Request, board_id: int, node_id: int,
 
 @router.post("/board/{board_id}/node/{node_id}/import")
 def import_apply(request: Request, board_id: int, node_id: int,
-                 changes: str = Form("[]")):
+                 changes: str = Form("[]"), revision: str = Form(None)):
     """应用预览过的修改清单。落库前重新校验（草稿可能已变），全有或全无。"""
     conn = get_conn()
     if _import_draft(conn, board_id, node_id) is None:
@@ -602,9 +803,20 @@ def import_apply(request: Request, board_id: int, node_id: int,
         # detail 取自 validate_edit，本身已说明具体原因。
         return _err(f"导入被拒绝：{problems[0].reference} {problems[0].detail}")
 
-    for c in planned:
-        propagation.apply_node_edit(
-            conn, node_id, c.reference, c.op, c.part, actor_user_id=_actor_id(request))
+    node = models.get_node(conn, node_id)
+
+    def _write():
+        for change in planned:
+            propagation.apply_node_edit(
+                conn, node_id, change.reference, change.op, change.part,
+                actor_user_id=_actor_id(request), commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(node_id, _coerce_revision(revision, node))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username)
 
     flash = quote(f"✓ 已导入 {len(planned)} 条修改", safe="")
     return Response(status_code=204, headers={
@@ -668,7 +880,8 @@ def _insert_boms(conn, parent_id, pending) -> tuple[dict, dict]:
 async def insert_import_preview(request: Request, board_id: int, parent_id: int,
                                 file: UploadFile | None = File(None),
                                 mode: str = Form("diff"),
-                                changes: str = Form("[]")):
+                                changes: str = Form("[]"),
+                                revision: str = Form(None)):
     """插入页的 CSV 导入预览：**只算不写库**，结果交回浏览器合进暂存。
 
     与节点页的 `/import/preview` 同一套解析与求差逻辑，两点不同：
@@ -684,6 +897,7 @@ async def insert_import_preview(request: Request, board_id: int, parent_id: int,
         raise HTTPException(status_code=404, detail="节点不存在")
 
     ctx = {"board_id": board_id, "node_id": parent_id, "message": "",
+           "revision": int(parent["revision"]),
            "changes": [], "problems": [], "rows": [], "ready": False,
            "mode": mode, "unchanged": 0, "client_apply": True, "staged_json": "[]",
            "counts": {"add": 0, "modify": 0, "remove": 0}, "changes_json": "[]"}
@@ -695,6 +909,12 @@ async def insert_import_preview(request: Request, board_id: int, parent_id: int,
     child = _insert_child(conn, parent_id)
     if not parent["is_committed"] or child is None or not child["is_committed"]:
         return _render("该位置不可插入（链末请直接用工作区编辑）")
+    if _coerce_revision(revision, parent) != int(parent["revision"]):
+        message = f"已被 {models._actor_label(conn, parent['revised_by'])} 修改，请刷新"
+        resp = _render(message)
+        resp.headers["HX-Trigger"] = json.dumps(
+            {"insertChecked": {"ok": False, "error": message}})
+        return resp
     pending, perr = validate_changes_payload(changes)
     if perr:
         return _render(perr)
@@ -749,7 +969,7 @@ async def insert_import_preview(request: Request, board_id: int, parent_id: int,
 @router.post("/board/{board_id}/node/{parent_id}/insert/check")
 def insert_check(board_id: int, parent_id: int, reference: str = Form(""),
                  op: str = Form(""), part: str = Form(None),
-                 changes: str = Form("[]")):
+                 changes: str = Form("[]"), revision: str = Form(None)):
     """插入页「添加这条」的服务端校验 + lint 归一。204 + `HX-Trigger` 带回结果。
 
     插入页的改动暂存在浏览器里，曾因此在 JS 里手抄了一份 `validate_edit`（连
@@ -779,6 +999,9 @@ def insert_check(board_id: int, parent_id: int, reference: str = Form(""),
     child = _insert_child(conn, parent_id)
     if not parent["is_committed"] or child is None or not child["is_committed"]:
         return _bad("该位置不可插入（链末请直接用工作区编辑）")
+    if _coerce_revision(revision, parent) != int(parent["revision"]):
+        return _bad(
+            f"已被 {models._actor_label(conn, parent['revised_by'])} 修改，请刷新")
     pending, perr = validate_changes_payload(changes)
     if perr:
         return _bad(perr)
@@ -803,7 +1026,12 @@ def insert_check(board_id: int, parent_id: int, reference: str = Form(""),
 @router.post("/board/{board_id}/node/{parent_id}/insert")
 def insert_save(request: Request, board_id: int, parent_id: int,
                 committed_at: str = Form(""), message: str = Form(""),
-                description: str = Form(""), changes: str = Form("[]")):
+                description: str = Form(""), changes: str = Form("[]"),
+                revision: str = Form(None),
+                downstream_node_id: list[int] = Form(default=[]),
+                downstream_revision: list[str] = Form(default=[]),
+                reference: list[str] = Form(default=[]),
+                choice: list[str] = Form(default=[])):
     conn = get_conn()
     parent = models.get_node(conn, parent_id)
     if parent is None or parent["board_id"] != board_id:
@@ -813,7 +1041,11 @@ def insert_save(request: Request, board_id: int, parent_id: int,
     def _err(msg):
         return templates.TemplateResponse(
             request, "_form_error.html", {"message": msg},
-            headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
+            headers={
+                "HX-Retarget": "#form-error", "HX-Reswap": "innerHTML",
+                "HX-Trigger": json.dumps(
+                    {"insertChecked": {"ok": False, "error": msg}}),
+            })
 
     if not parent["is_committed"] or child is None or not child["is_committed"]:
         return _err("该位置不可插入（链末请直接用工作区编辑）")
@@ -843,23 +1075,50 @@ def insert_save(request: Request, board_id: int, parent_id: int,
         else:
             sim[ref] = ch.get("part")
 
-    new_id = models.insert_node_after(
-        conn, parent_id, committed_at, message.strip(), description.strip())
-    conflicts = []
-    for ch in chs:
-        ref = (ch.get("reference") or "").strip()
-        op = ch.get("op")
-        part_val = ch.get("part")
-        conflicts += propagation.apply_node_edit(
-            conn, new_id, ref, op, part_val, actor_user_id=_actor_id(request))
+    ds_revs = _downstream_revisions(downstream_node_id, downstream_revision)
+    choices = _choice_map(downstream_node_id, reference, choice)
+    locks = [(parent_id, _coerce_revision(revision, parent)), *ds_revs.items(),
+             (child["id"], int(child["revision"]))]
+    holder: dict = {}
 
-    if conflicts:
+    def _write():
+        found = propagation.preview_insert_conflicts(conn, parent_id, chs)
+        for conflict in found:
+            picked = choices.get((conflict.downstream_node_id, conflict.reference))
+            if picked not in ("keep", "take"):
+                raise models.WriteAborted()
+        new_id = models.insert_node_after(
+            conn, parent_id, committed_at, message.strip(), description.strip(),
+            commit=False)
+        for ch in chs:
+            ref = (ch.get("reference") or "").strip()
+            propagation.apply_node_edit(
+                conn, new_id, ref, ch.get("op"), ch.get("part"),
+                actor_user_id=_actor_id(request), commit=False)
+        for conflict in found:
+            propagation.resolve_conflict(
+                conn, conflict,
+                choices[(conflict.downstream_node_id, conflict.reference)],
+                actor_user_id=_actor_id(request), commit=False)
+        holder["id"] = new_id
+
+    try:
+        models.guarded_write(conn, _actor_id(request), locks, _write)
+    except models.WriteAborted:
+        conflicts = _enriched_conflicts(
+            conn, propagation.preview_insert_conflicts(conn, parent_id, chs))
         return templates.TemplateResponse(
             request, "_insert_conflict_modal.html",
-            {"board_id": board_id, "node_id": new_id, "conflicts": conflicts},
+            {"board_id": board_id, "parent_id": parent_id,
+             "committed_at": committed_at, "message": message,
+             "description": description, "changes": changes,
+             "revision": int(models.get_node(conn, parent_id)["revision"]),
+             "conflicts": conflicts},
             headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
+    except models.NodeRevisionError as exc:
+        return _err(str(exc))
 
-    from urllib.parse import quote
+    new_id = holder["id"]
     # flash 整体编码：含 # 与中文/✓，# 必须编码成 %23，否则被当作 URL fragment 截断
     flash = quote(f"✓ 已插入节点 #{new_id}")
     dest = f"/board/{board_id}/node/{new_id}?flash={flash}"
@@ -870,7 +1129,8 @@ def insert_save(request: Request, board_id: int, parent_id: int,
 
 
 @router.post("/board/{board_id}/node/{node_id}/copy-to-draft")
-def copy_to_draft(request: Request, board_id: int, node_id: int):
+def copy_to_draft(request: Request, board_id: int, node_id: int,
+                  revision: str = Form(None)):
     """一键复制某节点全部 changeset 到工作区草稿（覆盖合并），标题/说明仅当草稿为空时填入。
 
     策略（issue #57 实现要点）：
@@ -890,33 +1150,57 @@ def copy_to_draft(request: Request, board_id: int, node_id: int):
     if ws["id"] == node_id:
         return PlainTextResponse("不能复制草稿到自身", status_code=400)
 
-    changes = models.get_changeset(conn, node_id)
-    for ch in changes:
-        part_val = None if ch["op"] == "remove" else ch["part"]
-        propagation.apply_node_edit(
-            conn, ws["id"], ch["reference"], ch["op"], part_val,
-            actor_user_id=_actor_id(request))
+    copied = {"n": 0}
 
-    # 标题/说明：仅当草稿对应字段为空时才填入（各自独立判断）
-    cur_msg = (ws["message"] or "").strip()
-    cur_desc = (ws["description"] or "").strip()
-    src_msg = (node["message"] or "").strip()
-    src_desc = (node["description"] or "").strip()
-    new_msg = cur_msg if cur_msg else src_msg
-    new_desc = cur_desc if cur_desc else src_desc
-    if new_msg != cur_msg or new_desc != cur_desc:
-        models.update_node_info(conn, ws["id"], new_msg, new_desc)
+    def _write():
+        changes = models.get_changeset(conn, node_id)
+        copied["n"] = len(changes)
+        for ch in changes:
+            part_val = None if ch["op"] == "remove" else ch["part"]
+            propagation.apply_node_edit(
+                conn, ws["id"], ch["reference"], ch["op"], part_val,
+                actor_user_id=_actor_id(request), commit=False)
+        # 标题/说明：仅当草稿对应字段为空时才填入（各自独立判断）
+        fresh_ws = models.get_node(conn, ws["id"])
+        cur_msg = (fresh_ws["message"] or "").strip()
+        cur_desc = (fresh_ws["description"] or "").strip()
+        src_msg = (node["message"] or "").strip()
+        src_desc = (node["description"] or "").strip()
+        new_msg = cur_msg if cur_msg else src_msg
+        new_desc = cur_desc if cur_desc else src_desc
+        if new_msg != cur_msg or new_desc != cur_desc:
+            models.update_node_info(conn, ws["id"], new_msg, new_desc, commit=False)
 
-    flash = quote(f"✓ 已复制 {len(changes)} 条修改到草稿", safe="")
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(ws["id"], _coerce_revision(revision, ws))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=f"/board/{board_id}/node/{ws['id']}")
+
+    flash = quote(f"✓ 已复制 {copied['n']} 条修改到草稿", safe="")
     resp = PlainTextResponse("")
     resp.headers["HX-Redirect"] = f"/board/{board_id}/node/{ws['id']}?flash={flash}"
     return resp
 
 
 @router.post("/board/{board_id}/commit")
-def commit(board_id: int, message: str = Form(...), description: str = Form("")):
+def commit(request: Request, board_id: int, message: str = Form(...),
+           description: str = Form(""), revision: str = Form(None)):
     conn = get_conn()
-    models.commit_workspace(conn, board_id, message, description.strip())
+    ws = models.workspace_node(conn, board_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
+
+    def _write():
+        models.commit_workspace(conn, board_id, message, description.strip(), commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(ws["id"], _coerce_revision(revision, ws))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username, fallback=f"/board/{board_id}/node/{ws['id']}")
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已提交：{message}", status_code=303)
 
 
@@ -1087,6 +1371,7 @@ def attachments_list(request: Request, board_id: int, node_id: int):
 
 @router.post("/board/{board_id}/node/{node_id}/attachments")
 async def attachments_upload(request: Request, board_id: int, node_id: int,
+                              revision: str = Form(None),
                               files: list[UploadFile] = File(default=[])):
     """上传一个或多个附件，落盘到 uploads/<board>/<node>/ 并刷新附件区域。"""
     conn = get_conn()
@@ -1094,31 +1379,45 @@ async def attachments_upload(request: Request, board_id: int, node_id: int,
     node_id = node["id"]
     reals = [f for f in files if f.filename]
     blobs = [(f.filename, await f.read()) for f in reals]
-    saved = 0
     oversized = []
+    to_save = []
     for name, data in blobs:
         if len(data) > attachments.MAX_ATTACHMENT_BYTES:
             oversized.append(name)
-            continue
-        stored = attachments.make_stored_name(name)
-        rel = attachments.rel_path(board_id, node_id, stored)
-        storage.save_attachment(rel, data)
+        else:
+            to_save.append((name, data))
+    saved_rels: list[str] = []
+
+    def _write():
+        for name, data in to_save:
+            stored = attachments.make_stored_name(name)
+            rel = attachments.rel_path(board_id, node_id, stored)
+            storage.save_attachment(rel, data)
+            saved_rels.append(rel)
+            models.add_node_attachment(conn, node_id, name, rel, commit=False)
+
+    if to_save:
         try:
-            models.add_node_attachment(conn, node_id, name, rel)
+            models.guarded_write(
+                conn, _actor_id(request),
+                [(node_id, _coerce_revision(revision, node))], _write)
+        except models.NodeRevisionError as exc:
+            storage.delete_files(saved_rels)
+            return _stale(request, exc.username)
         except Exception:
-            # DB 行没写成功，已落盘的文件不能孤儿地留在磁盘上
-            storage.delete_files([rel])
+            storage.delete_files(saved_rels)
             raise
-        saved += 1
+    saved = len(to_save)
     if oversized:
         limit_mb = attachments.MAX_ATTACHMENT_BYTES // (1024 * 1024)
         msg = (f"✓ 已上传 {saved} 个；{len(oversized)} 个超过 {limit_mb}MB 未上传："
                f"{', '.join(oversized)}")
     else:
         msg = f"✓ 已上传 {saved} 个附件" if saved else "未选择文件"
+    node = models.get_node(conn, node_id)
     return templates.TemplateResponse(
         request, "_attachments.html", _attach_ctx(conn, board_id, node),
-        headers={"HX-Trigger": json.dumps({"showToast": msg})})
+        headers={"HX-Trigger": _trigger(msg, node if saved else None)})
 
 
 @router.get("/board/{board_id}/node/{node_id}/attachments/{aid}/download")
@@ -1141,7 +1440,8 @@ def attachments_download(board_id: int, node_id: int, aid: int):
 
 
 @router.post("/board/{board_id}/node/{node_id}/attachments/{aid}/delete")
-def attachments_delete(request: Request, board_id: int, node_id: int, aid: int):
+def attachments_delete(request: Request, board_id: int, node_id: int, aid: int,
+                       revision: str = Form(None)):
     """删除一个附件（DB 行 + 磁盘文件），刷新附件区域。"""
     conn = get_conn()
     node = _require_node(conn, board_id, node_id)
@@ -1149,10 +1449,21 @@ def attachments_delete(request: Request, board_id: int, node_id: int, aid: int):
     if row is None or row["node_id"] != node["id"]:
         raise HTTPException(status_code=404, detail="附件不存在")
     fname = row["filename"]
-    path = models.delete_node_attachment(conn, aid)
-    if path:
-        storage.delete_files([path])
+    removed = {"path": None}
+
+    def _write():
+        removed["path"] = models.delete_node_attachment(conn, aid, commit=False)
+
+    try:
+        models.guarded_write(
+            conn, _actor_id(request),
+            [(node["id"], _coerce_revision(revision, node))], _write)
+    except models.NodeRevisionError as exc:
+        return _stale(request, exc.username)
+    if removed["path"]:
+        storage.delete_files([removed["path"]])
     msg = f"✓ 已删除附件 {fname}"
+    node = models.get_node(conn, node["id"])
     return templates.TemplateResponse(
         request, "_attachments.html", _attach_ctx(conn, board_id, node),
-        headers={"HX-Trigger": json.dumps({"showToast": msg})})
+        headers={"HX-Trigger": _trigger(msg, node)})

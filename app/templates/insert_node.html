@@ -15,12 +15,19 @@
        placed: {{ placed | tojson }},
        unplaced: {{ unplaced | tojson }},
        minTs: {{ min_ts | tojson }},
-       maxTs: {{ max_ts | tojson }}
+       maxTs: {{ max_ts | tojson }},
+       parentRevision: {{ parent.revision | tojson }}
      })'
      @insert-checked.camel="onChecked($event.detail)"
      {# 本页改动只在浏览器里，误刷一次全没。saving 见下方保存表单上的开关。 #}
-     x-init="window.addEventListener('beforeunload', e => {
-               if (pendingCount && !saving) e.preventDefault();
+             x-init="window.addEventListener('beforeunload', e => {
+               if (pendingCount && !saving && !window.insertBypassUnload) e.preventDefault();
+             });
+             document.body.addEventListener('htmx:afterRequest', e => {
+               var form = e.detail && e.detail.elt;
+               if (!form || form.id !== 'insert-confirm-form') return;
+               var xhr = e.detail.xhr;
+               if (!xhr || !xhr.getResponseHeader('HX-Redirect')) window.insertBypassUnload = false;
              })">
   <div class="page-head">
     <h1>在 #{{ parent.id }} 之后插入变更节点</h1>
@@ -71,6 +78,7 @@
                 placeholder="背景、注意事项…"></textarea>
     </label>
     <input type="hidden" name="changes" :value="changesJson()">
+    <input type="hidden" name="revision" :value="parentRevision">
     <div class="form-actions">
       <button class="btn btn-primary" type="submit"
               :disabled="pendingCount===0 || !hasSlot">保存插入</button>
@@ -176,7 +184,7 @@
           <button type="button" class="btn btn-primary" x-ref="addBtn"
                   hx-post="/board/{{ board_id }}/node/{{ parent.id }}/insert/check"
                   hx-swap="none"
-                  :hx-vals="JSON.stringify({reference: ref, op: op, part: part, changes: changesJson()})"
+                  :hx-vals="JSON.stringify({reference: ref, op: op, part: part, changes: changesJson(), revision: parentRevision})"
                   @click="submitted = {ref: ref.trim(), op: op, part: part}"
                   @htmx:response-error.camel="editError = '检查失败（服务端返回 ' + $event.detail.xhr.status + '），请重试'"
                   @htmx:send-error.camel="editError = '检查失败：连不上服务，请确认服务在运行后重试'"
@@ -229,7 +237,7 @@
               hx-target="#import-preview" hx-swap="innerHTML"
               hx-encoding="multipart/form-data" hx-trigger="change[importHasFile()]"
               hx-indicator="#import-status"
-              :hx-vals="JSON.stringify({changes: changesJson()})"
+              :hx-vals="JSON.stringify({changes: changesJson(), revision: parentRevision})"
               @htmx:response-error.camel="importRequestFailed($event)"
               @htmx:send-error.camel="importRequestFailed($event)">
           <div class="seg">
@@ -260,6 +268,7 @@ function insertPage(data){
     saving: false,          // 保存插入进行中/已成功 → 解除离开守卫
     submitted: null,        // 「添加这条」点击那一刻的 {ref, op, part} 快照
     pending: {},
+    parentRevision: data.parentRevision,
     get pendingCount(){ return Object.keys(this.pending).length; },
     get hasSlot(){ return !!this.minTs; },
     toLocalInput(iso){ if(!iso) return ''; const d = new Date(iso);
