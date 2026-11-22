@@ -345,3 +345,185 @@ def test_force_transfer_bom_version_keeps_members(tmp_path, monkeypatch, caplog)
     finally:
         conn.close()
     assert "bom-z9" not in admin.get("/admin/users").text.split("负责人已停用的 BOM 版本", 1)[-1]
+
+
+def _sessions(user_id: int) -> int:
+    conn = _conn()
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM sessions WHERE user_id=?", (user_id,)
+        ).fetchone()["n"]
+    finally:
+        conn.close()
+
+
+def _is_admin(username: str) -> int:
+    conn = _conn()
+    try:
+        return conn.execute(
+            "SELECT is_admin FROM users WHERE username=?", (username,)
+        ).fetchone()["is_admin"]
+    finally:
+        conn.close()
+
+
+def test_grant_admin_takes_effect_without_dropping_session(tmp_path, monkeypatch, caplog):
+    admin = auth_client(tmp_path, monkeypatch, username="admin", password="test-password")
+    admin.post("/admin/users", data={
+        "username": "clerk", "password": "password-1", "password2": "password-1",
+    })
+    clerk = auth_client(
+        tmp_path, monkeypatch, username="clerk", password="password-1", is_admin=False,
+    )
+    clerk_id = _user_id("clerk")
+    assert clerk.get("/admin/users").status_code == 403
+    sessions_before = _sessions(clerk_id)
+    conn = _conn()
+    try:
+        log_before = conn.execute("SELECT COUNT(*) AS n FROM edit_log").fetchone()["n"]
+        members_before = [
+            tuple(r) for r in conn.execute(
+                "SELECT board_id, user_id, role FROM board_members ORDER BY board_id, user_id"
+            )
+        ]
+    finally:
+        conn.close()
+
+    page = admin.get("/admin/users").text
+    assert f"/admin/users/{_user_id('admin')}/admin" not in page
+    assert f"/admin/users/{clerk_id}/admin" in page
+    assert "设为管理员" in page
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="reflow.admin"):
+        granted = admin.post(f"/admin/users/{clerk_id}/admin", data={"is_admin": "1"})
+    assert granted.status_code == 200, granted.text
+    assert "管理员" in granted.text
+    infos = [rec for rec in caplog.records if rec.name == "reflow.admin" and rec.levelno == logging.INFO]
+    assert len(infos) == 1
+    message = infos[0].getMessage()
+    assert f"actor={_user_id('admin')}" in message
+    assert f"target={clerk_id}" in message
+    assert "is_admin=1" in message
+    # 旧会话还在，下一次请求就按新身份放行。
+    assert _sessions(clerk_id) == sessions_before
+    assert clerk.get("/admin/users").status_code == 200
+    conn = _conn()
+    try:
+        assert conn.execute("SELECT COUNT(*) AS n FROM edit_log").fetchone()["n"] == log_before
+        members_after = [
+            tuple(r) for r in conn.execute(
+                "SELECT board_id, user_id, role FROM board_members ORDER BY board_id, user_id"
+            )
+        ]
+        assert members_after == members_before
+    finally:
+        conn.close()
+
+
+def test_cannot_revoke_self_or_last_admin_and_session_stays(tmp_path, monkeypatch):
+    admin = auth_client(tmp_path, monkeypatch, username="admin", password="test-password")
+    admin.post("/admin/users", data={
+        "username": "boss", "password": "password-1", "password2": "password-1",
+        "is_admin": "1",
+    })
+    boss = auth_client(
+        tmp_path, monkeypatch, username="boss", password="password-1", is_admin=False,
+    )
+    admin_id = _user_id("admin")
+    boss_id = _user_id("boss")
+    html = admin.get("/admin/users").text
+    assert f'hx-post="/admin/users/{admin_id}/admin"' not in html
+    assert f'hx-post="/admin/users/{boss_id}/admin"' in html
+
+    refused = admin.post(f"/admin/users/{admin_id}/admin", data={"is_admin": "0"})
+    assert "不能取消自己的管理员身份" in _toast(refused)
+    assert _is_admin("admin") == 1
+    assert admin.get("/admin/users").status_code == 200
+
+    sessions_before = _sessions(boss_id)
+    revoked = admin.post(f"/admin/users/{boss_id}/admin", data={"is_admin": "0"})
+    assert revoked.status_code == 200
+    assert _is_admin("boss") == 0
+    assert _sessions(boss_id) == sessions_before
+    assert boss.get("/", follow_redirects=False).status_code == 200
+    assert boss.get("/admin/users").status_code == 403
+
+    last = admin.post(f"/admin/users/{admin_id}/admin", data={"is_admin": "0"})
+    assert "不能取消最后一位系统管理员" in _toast(last)
+    assert _is_admin("admin") == 1
+    assert admin.get("/admin/users").status_code == 200
+    final = admin.get("/admin/users").text
+    assert f'hx-post="/admin/users/{admin_id}/admin"' not in final
+
+
+def test_disabled_account_admin_flag_ignores_loginable_count(tmp_path, monkeypatch):
+    """已停用的账号可以改管理员身份。最后一位只数未停用的。"""
+    admin = auth_client(tmp_path, monkeypatch, username="admin", password="test-password")
+    admin.post("/admin/users", data={
+        "username": "boss", "password": "password-1", "password2": "password-1",
+        "is_admin": "1",
+    })
+    boss_id = _user_id("boss")
+    admin.post(f"/admin/users/{boss_id}/disable")
+    # 只剩 admin 一位可登录管理员，停用的 boss 仍可取消管理员。
+    revoked = admin.post(f"/admin/users/{boss_id}/admin", data={"is_admin": "0"})
+    assert revoked.status_code == 200, revoked.text
+    assert _is_admin("boss") == 0
+    conn = _conn()
+    try:
+        assert conn.execute(
+            "SELECT disabled_at FROM users WHERE id=?", (boss_id,)
+        ).fetchone()["disabled_at"]
+    finally:
+        conn.close()
+
+    granted = admin.post(f"/admin/users/{boss_id}/admin", data={"is_admin": "1"})
+    assert granted.status_code == 200, granted.text
+    assert _is_admin("boss") == 1
+    # 仍是停用，旧会话回不来；启用后按管理员登录。
+    from app.main import create_app
+    fresh = AuthTestClient(create_app())
+    fresh.get("/login")
+    blocked = fresh.post("/login", data={"username": "boss", "password": "password-1"})
+    assert "账号已停用" in blocked.text
+    admin.post(f"/admin/users/{boss_id}/enable")
+    boss = auth_client(
+        tmp_path, monkeypatch, username="boss", password="password-1", is_admin=False,
+    )
+    assert boss.get("/admin/users").status_code == 200
+
+
+def test_admin_flag_does_not_change_board_membership(tmp_path, monkeypatch):
+    admin = auth_client(tmp_path, monkeypatch, username="admin", password="test-password")
+    from app.models import create_board, create_user
+
+    conn = _conn()
+    try:
+        owner_id = create_user(conn, "owner", "password-1", is_admin=False)
+        board_id = create_board(
+            conn, "OnlyMine", "v1", "bom", "UID-MINE", owner_user_id=owner_id,
+        )
+    finally:
+        conn.close()
+    owner = auth_client(
+        tmp_path, monkeypatch, username="owner", password="password-1", is_admin=False,
+    )
+    assert owner.get(f"/board/{board_id}").status_code == 200
+    assert admin.get(f"/board/{board_id}").status_code == 403
+
+    admin.post(f"/admin/users/{owner_id}/admin", data={"is_admin": "1"})
+    assert owner.get("/admin/users").status_code == 200
+    assert owner.get(f"/board/{board_id}").status_code == 200
+    assert admin.get(f"/board/{board_id}").status_code == 403
+    conn = _conn()
+    try:
+        from app.models import load_membership
+        assert load_membership(conn, owner_id, board_id) == "owner"
+        assert load_membership(conn, _user_id("admin"), board_id) is None
+    finally:
+        conn.close()
+
+    admin.post(f"/admin/users/{owner_id}/admin", data={"is_admin": "0"})
+    assert owner.get("/admin/users").status_code == 403
+    assert owner.get(f"/board/{board_id}", follow_redirects=False).status_code == 200

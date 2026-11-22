@@ -65,6 +65,47 @@ def test_menu_create_disable_and_session(page, live_server, browser):
     context.close()
 
 
+def test_grant_and_revoke_admin_from_the_list(page, live_server, browser):
+    page.goto(live_server + "/admin/users")
+    username = _name("prom")
+    password = "promote-pass"
+    form = page.locator("form.form-stack")
+    form.locator("input[name=username]").fill(username)
+    form.locator("input[name=password]").fill(password)
+    form.locator("input[name=password2]").fill(password)
+    form.locator("button[type=submit]").click()
+    row = page.locator("#users-table tr", has_text=username)
+    expect(row).to_contain_text("普通用户")
+    expect(page.locator("#users-table tr", has_text="admin").locator("button", has_text="取消管理员")).to_have_count(0)
+
+    context = browser.new_context()
+    other = context.new_page()
+    other.goto(live_server + "/login")
+    other.locator("input[name=username]").fill(username)
+    other.locator("input[type=password]").fill(password)
+    other.locator("button[type=submit]").click()
+    expect(other).to_have_url(re.compile(r"/$"))
+
+    grant = row.locator("form", has_text="设为管理员")
+    expect(grant).to_have_attribute("hx-confirm", re.compile("进入用户管理"))
+    page.once("dialog", lambda dialog: dialog.accept())
+    grant.locator("button").click()
+    expect(row).to_contain_text("管理员")
+    other.goto(live_server + "/admin/users")
+    expect(other.locator("h1")).to_have_text("用户管理")
+
+    revoke = row.locator("button", has_text="取消管理员")
+    page.once("dialog", lambda dialog: dialog.accept())
+    revoke.click()
+    expect(row).to_contain_text("普通用户")
+    denied = other.goto(live_server + "/admin/users")
+    assert denied.status == 403
+    other.goto(live_server + "/")
+    expect(other).not_to_have_url(re.compile(r"/login"))
+    expect(other.locator("a[href='/admin/users']")).to_have_count(0)
+    context.close()
+
+
 def test_disabled_owner_panel_transfers_without_opening_board(page, live_server, live_db):
     owner = _name("own")
     newbie = _name("new")

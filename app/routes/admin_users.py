@@ -104,6 +104,23 @@ def users_enable(request: Request, user_id: int):
     return _body(request, conn, toast=f"✓ 已重新启用「{name}」")
 
 
+@router.post("/admin/users/{user_id}/admin")
+def users_set_admin(request: Request, user_id: int, is_admin: str = Form("0")):
+    """改管理员身份。下一次请求就按新身份判断，不删除会话。"""
+    conn = get_conn()
+    name = _username(conn, user_id)
+    flag = is_admin in {"1", "on", "true"}
+    try:
+        models.set_user_admin(conn, request.state.user["id"], user_id, flag)
+    except ValueError as exc:
+        return _toast_only(str(exc))
+    if flag:
+        toast = f"✓ 已将「{name}」设为系统管理员"
+    else:
+        toast = f"✓ 已取消「{name}」的系统管理员身份"
+    return _body(request, conn, toast=toast)
+
+
 @router.post("/admin/users/{user_id}/password")
 def users_reset_password(
     request: Request,
