@@ -5,13 +5,13 @@ issue #65：在节点状态界面/工作区草稿界面的「筛选位号」输�
 字符串；现改为自动取下方筛选结果第一行的位号与 Part，加快输入速度。
 """
 import httpx
-import pytest
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _api_create_board(base, name="FilterBoard", pcb="v1", bom="bomA", uid="FB1",
                       csv="Reference,Part\nR1,10k\nR2,22k\nC1,100nF\n"):
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": name, "pcb_version": pcb,
                          "bom_version": bom, "board_uid": uid},

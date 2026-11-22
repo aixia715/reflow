@@ -3,18 +3,9 @@
 覆盖：lint 提示合并进变更行（ⓘ/⚠ 图标）、超过 10 行折叠、lint 中的状态指示、
 预览态「取消全部」与草稿态「清除全部修改」。
 """
-import pytest
-from fastapi.testclient import TestClient
 
 from app import models
 from app.main import get_conn
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _setup_board(client, bom=b"Reference,Part\nR1,10k\nC1,100nF\n"):

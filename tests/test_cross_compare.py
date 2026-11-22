@@ -1,7 +1,6 @@
 """issue #116：同一 PCB 版本下不同单板的跨板 BOM 比较。"""
 import re
 import pytest
-from fastapi.testclient import TestClient
 
 from app.db import connect, init_db
 from app import models
@@ -42,12 +41,6 @@ def test_list_sibling_boards_orders_by_bom_version_then_uid(conn):
 
 
 # ---------- 路由 ----------
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _new_board(client, bom_version, board_uid, csv, pcb_version="v1"):

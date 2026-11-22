@@ -1,12 +1,12 @@
 """Playwright 测试：⋯ 菜单与四级定位内联重命名。"""
 import httpx
-import pytest
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _api_create_board(base, name, pcb, bom, uid,
                       csv="Reference,Part\nR1,10k\n"):
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": name, "pcb_version": pcb,
                          "bom_version": bom, "board_uid": uid},

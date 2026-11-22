@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Reflow —— 单人使用的单板 BOM 状态管理工具。像 git 一样对硬件单板的 BOM 演进做**线性版本管理**（无分支、无合并）：差量存储、历史编辑自动传播 + 冲突确认、append-only 审计日志、稳定可分享链接。
+Reflow —— 单板 BOM 状态管理工具。像 git 一样对硬件单板的 BOM 演进做**线性版本管理**（无分支、无合并）：差量存储、历史编辑自动传播 + 冲突确认、append-only 审计日志、稳定可分享链接。未登录不能打开业务页面。当前只做了登录闸门：登录之后任一账号的权力仍与原先单人使用相同，按单板授权还没做。多用户设计见 `docs/superpowers/specs/2026-11-16-multi-user-auth-design.md`。
 
 ## 运行与测试
 
@@ -10,7 +10,7 @@ uvicorn app.main:app --reload # 启动，访问 http://127.0.0.1:8000/
 pytest                        # 全部测试
 ```
 
-数据库默认 `reflow.sqlite`，用环境变量 `REFLOW_DB` 覆盖（测试用 tmp 文件）。首次运行自动建表。
+数据库默认 `reflow.sqlite`，用环境变量 `REFLOW_DB` 覆盖（测试用 tmp 文件）。首次运行自动建表。库里还没有用户时，先在服务器上执行 `python -m app.cli create-admin --username <登录名>`（密码由终端读入，不进命令行）。也可以在用户表为空时同时设置 `REFLOW_BOOTSTRAP_USERNAME` 和 `REFLOW_BOOTSTRAP_PASSWORD` 做一次引导，用过就从环境里删掉。步骤和「登录后仍能改所有板」的说明见 README「第一个管理员」。
 
 ## 架构
 
@@ -53,7 +53,8 @@ pytest                        # 全部测试
 - **用中文沟通**；代码注释、docstring、UI 文案均为中文，错误消息也是中文，保持一致。
 - **Starlette 1.2.1**：`TemplateResponse` 必须用新签名 `templates.TemplateResponse(request, "name.html", {context})`——`request` 第一个位置参数，context 里**不要**放 `"request"` 键。旧签名会抛 `TypeError`。
 - 标识符用 surrogate key（SQLite AUTOINCREMENT），URL 用节点/单板 id；名称仅展示，重命名不破坏链接。
-- 单人使用：`get_conn()` 每请求开一个连接、不显式关闭，对单用户 MVP 可接受。
+- `get_conn()` 每请求开一个连接、不显式关闭，对当前部署可接受。SQLite 在 `connect()` 里开 WAL，并带 5 秒 busy timeout。
+- 新路由必须登记到 `app/authz.py` 的守卫表，否则已登录访问会 500「路由未登记权限」。白名单只有登录、`/healthz`、`/version` 和 `/static`。阶段 1 业务路由的值都是 `login`（登录即可）。未登录的 HTMX 请求返回 **200 + `HX-Redirect`**，不要把跳转放在 401/403 上。
 - 改动遵循 TDD：先写失败测试再实现。纯逻辑模块（★）是测试投入重点。
 - 前端约定：HTMX 局部刷新 + Alpine.js 客户端小交互（CDN，无构建）。校验失败返回 200 + `HX-Retarget: #form-error`；编辑/撤销成功返回 `_node_update.html`（主体换 `#bom`，OOB 换 `#changes-panel`、清 `#form-error`）+ `HX-Trigger: {"showToast": …}`（json.dumps 保持 ASCII）；整页跳转用 `?flash=` 显示 toast。htmx 事件在 Alpine 里监听要加 `.camel` 修饰符；模板向 hx-vals/JS 传值一律 `|tojson` 且属性用单引号。表单内某个字段需要独立于整表单提交做「输入即请求」的小交互（如失焦校验/联想），给该字段单独挂 `hx-post`/`hx-trigger`，返回 204 + `HX-Trigger: {"xxxLinted": {...}}` 携带数据，Alpine 用 `@xxx-linted.camel` 接收；此时表单级 `@htmx:after-request` 处理器必须用 `$event.target === $el` 排除这类嵌套请求（htmx 事件会冒泡），否则会被误判为表单提交成功——现存守卫示例见 `_edit_form.html` 的 `@htmx:after-request` 处理器。
 - 撤销仅限工作区草稿（is_committed=0），实现为删 changeset 行，不记审计日志。「清除全部修改」（`/undo-all`）同语义，只是一次删光整个 changeset。
@@ -74,4 +75,4 @@ pytest                        # 全部测试
 
 ## MVP 边界（暂不做）
 
-飞线等「位号以外」的修改类型、「按时间回看 / 状态回放」界面、多用户/并发/权限、工具内的测试记录功能（测试记录在外部笔记，本工具只提供链接）。
+飞线等「位号以外」的修改类型、「按时间回看 / 状态回放」界面、工具内的测试记录功能（测试记录在外部笔记，本工具只提供链接）。按单板角色、网页用户管理、审计操作人、BOM 版本页、节点乐观锁见 `docs/superpowers/plans/2026-11-16-multi-user-auth.md`，登录闸门之后的阶段还没做。

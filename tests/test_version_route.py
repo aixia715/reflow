@@ -4,7 +4,10 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    """/version 保持匿名。匿名打不开首页在 test_auth_routes 里锁住。"""
     monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
+    monkeypatch.delenv("REFLOW_BOOTSTRAP_USERNAME", raising=False)
+    monkeypatch.delenv("REFLOW_BOOTSTRAP_PASSWORD", raising=False)
     from app.main import create_app
     return TestClient(create_app())
 

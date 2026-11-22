@@ -1,13 +1,4 @@
 """元器件值 lint 异步化：批量端点、面板三态、一次性 ⓘ。"""
-import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _setup_board(client, board_name="B", board_uid="3"):

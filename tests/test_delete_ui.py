@@ -8,6 +8,7 @@ Playwright 浏览器自动化测试——验证删除功能的 UI 交互。
 import httpx
 import pytest
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 # ── 工具函数 ─────────────────────────────────────────────────────────
@@ -15,7 +16,7 @@ from playwright.sync_api import Page, expect
 def _api_create_board(base: str, board_name: str, pcb: str, bom: str, uid: str,
                       csv_content: str = "Reference,Part\nR1,10k\nC1,100nF\n") -> str:
     """通过 httpx 直接 POST 创建单板，返回 board_id。"""
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": board_name, "pcb_version": pcb,
                          "bom_version": bom, "board_uid": uid},

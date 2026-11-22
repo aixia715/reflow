@@ -6,13 +6,13 @@
 就不发请求；有文件时切模式必须照样重新预览（两种模式语义完全不同）。
 """
 import httpx
-import pytest
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _api_create_board(base, name="ModeBoard", pcb="v1", bom="bomA", uid="MD1",
                       csv="Reference,Part\nR1,10k\nC1,100nF\n"):
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": name, "pcb_version": pcb,
                          "bom_version": bom, "board_uid": uid},

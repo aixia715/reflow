@@ -215,12 +215,6 @@ def test_delete_reattaches_draft_and_keeps_its_ops(chain_with_draft):
 
 # ── 路由层 ───────────────────────────────────────────────────────────
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
-
 
 def _setup_board(client):
     r = client.post("/board/new",

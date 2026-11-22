@@ -5,6 +5,7 @@ import zlib
 
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
@@ -25,7 +26,7 @@ def _solid_png(w=640, h=420, rgb=(70, 130, 200)) -> bytes:
 
 
 def _make_board(base: str, uid: str = "HC1") -> str:
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "HCBoard", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},
@@ -219,7 +220,7 @@ def test_new_form_defaults_to_submit_time(live_server, page: Page):
     bid = _make_board(live_server, uid="HC2")
 
     # 服务器侧 HTML：仍含 occurred_at_local 可见输入与 occurred_at 隐藏字段
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         html = c.get(f"/board/{bid}/hard-change/new").text
     assert 'name="occurred_at_local"' in html, "未找到 occurred_at_local 可见输入"
     assert 'name="occurred_at"' in html, "未找到 occurred_at 隐藏字段"
@@ -269,12 +270,12 @@ def test_edit_form_specify_time_checked_with_existing(live_server, page: Page):
     """编辑表单：已有 occurred_at 时，'指定时间'默认勾选并准确展示原时间（含秒）。"""
     bid = _make_board(live_server, uid="HC2C")
     # 先建一条硬更改（指定时间含非零秒：2026-06-01T10:30:45 UTC）
-    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+    with auth_httpx(live_server, follow_redirects=False) as c:
         c.post(f"/board/{bid}/hard-change",
                data={"title": "原记录", "occurred_at": "2026-06-01T10:30:45+00:00",
                      "description": ""})
     import re as _re
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         rg = c.get(f"/board/{bid}").text
     hid = _re.search(rf"/board/{bid}/hard-change/(\d+)", rg).group(1)
 
@@ -293,12 +294,12 @@ def test_edit_form_specify_time_checked_with_existing(live_server, page: Page):
 def test_edit_uncheck_specify_uses_submit_time(live_server, page: Page):
     """编辑时取消'指定时间'：occurred_at 清空，服务端改用提交时刻（方案1）。"""
     bid = _make_board(live_server, uid="HC2D")
-    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+    with auth_httpx(live_server, follow_redirects=False) as c:
         c.post(f"/board/{bid}/hard-change",
                data={"title": "原记录", "occurred_at": "2020-01-01T00:00:00+00:00",
                      "description": ""})
     import re as _re
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         rg = c.get(f"/board/{bid}").text
     hid = _re.search(rf"/board/{bid}/hard-change/(\d+)", rg).group(1)
 
@@ -309,7 +310,7 @@ def test_edit_uncheck_specify_uses_submit_time(live_server, page: Page):
     page.click("button[type=submit]")
     page.wait_for_url(f"{live_server}/board/{bid}/hard-change/{hid}*")
     # 存库时间不再是 2020 的旧值，而是提交时刻（>= 当前年份）
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         detail = c.get(f"/board/{bid}/hard-change/{hid}").text
     assert "2020-01-01" not in detail
 

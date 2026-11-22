@@ -1,6 +1,6 @@
 # Reflow — 单板 BOM 状态管理工具
 
-像 git 一样对硬件单板的 BOM 演进做**线性版本管理**（无分支、无合并）。差量存储、历史编辑的自动传播 + 冲突确认、append-only 审计日志、稳定可分享链接。单人使用，SQLite 存储。
+像 git 一样对硬件单板的 BOM 演进做**线性版本管理**（无分支、无合并）。差量存储、历史编辑的自动传播 + 冲突确认、append-only 审计日志、稳定可分享链接。SQLite 存储。未登录不能打开业务页面。
 
 工具名一语双关：硬件的回流焊（reflow soldering），也描述核心机制——编辑上游节点后，改动向后「重新流动」传播。
 
@@ -12,9 +12,40 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
 
-访问 http://127.0.0.1:8000/
+访问 http://127.0.0.1:8000/ 。第一次使用要先创建管理员，见下一节。
 
 数据库文件路径默认 `reflow.sqlite`，可用环境变量 `REFLOW_DB` 覆盖。
+
+## 第一个管理员
+
+不开放注册。库里还没有用户时，登录页只提示去服务器执行命令，页面上不能设密码。
+
+**这一阶段登录还不是按单板授权。** 任何一个登录账号都能看到并修改全部单板，和以前单人使用时一样。不要创建普通用户；按单板分工的命令和页面还没做。
+
+首选命令行。密码从终端读入，不进命令参数，也不进 shell 历史：
+
+```bash
+python -m app.cli create-admin --username admin
+```
+
+容器里：
+
+```bash
+docker exec -it reflow python -m app.cli create-admin --username admin
+```
+
+如果库里已经有单板，它们会归这个管理员。库里已经有用户之后，这条命令不会重置密码，也不是后门。
+
+无人值守的第一次启动可以同时设置 `REFLOW_BOOTSTRAP_USERNAME` 和 `REFLOW_BOOTSTRAP_PASSWORD`（至少 8 位）。只在用户表为空时创建一次，不会改已有账号的密码。不要把这两个变量写进镜像。用过就从运行环境里删掉：`docker inspect` 看得到环境变量。缺一个、或密码太短，进程照常起来，`/healthz` 仍然返回 200，登录页继续提示用命令行创建。
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `REFLOW_BOOTSTRAP_USERNAME` | 空 | 仅当库中无用户时，和密码一起创建第一个管理员 |
+| `REFLOW_BOOTSTRAP_PASSWORD` | 空 | 同上。至少 8 位。用过即删除 |
+| `REFLOW_COOKIE_SECURE` | `0` | 设为 `1` 时会话和 CSRF cookie 加 `Secure`。当前部署是 HTTP，保持 `0` |
+| `REFLOW_SESSION_DAYS` | `14` | 会话从最近活动起的有效天数 |
+
+没有 `REFLOW_SECRET_KEY`。会话存在数据库里，cookie 只放随机令牌。
 
 ## 使用流程
 
@@ -105,7 +136,8 @@ docker run -d --name reflow --restart unless-stopped \
 
 访问 `http://<部署机IP>:8000/`。
 
-- **数据位置**：SQLite 数据库在容器内 `/data/reflow.sqlite`（由环境变量 `REFLOW_DB` 指定），硬更改上传图片在 `/data/uploads/`（由 `REFLOW_UPLOAD_DIR` 指定）——两者同在 `/data` 卷，重部署都不丢。想直接用主机目录存放，把 `-v reflow-data:/data` 换成 `-v /srv/reflow:/data`（备份时直接拷走目录里的 `reflow.sqlite` 和 `uploads/` 即可）。
+- **数据位置**：SQLite 数据库在容器内 `/data/reflow.sqlite`（由环境变量 `REFLOW_DB` 指定），硬更改上传图片在 `/data/uploads/`（由 `REFLOW_UPLOAD_DIR` 指定）——两者同在 `/data` 卷，重部署都不丢。想直接用主机目录存放，把 `-v reflow-data:/data` 换成 `-v /srv/reflow:/data`。数据库已开 WAL，正在写入时不要只拷 `reflow.sqlite` 一个文件，用下面的备份方式。
+- **第一次打开**：容器起来后还不能登录。执行 `docker exec -it reflow python -m app.cli create-admin --username admin`，密码在终端里输入两遍。升级老库时，这条命令会把当时还没有所有者的单板认领给这个管理员。
 - **升级版本**：导入新镜像后重建容器，数据卷不受影响：
 
   ```bash
@@ -115,12 +147,21 @@ docker run -d --name reflow --restart unless-stopped \
     -p 8000:8000 -v reflow-data:/data reflow:0.2.0
   ```
 
-- **备份**（使用命名卷时）：
+- **备份**（使用命名卷时）：WAL 模式下直接 `cp` 正在使用的 `reflow.sqlite` 会抄到一半。用 SQLite 的 backup API，它会把 `-wal` 里还没写回的页一起带上：
 
   ```bash
-  docker run --rm -v reflow-data:/data -v "$PWD":/backup python:3.12-slim \
-    cp /data/reflow.sqlite /backup/reflow-backup.sqlite
+  docker run --rm -i -v reflow-data:/data -v "$PWD":/backup --entrypoint python python:3.12-slim - <<'PY'
+  import sqlite3
+  src = sqlite3.connect("/data/reflow.sqlite")
+  dst = sqlite3.connect("/backup/reflow-backup.sqlite")
+  with dst:
+      src.backup(dst)
+  src.close()
+  dst.close()
+  PY
   ```
+
+  容器已经停掉时，也可以把 `reflow.sqlite`、`reflow.sqlite-wal`、`reflow.sqlite-shm` 三个文件一起拷走。图片目录 `uploads/` 仍是直接拷贝。
 
 ## 结构
 
