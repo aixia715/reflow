@@ -72,6 +72,21 @@ def test_take_corrected_value_propagates(chain_s1_s2_s3):
     assert models.get_change(c, s2, "R1") is None
 
 
+def test_resolve_conflict_records_actor_on_propagated_row(chain_s1_s2_s3):
+    """采用修正值时，propagated 行记按下确认的那个人，不留空。"""
+    from app import audit
+    c, bid, (root, s1, s2, s3) = chain_s1_s2_s3
+    user_id = models.create_user(c, "editor", "test-password", is_admin=True)
+    conflicts = propagation.apply_node_edit(
+        c, s1, "R1", "modify", "22k", actor_user_id=user_id,
+    )
+    propagation.resolve_conflict(c, conflicts[0], "take", actor_user_id=user_id)
+    direct = [r for r in audit.list_log(c, s1) if r["source"] == "direct"]
+    propagated = [r for r in audit.list_log(c, s2) if r["source"] == "propagated"]
+    assert len(direct) == 1 and direct[0]["actor_user_id"] == user_id
+    assert len(propagated) == 1 and propagated[0]["actor_user_id"] == user_id
+
+
 def test_no_downstream_explicit_is_zero_conflict(chain_s1_s2_s3):
     c, bid, (root, s1, s2, s3) = chain_s1_s2_s3
     conflicts = propagation.apply_node_edit(c, s1, "C9", "add", "100nF")

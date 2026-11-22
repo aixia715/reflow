@@ -101,6 +101,7 @@ ${SSH} bash -s -- "${CONTAINER_NAME}" "${FULL_IMAGE}" "${HOST_PORT}" "${DATA_VOL
   #   docker exec -it reflow python -m app.cli create-user --username huaqing
   # 管理员登录后，也可以在网页「用户管理」里新建、停用账号和重置密码。
   #   docker exec -it reflow python -m app.cli assign-orphans --username admin
+  # 数据卷原样挂回。启动时若 edit_log 还没有 actor_user_id 会补列，旧行留空，不清库。
   docker run -d \
     --name "${CONTAINER_NAME}" \
     --restart unless-stopped \

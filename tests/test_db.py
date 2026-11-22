@@ -40,6 +40,48 @@ def test_init_db_migrates_old_nodes_table():
     assert row["description"] == ""
 
 
+def test_fresh_db_has_edit_log_actor_column():
+    conn = connect(":memory:")
+    init_db(conn)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(edit_log)")}
+    assert "actor_user_id" in cols
+
+
+def test_migrate_edit_log_actor_keeps_old_rows():
+    """老库没有操作人列时补列，已有行原样保留且 actor 为空；再跑一次不改数据。"""
+    conn = connect(":memory:")
+    conn.execute(
+        "CREATE TABLE edit_log ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " node_id INTEGER NOT NULL,"
+        " reference TEXT NOT NULL,"
+        " old_part TEXT, new_part TEXT,"
+        " op TEXT NOT NULL,"
+        " source TEXT NOT NULL CHECK(source IN ('direct','propagated')),"
+        " created_at TEXT NOT NULL,"
+        " note TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO edit_log(node_id,reference,old_part,new_part,op,source,created_at,note)"
+        " VALUES(1,'R1','10k','22k','modify','direct','2020-01-01T00:00:00+00:00','旧记录')"
+    )
+    conn.commit()
+    init_db(conn)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(edit_log)")}
+    assert "actor_user_id" in cols
+    row = conn.execute(
+        "SELECT reference, old_part, new_part, note, actor_user_id FROM edit_log"
+    ).fetchone()
+    assert row["reference"] == "R1"
+    assert row["old_part"] == "10k"
+    assert row["new_part"] == "22k"
+    assert row["note"] == "旧记录"
+    assert row["actor_user_id"] is None
+    init_db(conn)
+    assert conn.execute("SELECT COUNT(*) AS n FROM edit_log").fetchone()["n"] == 1
+    assert conn.execute("SELECT note, actor_user_id FROM edit_log").fetchone()["actor_user_id"] is None
+
+
 def test_row_factory_allows_name_access():
     conn = connect(":memory:")
     init_db(conn)

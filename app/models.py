@@ -562,9 +562,15 @@ def workspace_node(conn, board_id) -> sqlite3.Row:
 
 
 def list_board_log(conn, board_id, reference=None, node_id=None) -> list[sqlite3.Row]:
-    """单板全链审计日志（带节点说明），可按位号模糊/节点过滤，最新在前。"""
-    sql = ("SELECT l.*, n.message AS node_message, n.is_committed AS node_committed"
-           " FROM edit_log l JOIN nodes n ON n.id = l.node_id WHERE n.board_id = ?")
+    """单板全链审计日志（带节点说明和操作人登录名），可按位号模糊/节点过滤，最新在前。
+
+    停用账号仍联得到 username：用户只停用不删除。actor_user_id 为空时 actor_username 为 NULL。
+    """
+    sql = ("SELECT l.*, n.message AS node_message, n.is_committed AS node_committed,"
+           " u.username AS actor_username"
+           " FROM edit_log l JOIN nodes n ON n.id = l.node_id"
+           " LEFT JOIN users u ON u.id = l.actor_user_id"
+           " WHERE n.board_id = ?")
     args: list = [board_id]
     if reference:
         sql += " AND l.reference LIKE ?"
