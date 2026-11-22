@@ -1,0 +1,101 @@
+name: deploy-test
+
+# push 到长期分支 test 时自动部署测试服务器；Actions 里也可手动触发。
+# 手动触发必须选择 test，其他 ref 会在部署 job 里失败，不会替换容器。
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/_checks.yml
+
+  deploy-test:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: 只部署 test 分支
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/test" ]; then
+            echo "::error::deploy-test 只部署 test 分支，当前是 ${GITHUB_REF}。手动触发时请选择 test。"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - name: 计算短 SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: 构建镜像
+        run: docker build -t reflow:test-${{ steps.sha.outputs.short }} -t reflow:test .
+
+      - name: 配置 SSH
+        env:
+          TEST_SSH_KEY: ${{ secrets.TEST_SSH_KEY }}
+          TEST_SSH_HOST: ${{ secrets.TEST_SSH_HOST }}
+          TEST_SSH_PORT: ${{ vars.TEST_SSH_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "$TEST_SSH_PORT" -H "$TEST_SSH_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: 传输镜像到测试服务器
+        env:
+          TEST_SSH_HOST: ${{ secrets.TEST_SSH_HOST }}
+          TEST_SSH_USER: ${{ secrets.TEST_SSH_USER }}
+          TEST_SSH_PORT: ${{ vars.TEST_SSH_PORT || '22' }}
+        run: |
+          docker save reflow:test-${{ steps.sha.outputs.short }} reflow:test \
+            | ssh -i ~/.ssh/id_deploy -p "$TEST_SSH_PORT" \
+                "$TEST_SSH_USER@$TEST_SSH_HOST" docker load
+
+      - name: 替换远端容器
+        env:
+          TEST_SSH_HOST: ${{ secrets.TEST_SSH_HOST }}
+          TEST_SSH_USER: ${{ secrets.TEST_SSH_USER }}
+          TEST_SSH_PORT: ${{ vars.TEST_SSH_PORT || '22' }}
+          TEST_CONTAINER_NAME: ${{ vars.TEST_CONTAINER_NAME }}
+          TEST_HOST_PORT: ${{ vars.TEST_HOST_PORT }}
+          TEST_DATA_VOLUME: ${{ vars.TEST_DATA_VOLUME }}
+          FULL_IMAGE: reflow:test-${{ steps.sha.outputs.short }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$TEST_SSH_PORT" \
+            "$TEST_SSH_USER@$TEST_SSH_HOST" \
+            bash -s -- \
+              "$TEST_CONTAINER_NAME" \
+              "$FULL_IMAGE" \
+              "$TEST_HOST_PORT" \
+              "$TEST_DATA_VOLUME" <<'REMOTE'
+            set -euo pipefail
+            CONTAINER_NAME=$1
+            FULL_IMAGE=$2
+            HOST_PORT=$3
+            DATA_VOLUME=$4
+
+            # 只替换容器。DATA_VOLUME 原样挂回 /data，不 volume rm，不清库。
+            # 不在这里创建管理员；需要登录时由人在服务器上执行 create-admin。
+            OLD_IMAGE=$(docker inspect --format='{{.Config.Image}}' "${CONTAINER_NAME}" 2>/dev/null || true)
+
+            docker stop "${CONTAINER_NAME}" 2>/dev/null || true
+            docker rm   "${CONTAINER_NAME}" 2>/dev/null || true
+
+            docker run -d \
+              --name "${CONTAINER_NAME}" \
+              --restart unless-stopped \
+              -p "${HOST_PORT}:8000" \
+              -v "${DATA_VOLUME}:/data" \
+              "${FULL_IMAGE}"
+
+            if [ -n "${OLD_IMAGE}" ] && [ "${OLD_IMAGE}" != "${FULL_IMAGE}" ] && [ "${OLD_IMAGE}" != "reflow:test" ]; then
+              docker rmi "${OLD_IMAGE}" || true
+            fi
+            docker image prune -f
+          REMOTE
