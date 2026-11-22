@@ -1,5 +1,5 @@
 <div class="panel-title with-action">{% if node.is_committed %}已合入修改{% else %}本节点修改{% endif %}（{{ changes|length }}）
-  {% if not node.is_committed and changes %}
+  {% if can_edit and not node.is_committed and changes %}
   <button type="button" class="btn-link danger ml-auto" data-testid="clear-all-changes"
           hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo-all"
           hx-confirm="确认清除工作区草稿的全部 {{ changes|length }} 条修改？这些位号将恢复为继承上游的值，不可恢复。"
@@ -20,7 +20,7 @@
             aria-label="正在检查元器件值…"></span>
     {%- endif %}
   </span>
-  {% if not node.is_committed %}
+  {% if can_edit and not node.is_committed %}
   <span class="row-icons">
     <button type="button" class="icon-btn" title="修改" aria-label="修改"
             @click='fill({{ c.reference | tojson }}, {{ ("remove" if c.op == "remove" else "modify") | tojson }}, {{ c.part | tojson }})'>

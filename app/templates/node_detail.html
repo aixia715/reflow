@@ -33,7 +33,7 @@
   </span>
 </span>
 {% endif %}
-{% if node.is_committed and node.parent_id is not none %}
+{% if can_edit and node.is_committed and node.parent_id is not none %}
 {# 这颗按钮回 HX-Redirect，一按就整页跳去草稿页——附件面板里已选未上传的文件
    跟着没，而且落地页是**另一个节点**的附件面板，更不容易察觉。走 htmx 的请求
    没有表单 submit 事件可拦，用 htmx:confirm（1.9 起对每个请求都发，与有没有
@@ -69,7 +69,13 @@
 <div class="hc-desc">{{ node.description }}</div>
 {% endif %}
 
-{% if node.is_committed %}
+{% if not can_edit %}
+<div class="flash flash-info">你对这块单板是只读，不能修改。</div>
+{% endif %}
+{% if node.parent_id is none %}
+<div class="flash flash-info">根节点不能在单板页修改。</div>
+{% endif %}
+{% if can_edit and node.is_committed and node.parent_id is not none %}
 <div class="flash flash-warn">⚠ 这是已提交的历史节点，链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code> 已固定。在此编辑＝<b>修正历史记录</b>：链接不变但内容会变，引用此链接的笔记将不再准确；同时自动向下游传播，下游改过同位号需逐个确认。如需记录新变更，建议在工作区修改后提交。</div>
 {% endif %}
 
@@ -78,12 +84,12 @@
     <div id="bom">{% include "_bom_table.html" %}</div>
   </div>
   <aside>
-    {% if node.is_committed %}
+    {% if can_edit and node.is_committed and node.parent_id is not none %}
     <details class="panel" x-ref="editDetails">
       <summary>修订</summary>
       {% include "_edit_form.html" %}
     </details>
-    {% else %}
+    {% elif can_edit and not node.is_committed %}
     <div class="panel" x-ref="editPanel">
       <div class="panel-title">添加修改</div>
       {% include "_edit_form.html" %}
@@ -96,7 +102,7 @@
          {% if changes %}hx-post="/board/{{ board_id }}/node/{{ node.id }}/lint-changes"
          hx-trigger="load" hx-swap="outerHTML"{% endif %}>{% include "_changes_panel.html" %}</div>
     {% include "_attachments.html" %}
-    {% if node.is_committed and node.parent_id is not none %}
+    {% if can_edit and node.is_committed and node.parent_id is not none %}
     <details class="panel">
       <summary>编辑节点信息…</summary>
       <form class="edit-form" method="post"
@@ -111,7 +117,7 @@
       </form>
     </details>
     {% endif %}
-    {% if not node.is_committed %}
+    {% if can_edit and not node.is_committed %}
     <details class="panel" x-data="{ mode: 'diff' }">
       <summary>从 CSV 导入修改…</summary>
       <form id="import-form" class="edit-form"

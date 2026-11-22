@@ -104,6 +104,18 @@ CREATE TABLE IF NOT EXISTS board_members (
 
 CREATE UNIQUE INDEX IF NOT EXISTS board_one_owner
     ON board_members(board_id) WHERE role = 'owner';
+
+CREATE TABLE IF NOT EXISTS bom_versions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_name    TEXT NOT NULL,
+    pcb_version   TEXT NOT NULL,
+    bom_version   TEXT NOT NULL,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id),
+    revision      INTEGER NOT NULL DEFAULT 0,
+    revised_by    INTEGER REFERENCES users(id),
+    created_at    TEXT NOT NULL,
+    UNIQUE(board_name, pcb_version, bom_version)
+);
 """
 
 
@@ -117,12 +129,19 @@ def connect(path: str = "reflow.sqlite") -> sqlite3.Connection:
     return conn
 
 
-def init_db(conn: sqlite3.Connection) -> None:
+def init_db(conn: sqlite3.Connection, *, assign_version_owners: bool = True) -> None:
+    """建表并做幂等迁移。
+
+    assign_version_owners 为假时不把尚无负责人的 BOM 版本归给最早的管理员，
+    留给 `assign-orphans` 按命令行指定的人来补。
+    """
     conn.executescript(SCHEMA)
     _migrate(conn)
-    # 延迟导入：models 不依赖 db，但 db 在迁移末尾要认领无主单板
-    from app.models import backfill_owners_if_unassigned
+    # 延迟导入：models 不依赖 db，但 db 在迁移末尾要认领无主数据
+    from app.models import backfill_bom_version_owners, backfill_owners_if_unassigned
     backfill_owners_if_unassigned(conn)
+    if assign_version_owners:
+        backfill_bom_version_owners(conn)
     conn.commit()
 
 
@@ -159,5 +178,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
         );
         CREATE UNIQUE INDEX IF NOT EXISTS board_one_owner
             ON board_members(board_id) WHERE role = 'owner';
+        CREATE TABLE IF NOT EXISTS bom_versions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            board_name    TEXT NOT NULL,
+            pcb_version   TEXT NOT NULL,
+            bom_version   TEXT NOT NULL,
+            owner_user_id INTEGER NOT NULL REFERENCES users(id),
+            revision      INTEGER NOT NULL DEFAULT 0,
+            revised_by    INTEGER REFERENCES users(id),
+            created_at    TEXT NOT NULL,
+            UNIQUE(board_name, pcb_version, bom_version)
+        );
         """
     )

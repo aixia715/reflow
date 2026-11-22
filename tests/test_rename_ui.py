@@ -51,9 +51,11 @@ def test_inline_rename_board_group(live_server, page: Page):
     expect(inp).to_be_visible()
     inp.fill("Renamed")
     inp.press("Enter")
-    # 重命名回 HX-Redirect:/，htmx 整页跳转回首页。原先这里又 goto 了一次，
-    # 会把还没跳完的那次导航打断（net::ERR_ABORTED）——首页板子多、渲染慢时
-    # 必现。等新名字出现即可，那时导航必然已经完成，也不必再 goto。
+    # 先出影响清单，确认后才改名并 HX-Redirect 回首页。
+    modal = page.locator("#modal")
+    expect(modal.locator(".modal")).to_be_visible()
+    expect(modal).to_contain_text("SN1")
+    modal.get_by_role("button", name="确认重命名").click()
     expect(page.locator(".group-title", has_text="Renamed")).to_be_visible()
     assert "RenameMe" not in page.content()
 

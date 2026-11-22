@@ -2,6 +2,8 @@
 <div class="muted">填写上面三项后自动检查</div>
 {% elif status == 'exists' %}
 <div class="flash flash-info">✓ 已有版本（{{ ref_count }} 个位号），新单板将直接使用其初始 BOM</div>
+{% elif status == 'owned_by_other' %}
+<div class="flash flash-error">这个 BOM 版本已存在，只有负责人能在其下新建单板。</div>
 {% elif status == 'need_csv' %}
 <div class="flash flash-warn">⚠ 新 BOM 版本，请选择初始 BOM CSV 文件</div>
 {% elif status == 'bad_csv' %}

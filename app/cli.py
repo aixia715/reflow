@@ -1,7 +1,4 @@
-"""命令行：创建第一个管理员、补认领无主单板。
-
-`create-user` 留到按单板授权那一阶段再挂上。阶段 1 登录之后权限仍与单人使用相同，
-提前造普通用户等于再发一批超级用户。
+"""命令行：创建管理员、创建普通用户、补认领无主单板和 BOM 版本。
 
 密码只从 getpass 读，不进 argv，也不进 shell 历史。
 """
@@ -60,9 +57,9 @@ def bootstrap_admin_from_env(conn) -> bool:
     return True
 
 
-def _open():
+def _open(*, assign_version_owners: bool = True):
     conn = connect(os.environ.get("REFLOW_DB", "reflow.sqlite"))
-    init_db(conn)
+    init_db(conn, assign_version_owners=assign_version_owners)
     return conn
 
 
@@ -97,9 +94,31 @@ def _create_admin(username: str) -> int:
     return 0
 
 
-def _assign_orphans(username: str) -> int:
-    """只补还没有所有者的单板。BOM 版本负责人在后续阶段再补，这里不动。"""
+def _create_user(username: str) -> int:
+    """普通用户。不是管理员，也不会自动成为任何单板的成员。"""
+    password = _read_new_password()
+    if password is None:
+        return 2
     conn = _open()
+    if conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0:
+        print("还没有管理员，请先执行 create-admin", file=sys.stderr)
+        return 1
+    try:
+        models.create_user(conn, username, password, is_admin=False)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    created = models.get_user_by_username(conn, username)
+    print(f"已创建用户 {created['username']}。把人加进单板请到网页的「成员」页")
+    return 0
+
+
+def _assign_orphans(username: str) -> int:
+    """补还没有所有者的单板，以及还没有负责人的 BOM 版本。已有的不动。
+
+    这里关掉启动时「归最早管理员」的自动补版本，空缺才归命令行指定的这位。
+    """
+    conn = _open(assign_version_owners=False)
     user = models.get_user_by_username(conn, username)
     if user is None:
         print("没有这个用户", file=sys.stderr)
@@ -107,8 +126,12 @@ def _assign_orphans(username: str) -> int:
     if not user["is_admin"]:
         print("只能指定系统管理员", file=sys.stderr)
         return 1
-    n = models.assign_boards_without_owner(conn, user["id"])
-    print(f"已认领 {n} 块尚无所有者的单板")
+    if user["disabled_at"]:
+        print("该管理员已停用", file=sys.stderr)
+        return 1
+    boards = models.assign_boards_without_owner(conn, user["id"])
+    versions = models.assign_bom_versions_without_owner(conn, user["id"])
+    print(f"已认领 {boards} 块尚无所有者的单板，补上 {versions} 个尚无负责人的 BOM 版本")
     return 0
 
 
@@ -119,12 +142,20 @@ def main(argv: list[str] | None = None) -> int:
     create = sub.add_parser("create-admin", help="在空库上创建第一个系统管理员")
     create.add_argument("--username", required=True)
 
-    orphans = sub.add_parser("assign-orphans", help="把尚无所有者的单板认领给指定管理员")
+    user = sub.add_parser("create-user", help="创建普通用户（不会自动加入任何单板）")
+    user.add_argument("--username", required=True)
+
+    orphans = sub.add_parser(
+        "assign-orphans",
+        help="把尚无所有者的单板和尚无负责人的 BOM 版本认领给指定管理员",
+    )
     orphans.add_argument("--username", required=True)
 
     args = parser.parse_args(argv)
     if args.cmd == "create-admin":
         return _create_admin(args.username)
+    if args.cmd == "create-user":
+        return _create_user(args.username)
     if args.cmd == "assign-orphans":
         return _assign_orphans(args.username)
     parser.error(f"未知命令 {args.cmd}")

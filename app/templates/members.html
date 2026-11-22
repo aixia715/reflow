@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}成员 · 板 {{ board.board_uid }} — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+<a href="/board/{{ board_id }}">板 {{ board.board_uid }}</a> /
+成员
+{% endblock %}
+{% block ctxlinks %}
+<a href="/board/{{ board_id }}">状态图</a>
+{% endblock %}
+{% block content %}
+<div class="page-head"><h1>成员</h1></div>
+<p class="muted">只能添加已经存在的账号。所有者通过转让交接，不能在这里直接改成所有者。</p>
+<div id="member-error"></div>
+{% include "_members_panel.html" %}
+{% endblock %}

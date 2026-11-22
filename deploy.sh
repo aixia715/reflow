@@ -98,6 +98,8 @@ ${SSH} bash -s -- "${CONTAINER_NAME}" "${FULL_IMAGE}" "${HOST_PORT}" "${DATA_VOL
   # 反代上终结了 HTTPS 之后再加：-e REFLOW_COOKIE_SECURE=1
   # 平时在容器里执行：
   #   docker exec -it reflow python -m app.cli create-admin --username admin
+  #   docker exec -it reflow python -m app.cli create-user --username huaqing
+  #   docker exec -it reflow python -m app.cli assign-orphans --username admin
   docker run -d \
     --name "${CONTAINER_NAME}" \
     --restart unless-stopped \

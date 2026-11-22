@@ -6,7 +6,8 @@
 {% endblock %}
 {% block ctxlinks %}
 <a href="/board/{{ board_id }}/log">审计日志</a>
-<a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/new">＋ 记录硬更改</a>
+{% if role == 'owner' %}<a href="/board/{{ board_id }}/members">成员</a>{% endif %}
+{% if can_edit %}<a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/new">＋ 记录硬更改</a>{% endif %}
 {# 只负责进入对比；退出走底部对比条的「退出对比」按钮或 ESC（issue #132） #}
 <button type="button" class="btn btn-outline" data-testid="compare-toggle"
         x-data="{ cmp: false }"
@@ -28,7 +29,7 @@
 {% for it in timeline %}
 {% if it.kind == 'node' %}
 {% set n = it.obj %}{% set s = summaries[n.id] %}
-{% set show_menu = n.is_committed and (n.id in insertable_ids or n.parent_id is not none) %}
+{% set show_menu = can_edit and n.is_committed and (n.id in insertable_ids or n.parent_id is not none) %}
 <div class="tl-item node {{ 'draft' if not n.is_committed else '' }} {{ 'root' if n.parent_id is none else '' }}">
   <span class="dot"></span>
   <a class="tl-card" href="/board/{{ board_id }}/node/{{ n.id }}"

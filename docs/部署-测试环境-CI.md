@@ -31,10 +31,24 @@ ssh -N -L 8001:127.0.0.1:8001 <host>
 workflow 不创建管理员。带登录的版本第一次部署后，库里还没有用户时，在测试服务器上手动执行：
 
 ```bash
-docker exec -it reflow python -m app.cli create-admin
+docker exec -it reflow python -m app.cli create-admin --username admin
 ```
 
 容器名要和 Variable `TEST_CONTAINER_NAME` 一致。上面按 `reflow` 写；若变量是别的名字，换成那个名字。之后的部署继续挂同一个数据卷，已有账号还在，不必再跑。
+
+升到按单板授权之后，重启会把还没有负责人的 BOM 版本交给最早的未停用管理员。若这次升级前库里已经有管理员，一般不用再手工改。还要补「没有所有者的单板」或「启动前就想指定负责人」时：
+
+```bash
+docker exec -it reflow python -m app.cli assign-orphans --username admin
+```
+
+普通用户：
+
+```bash
+docker exec -it reflow python -m app.cli create-user --username huaqing
+```
+
+再由所有者在网页「成员」页把人加进单板。这条命令不会让人看见全部单板。
 
 ## 需要在仓库设置的 Secrets / Variables
 
@@ -75,7 +89,7 @@ gh variable set TEST_DATA_VOLUME    --body "reflow-test-data"
 2. 本改动合并进 `master` 之后，从 `master` 建立并推送 `test`。这一下 push 就会把当时的 `master` 部署到测试服务器。
 3. 之后把开发 PR 合并进 `test`，或在 Actions 里对 `test` 手动 `workflow_dispatch`。
 4. 看 `deploy-test`：`checks` 通过后才跑 `deploy-test`。检查失败则不替换容器。
-5. 在测试服务器上 `curl -fsS http://127.0.0.1:<TEST_HOST_PORT>/` 应返回首页（200）。自己的电脑上按上面的 SSH 隧道打开 http://127.0.0.1:8001/ 。
+5. 在测试服务器上 `curl -fsS http://127.0.0.1:<TEST_HOST_PORT>/healthz` 应返回 `{"ok":true}`。未登录访问 `/` 是 303 到 `/login`，不是 200。自己的电脑上按上面的 SSH 隧道打开 http://127.0.0.1:8001/ ，用管理员登录后应能看到升级前就有的单板。
 6. 测试服务器上 `docker ps` 应看到名为 `TEST_CONTAINER_NAME` 的容器，镜像为 `reflow:test-<short-sha>`，数据卷仍是 `TEST_DATA_VOLUME`。
 
 ## 已知权衡

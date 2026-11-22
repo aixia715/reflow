@@ -60,11 +60,16 @@ def test_edit_history_node_returns_conflict_fragment(client):
     client.post(f"/board/{board_id}/workspace/edit",
                 data={"reference": "R1", "op": "modify", "part": "47k"})
     client.post(f"/board/{board_id}/commit", data={"message": "S1"})
+    client.post(f"/board/{board_id}/workspace/edit",
+                data={"reference": "R1", "op": "modify", "part": "33k"})
+    client.post(f"/board/{board_id}/commit", data={"message": "S2"})
     from app import models
     from app.main import get_conn
     conn = get_conn()
-    root = models.list_nodes(conn, board_id)[0]["id"]
-    r = client.post(f"/board/{board_id}/node/{root}/edit",
+    # 根节点不再改初始 BOM。改第一个已提交节点，下游那条显式修改会弹出冲突。
+    first = [n for n in models.list_nodes(conn, board_id)
+             if n["is_committed"] and n["parent_id"] is not None][0]["id"]
+    r = client.post(f"/board/{board_id}/node/{first}/edit",
                     data={"reference": "R1", "op": "modify", "part": "22k"})
     assert "冲突" in r.text or "采用修正值" in r.text
 
@@ -509,7 +514,7 @@ def test_delete_board_404_if_missing(client):
 
 def test_delete_bom_version(client):
     _setup_board(client)
-    r = client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA")
+    r = client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA&confirm_name=bomA")
     assert r.status_code == 200
     assert r.headers.get("hx-redirect") == "/"
     assert client.get("/").status_code == 200
@@ -523,7 +528,7 @@ def test_delete_bom_version_404_if_missing(client):
 
 def test_delete_board_group(client):
     _setup_board(client)
-    r = client.delete("/board-group?board_name=B")
+    r = client.delete("/board-group?board_name=B&confirm_name=B")
     assert r.status_code == 200
     assert r.headers.get("hx-redirect") == "/"
     home = client.get("/").text
@@ -569,7 +574,7 @@ def test_delete_bom_version_cascades_multiple(client):
                      follow_redirects=False)
     board_id2 = r2.headers["location"].split("?")[0].rsplit("/", 1)[-1]
 
-    client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA")
+    client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA&confirm_name=bomA")
 
     assert client.get(f"/board/{board_id1}").status_code == 404
     assert client.get(f"/board/{board_id2}").status_code == 404
@@ -598,7 +603,7 @@ def test_can_recreate_after_board_delete(client):
 def test_can_recreate_after_bom_version_delete(client):
     """删 BOM 版本后，可重新用同版本号上传 CSV 创建。"""
     _setup_board(client)
-    client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA")
+    client.delete("/bom-version?board_name=B&pcb_version=v1&bom_version=bomA&confirm_name=bomA")
 
     r = client.post("/board/new",
                     data={"board_name": "B", "pcb_version": "v1",
@@ -611,7 +616,7 @@ def test_can_recreate_after_bom_version_delete(client):
 def test_delete_board_group_clears_home(client):
     """删组后首页不再包含该 BOM 版本数据。"""
     _setup_board(client)
-    client.delete("/board-group?board_name=B")
+    client.delete("/board-group?board_name=B&confirm_name=B")
     home = client.get("/").text
     assert "bomA" not in home
 

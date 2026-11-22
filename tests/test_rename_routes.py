@@ -13,7 +13,7 @@ def _setup(client, name="B", pcb="v1", bom="bomA", uid="SN1"):
 def test_rename_board_group_success_redirects(client):
     _setup(client, "Old")
     r = client.post("/board-group/rename",
-                    data={"board_name": "Old", "new_name": "New"})
+                    data={"board_name": "Old", "new_name": "New", "confirmed": "1"})
     assert r.headers.get("HX-Redirect") == "/"
     assert "New" in client.get("/").text
     assert "Old" not in client.get("/").text
@@ -42,7 +42,8 @@ def test_rename_empty_name_returns_toast(client):
 def test_rename_pcb_version_success(client):
     _setup(client, "MB", "p1", "bomA", "SN1")
     r = client.post("/pcb-version/rename",
-                    data={"board_name": "MB", "pcb_version": "p1", "new_name": "p2"})
+                    data={"board_name": "MB", "pcb_version": "p1", "new_name": "p2",
+                          "confirmed": "1"})
     assert r.headers.get("HX-Redirect") == "/"
     assert "PCB p2" in client.get("/").text
 
@@ -51,7 +52,7 @@ def test_rename_bom_version_success(client):
     _setup(client, "MB", "v1", "b1", "SN1")
     r = client.post("/bom-version/rename",
                     data={"board_name": "MB", "pcb_version": "v1",
-                          "bom_version": "b1", "new_name": "b2"})
+                          "bom_version": "b1", "new_name": "b2", "confirmed": "1"})
     assert r.headers.get("HX-Redirect") == "/"
     assert "b2" in client.get("/").text
 
