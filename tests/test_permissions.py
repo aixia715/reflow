@@ -157,7 +157,14 @@ def test_root_edit_does_not_touch_initial_bom(tmp_path, monkeypatch):
         assert _bom() == before
     html = owner.get(f"/board/{bid}/node/{root}").text
     assert f"/node/{root}/edit" not in html
-    assert "根节点不能在单板页修改" in html
+    assert "初始清单在 BOM 版本页维护" in html
+    assert 'href="/bom-version/' in html
+    denied = owner.post(
+        f"/board/{bid}/node/{root}/edit",
+        data={"reference": "R1", "op": "modify", "part": "47k"},
+    )
+    assert "请到 BOM 版本页修正" in denied.text
+    assert "/bom-version/" in denied.text
 
 
 def test_only_version_owner_can_add_board(tmp_path, monkeypatch):

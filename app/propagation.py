@@ -177,19 +177,23 @@ def delete_node(conn, node_id, choices: dict | None = None,
 
 
 def resolve_conflict(conn, conflict: Conflict, choice: str,
-                     *, actor_user_id: int | None = None) -> None:
+                     *, actor_user_id: int | None = None,
+                     note: str | None = None, commit: bool = True) -> None:
     """choice='keep' 保留下游值（什么都不做）；'take' 采用修正值并向后传播。
 
     传播行的操作人是按下确认的那个人。不传时留空，给不经过路由的旧调用用。
+    note 只在采用修正值时写入。BOM 版本页传入以「BOM 版本修正」开头的说明。
+    commit=False 时不提交，由外层事务一并提交或回滚。
     """
     if choice == "take":
         old_value = conflict.downstream_value
-        models.delete_change(conn, conflict.downstream_node_id, conflict.reference)
+        models.delete_change(
+            conn, conflict.downstream_node_id, conflict.reference, commit=commit)
         new_value = conflict.corrected_value
         op = "remove" if new_value is None else "modify"
         audit.record_edit(
             conn, conflict.downstream_node_id, conflict.reference,
             old_value, new_value, op, "propagated",
-            actor_user_id=actor_user_id,
+            note=note, actor_user_id=actor_user_id, commit=commit,
         )
     # 'keep'：不动

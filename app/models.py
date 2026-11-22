@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 import logging
 import secrets
 import sqlite3
@@ -92,6 +93,249 @@ def bom_version_exists(conn, board_name, pcb_version, bom_version) -> bool:
     ).fetchone() is not None
 
 
+def get_bom_version(conn, version_id):
+    return conn.execute(
+        "SELECT * FROM bom_versions WHERE id=?", (version_id,)
+    ).fetchone()
+
+
+class BomVersionError(Exception):
+    """版本页拒绝这次修正。message 原样给调用方，不要往里面塞单板 ID。"""
+
+
+class BomRevisionError(Exception):
+    """bom_versions.revision 与提交时带上的值不一致。不写库。"""
+
+    def __init__(self, username: str):
+        self.username = username
+        super().__init__(f"已被 {username} 修改，请刷新")
+
+
+def _actor_label(conn, user_id) -> str:
+    """revised_by 为空、或用户行已经不在时，用「其他人」。"""
+    if not user_id:
+        return "其他人"
+    row = conn.execute(
+        "SELECT username FROM users WHERE id=?", (user_id,)
+    ).fetchone()
+    if row is None or not row["username"]:
+        return "其他人"
+    return row["username"]
+
+
+def normalized_bom_part(reference: str, op: str, part: str | None) -> tuple[str | None, str]:
+    """落库前归一。返回 (要写入的值, fix 文案)。remove 时值为 None。
+
+    与节点编辑同一条 lint。BOM 版本页是 initial_bom 的写入路径，不能绕过。
+    """
+    if op == "remove":
+        return None, ""
+    from app.component_lint import lint_part
+    fixed, issues = lint_part(reference, part or "")
+    fix = next((issue.message for issue in issues if issue.level == "fix"), "")
+    return fixed, fix
+
+
+def _correction_note(reference: str, old_value, new_value) -> str:
+    old = old_value if old_value is not None else "不贴"
+    new = new_value if new_value is not None else "不贴"
+    return f"BOM 版本修正：{reference} {old} → {new}"
+
+
+def _normalize_choices(choices) -> dict[str, str]:
+    if choices is None or choices == "":
+        return {}
+    if isinstance(choices, str):
+        try:
+            choices = json.loads(choices)
+        except ValueError as exc:
+            raise BomVersionError("数据格式不正确") from exc
+    if not isinstance(choices, dict):
+        raise BomVersionError("数据格式不正确")
+    return {str(key): value for key, value in choices.items()}
+
+
+def _root_node(conn, board_id):
+    return conn.execute(
+        "SELECT * FROM nodes WHERE board_id=? AND parent_id IS NULL", (board_id,)
+    ).fetchone()
+
+
+def latest_initial_correction(conn, root_node_id):
+    """根节点上最新一条「BOM 版本修正」。没有（含升级前的旧修正）则 None。"""
+    return conn.execute(
+        """SELECT l.created_at, l.note, u.username AS actor_username
+           FROM edit_log l
+           LEFT JOIN users u ON u.id = l.actor_user_id
+           WHERE l.node_id=? AND l.note LIKE 'BOM 版本修正%'
+           ORDER BY l.id DESC LIMIT 1""",
+        (root_node_id,),
+    ).fetchone()
+
+
+def preview_bom_version_change(conn, version_id, reference, op, part) -> list[dict]:
+    """只算不写。每块板一项：board_uid、折叠差异、传播冲突。
+
+    冲突检测复用节点修正的同一函数。调用方还没选「保留 / 采用」。
+    """
+    version = get_bom_version(conn, version_id)
+    if version is None:
+        raise BomVersionError("BOM 版本不存在")
+    reference = (reference or "").strip()
+    if op not in ("add", "modify", "remove"):
+        raise BomVersionError(f"未知操作类型：{op}")
+    new_value, _fix = normalized_bom_part(reference, op, part)
+    initial = get_initial_bom(
+        conn, version["board_name"], version["pcb_version"], version["bom_version"])
+    from app.validation import validate_edit
+    err = validate_edit(initial, reference, op, new_value)
+    if err:
+        raise BomVersionError(err)
+
+    new_initial = dict(initial)
+    if new_value is None:
+        new_initial.pop(reference, None)
+    else:
+        new_initial[reference] = new_value
+
+    from app.bom_engine import fold_bom
+    from app.propagation import _detect_downstream_conflicts
+
+    boards = boards_in_scope(
+        conn,
+        board_name=version["board_name"],
+        pcb_version=version["pcb_version"],
+        bom_version=version["bom_version"],
+    )
+    items = []
+    for board in boards:
+        root = _root_node(conn, board["id"])
+        tip = workspace_node(conn, board["id"])
+        _current, chain = get_chain(conn, tip["id"])
+        old_fold = fold_bom(initial, chain)
+        new_fold = fold_bom(new_initial, chain)
+        diffs = []
+        for ref in sorted(set(old_fold) | set(new_fold)):
+            if old_fold.get(ref) != new_fold.get(ref):
+                diffs.append({
+                    "reference": ref,
+                    "before": old_fold.get(ref),
+                    "after": new_fold.get(ref),
+                    "shadowed": False,
+                })
+        # 下游显式值把当前折叠挡住时，根上的初始清单仍然会变，单独标出来。
+        if initial.get(reference) != new_value and not any(
+            item["reference"] == reference for item in diffs
+        ):
+            diffs.append({
+                "reference": reference,
+                "before": initial.get(reference),
+                "after": new_value,
+                "shadowed": True,
+            })
+        conflicts = _detect_downstream_conflicts(conn, root, reference, new_value)
+        items.append({
+            "board_id": board["id"],
+            "board_uid": board["board_uid"],
+            "root_node_id": root["id"],
+            "diffs": diffs,
+            "conflicts": conflicts,
+        })
+    return items
+
+
+def _apply_board_correction(conn, item, reference, op, old_value, new_value,
+                            choices, actor_user_id) -> None:
+    """一块板：根节点记 direct，再按选择处理下游。不提交。"""
+    from app import audit
+    from app.propagation import resolve_conflict
+
+    note = _correction_note(reference, old_value, new_value)
+    audit.record_edit(
+        conn, item["root_node_id"], reference, old_value, new_value, op, "direct",
+        note=note, actor_user_id=actor_user_id, commit=False,
+    )
+    for conflict in item["conflicts"]:
+        resolve_conflict(
+            conn, conflict, choices[str(conflict.downstream_node_id)],
+            actor_user_id=actor_user_id, note=note, commit=False,
+        )
+
+
+def apply_bom_version_change(conn, version_id, actor_user_id, expected_revision,
+                             reference, op, part, choices) -> None:
+    """一个事务里修正共用初始清单。
+
+    revision 不符、或有冲突没选，都不改 initial_bom。任一块板写入失败则整单回滚：
+    不允许第一块已经变成新值、第二块还是旧值。
+    """
+    version = get_bom_version(conn, version_id)
+    if version is None:
+        raise BomVersionError("BOM 版本不存在")
+    if int(version["revision"]) != int(expected_revision):
+        raise BomRevisionError(_actor_label(conn, version["revised_by"]))
+
+    reference = (reference or "").strip()
+    new_value, _fix = normalized_bom_part(reference, op, part)
+    initial = get_initial_bom(
+        conn, version["board_name"], version["pcb_version"], version["bom_version"])
+    old_value = initial.get(reference)
+    chosen = _normalize_choices(choices)
+    items = preview_bom_version_change(conn, version_id, reference, op, part)
+    for item in items:
+        for conflict in item["conflicts"]:
+            choice = chosen.get(str(conflict.downstream_node_id))
+            if choice not in ("keep", "take"):
+                raise BomVersionError("还有冲突没有选择")
+
+    try:
+        update_initial_bom(
+            conn, version["board_name"], version["pcb_version"], version["bom_version"],
+            reference, new_value, commit=False,
+        )
+        for item in items:
+            _apply_board_correction(
+                conn, item, reference, op, old_value, new_value, chosen, actor_user_id)
+        cur = conn.execute(
+            """UPDATE bom_versions
+                  SET revision = revision + 1, revised_by = ?
+                WHERE id = ? AND revision = ?""",
+            (actor_user_id, version_id, int(expected_revision)),
+        )
+        if cur.rowcount != 1:
+            conn.rollback()
+            fresh = get_bom_version(conn, version_id)
+            revised_by = fresh["revised_by"] if fresh is not None else None
+            raise BomRevisionError(_actor_label(conn, revised_by))
+        conn.commit()
+    except BomRevisionError:
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def transfer_bom_version_owner(conn, version_id, actor_user_id, new_username: str) -> None:
+    """现任负责人把职务交给另一名未停用用户。不改各板成员，不记 edit_log。"""
+    version = get_bom_version(conn, version_id)
+    if version is None:
+        raise ValueError("BOM 版本不存在")
+    if version["owner_user_id"] != actor_user_id:
+        raise ValueError("只有负责人能转让")
+    user = get_user_by_username(conn, new_username)
+    if user is None:
+        raise ValueError("没有这个用户")
+    if user["disabled_at"]:
+        raise ValueError("该账号已停用")
+    if user["id"] == actor_user_id:
+        raise ValueError("不能转让给自己")
+    conn.execute(
+        "UPDATE bom_versions SET owner_user_id=? WHERE id=?",
+        (user["id"], version_id),
+    )
+    conn.commit()
+
+
 # ---------- 单板 & 节点 ----------
 
 def create_board(
@@ -165,11 +409,12 @@ def set_change(conn, node_id, reference, op, part) -> None:
     conn.commit()
 
 
-def delete_change(conn, node_id, reference) -> None:
+def delete_change(conn, node_id, reference, *, commit: bool = True) -> None:
     conn.execute(
         "DELETE FROM node_changes WHERE node_id=? AND reference=?", (node_id, reference)
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def clear_changes(conn, node_id) -> int:
@@ -484,8 +729,13 @@ def rename_board_uid(conn, board_id, new) -> None:
     conn.commit()
 
 
-def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part) -> None:
-    """修正根节点初始 BOM 的某位号（part=None 表示删除该位号）。"""
+def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, part,
+                        *, commit: bool = True) -> None:
+    """修正根节点初始 BOM 的某位号（part=None 表示删除该位号）。
+
+    commit=False 时留给外层事务一次提交。BOM 版本页的修正要和各板审计、
+    revision 加一放在同一个事务里，中途失败才能整单回滚。
+    """
     if part is None:
         conn.execute(
             "DELETE FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=? AND reference=?",
@@ -498,7 +748,8 @@ def update_initial_bom(conn, board_name, pcb_version, bom_version, reference, pa
             " ON CONFLICT(board_name,pcb_version,bom_version,reference) DO UPDATE SET part=excluded.part",
             (board_name, pcb_version, bom_version, reference, part),
         )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def commit_workspace(conn, board_id, message, description="") -> int:

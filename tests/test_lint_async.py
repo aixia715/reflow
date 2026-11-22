@@ -168,7 +168,7 @@ def test_root_edit_is_rejected(client):
     r = client.post(f"/board/{board_id}/node/{root}/edit",
                     data={"reference": "R1", "op": "modify", "part": "230R"})
     assert r.status_code == 403
-    assert "根节点不能在单板页修改" in r.text
+    assert "请到 BOM 版本页修正" in r.text
     assert _initial() == before
 
 
