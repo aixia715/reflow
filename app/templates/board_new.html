@@ -7,6 +7,7 @@
 <form class="panel form-stack" method="post" action="/board/new" enctype="multipart/form-data"
       hx-post="/board/new/preview" hx-target="#preview" hx-trigger="change"
       hx-encoding="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label>单板名称
     <input class="input" name="board_name" list="names" required autocomplete="off"></label>
   <datalist id="names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>

@@ -5,6 +5,7 @@
        悄悄丢掉，先问一句（函数在 node_detail.html，本弹窗只由该页弹出）。 #}
     <form method="post" action="/board/{{ board_id }}/node/{{ node_id }}/resolve"
           onsubmit="return confirmPendingAttachments()">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {% for c in conflicts %}
       <fieldset class="conflict">
         <legend><code>{{ c.reference }}</code> 在下游节点 #{{ c.downstream_node_id }} 被显式修改过</legend>

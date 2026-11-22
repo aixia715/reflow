@@ -89,6 +89,7 @@ async def board_new_preview(
 
 @router.post("/board/new")
 async def board_create(
+    request: Request,
     board_name: str = Form(...), pcb_version: str = Form(...),
     bom_version: str = Form(...), board_uid: str = Form(...),
     file: UploadFile | None = File(None),
@@ -110,7 +111,11 @@ async def board_create(
     if models.board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid):
         raise HTTPException(status_code=400,
                             detail=f"单板 ID “{board_uid}” 在该 BOM 版本下已存在")
-    board_id = models.create_board(conn, board_name, pcb_version, bom_version, board_uid)
+    owner_id = request.state.user["id"] if request.state.user else None
+    board_id = models.create_board(
+        conn, board_name, pcb_version, bom_version, board_uid,
+        owner_user_id=owner_id,
+    )
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已创建 板 {board_uid}",
                             status_code=303)
 

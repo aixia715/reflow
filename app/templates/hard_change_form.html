@@ -13,6 +13,7 @@
       x-data="hardChangeImages" @paste.window="onPaste($event)"
       @submit="if (compressing) $event.preventDefault()"
       action="{% if mode == 'edit' %}/board/{{ board_id }}/hard-change/{{ hc.id }}/edit{% else %}/board/{{ board_id }}/hard-change{% endif %}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label>标题
     <input class="input" name="title" required
            value="{{ form.title if form.title is defined else (hc.title if hc else '') }}">
