@@ -192,15 +192,28 @@ def test_insert_time_out_of_range_rejected(client):
 def test_insert_conflict_when_downstream_explicit(client):
     board_id, root, c1, c2 = _setup_chain(client)
     # c2 显式改了 R1=22k；在 c1 后插入也改 R1=47k → 与下游 c2 冲突
-    r = client.post(f"/board/{board_id}/node/{c1}/insert",
-                    data={"committed_at": "2026-06-05T00:00:00+00:00", "message": "ins",
-                          "changes": json.dumps([{"reference": "R1", "op": "modify", "part": "47k"}])})
+    payload = {
+        "committed_at": "2026-06-05T00:00:00+00:00", "message": "ins",
+        "changes": json.dumps([{"reference": "R1", "op": "modify", "part": "47k"}]),
+    }
+    r = client.post(f"/board/{board_id}/node/{c1}/insert", data=payload)
     assert r.status_code == 200
     assert "确认" in r.text
     from app.main import get_conn
     conn = get_conn()
+    # 先选完再写入：确认前不产生新节点
+    assert conn.execute(
+        "SELECT parent_id FROM nodes WHERE id=?", (c2,)
+    ).fetchone()["parent_id"] == c1
+    payload.update({
+        "downstream_node_id": str(c2), "reference": "R1", "choice": "keep",
+    })
+    saved = client.post(f"/board/{board_id}/node/{c1}/insert", data=payload,
+                        follow_redirects=False)
+    assert saved.status_code == 303, saved.text
+    conn = get_conn()
     new = conn.execute("SELECT * FROM nodes WHERE parent_id=?", (c1,)).fetchone()
-    assert new["id"] != c2
+    assert new is not None and new["id"] != c2
 
 
 # ---- /insert/check：插入页「添加这条」的服务端校验 + lint 归一（校验单一来源） ----

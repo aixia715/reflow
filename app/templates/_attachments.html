@@ -11,6 +11,7 @@
       {% if can_edit %}
       <button type="button" class="icon-btn danger" title="删除附件" aria-label="删除附件"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/attachments/{{ a.id }}/delete"
+              hx-vals='js:{revision: document.getElementById("node-revision").value}'
               hx-target="#attachments" hx-swap="outerHTML"
               hx-confirm="确认删除附件「{{ a.filename }}」？该文件将从磁盘移除，不可恢复。">
         <svg class="ico"><use href="#icon-trash"></use></svg>
@@ -27,6 +28,7 @@
         hx-target="#attachments" hx-swap="outerHTML"
         enctype="multipart/form-data"
         @htmx:after-request.camel="if ($event.detail.successful) { $refs.fileInput.value = ''; }">
+    <input type="hidden" name="revision" class="js-node-revision" value="{{ node.revision }}">
     <input class="input" type="file" name="files" multiple x-ref="fileInput">
     <button class="btn btn-outline" type="submit">上传附件</button>
   </form>

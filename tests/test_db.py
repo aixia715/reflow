@@ -38,6 +38,11 @@ def test_init_db_migrates_old_nodes_table():
     row = conn.execute("SELECT message, description FROM nodes").fetchone()
     assert row["message"] == "旧节点"
     assert row["description"] == ""
+    assert "revision" in cols and "revised_by" in cols
+    migrated = conn.execute("SELECT revision, revised_by, message FROM nodes").fetchone()
+    assert migrated["revision"] == 0
+    assert migrated["revised_by"] is None
+    assert migrated["message"] == "旧节点"
 
 
 def test_fresh_db_has_edit_log_actor_column():

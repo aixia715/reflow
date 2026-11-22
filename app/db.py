@@ -27,7 +27,9 @@ CREATE TABLE IF NOT EXISTS nodes (
     description  TEXT NOT NULL DEFAULT '',
     created_at   TEXT NOT NULL,
     is_committed INTEGER NOT NULL DEFAULT 0,
-    committed_at TEXT
+    committed_at TEXT,
+    revision     INTEGER NOT NULL DEFAULT 0,
+    revised_by   INTEGER REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS node_changes (
@@ -196,4 +198,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "actor_user_id" not in log_cols:
         conn.execute(
             "ALTER TABLE edit_log ADD COLUMN actor_user_id INTEGER REFERENCES users(id)"
+        )
+    # 节点乐观锁。旧行 revision 为 0、revised_by 为空。users 表先建好再加外键列。
+    # 重新读列：上面可能刚给老库补过 description，开头那份 cols 已经过期。
+    node_cols = {r["name"] for r in conn.execute("PRAGMA table_info(nodes)")}
+    if "revision" not in node_cols:
+        conn.execute(
+            "ALTER TABLE nodes ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+        )
+    if "revised_by" not in node_cols:
+        conn.execute(
+            "ALTER TABLE nodes ADD COLUMN revised_by INTEGER REFERENCES users(id)"
         )

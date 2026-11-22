@@ -58,7 +58,7 @@ pytest                        # 全部测试
 - 改动遵循 TDD：先写失败测试再实现。纯逻辑模块（★）是测试投入重点。
 - 前端约定：HTMX 局部刷新 + Alpine.js 客户端小交互（CDN，无构建）。校验失败返回 200 + `HX-Retarget: #form-error`；编辑/撤销成功返回 `_node_update.html`（主体换 `#bom`，OOB 换 `#changes-panel`、清 `#form-error`）+ `HX-Trigger: {"showToast": …}`（json.dumps 保持 ASCII）；整页跳转用 `?flash=` 显示 toast。htmx 事件在 Alpine 里监听要加 `.camel` 修饰符；模板向 hx-vals/JS 传值一律 `|tojson` 且属性用单引号。表单内某个字段需要独立于整表单提交做「输入即请求」的小交互（如失焦校验/联想），给该字段单独挂 `hx-post`/`hx-trigger`，返回 204 + `HX-Trigger: {"xxxLinted": {...}}` 携带数据，Alpine 用 `@xxx-linted.camel` 接收；此时表单级 `@htmx:after-request` 处理器必须用 `$event.target === $el` 排除这类嵌套请求（htmx 事件会冒泡），否则会被误判为表单提交成功——现存守卫示例见 `_edit_form.html` 的 `@htmx:after-request` 处理器。
 - 撤销仅限工作区草稿（is_committed=0），实现为删 changeset 行，不记审计日志。「清除全部修改」（`/undo-all`）同语义，只是一次删光整个 changeset。
-- 冲突确认是弹窗（`_conflict_modal.html`），取消 ≡ 全部「保留下游值」。
+- 冲突确认是弹窗（`_conflict_modal.html`）。有下游冲突时第一次请求不写库，弹窗带上被编辑节点和各下游节点当时的 `revision`；确认请求才在同一个事务里写入并传播。取消什么都不做。「保留下游值」是弹窗里的选项，要点确认才生效。版本对不上时 200 + `HX-Reswap: none`，`#form-error` 和 toast 都是「已被 {用户名} 修改，请刷新」（`revised_by` 为空用「其他人」）。
 - **插入节点页的改动暂存在浏览器，但校验不许留在前端**：位号校验、op 推断、元器件 lint 一律走 `/board/{id}/node/{pid}/insert/check`（204 + `HX-Trigger: insertChecked`），JS 只负责显示与暂存——这三样曾在 `insert_node.html` 里各抄过一份，与 `app/validation.py` 各改各的必然漂移。日期控件的 min/max 同理，由 `validation.insert_time_bounds` 算好下发，与 `validate_insert_time` 的开区间同源（控件是闭区间且只能产出整分钟，自己截秒必然两头漏）。
 - **草稿里把值改回上游原样 = 这条修改不留痕，但审计日志照记**：`propagation.apply_node_edit(..., drop_noop=True)` 删掉 changeset 行，否则「本节点修改」面板会显示一条改前改后相同的假修改。`drop_noop` 只给交互式单条编辑（`/edit`、`/workspace/edit`）用，**批量写入路径必须保持默认 False**——copy-to-draft 从紧邻父节点复制时逐条都等于父节点原值，开了会被全吃掉，界面上就成了「提示复制了 N 条、面板里一条没有」。已提交节点也一律不丢：它的显式 op 还承担屏蔽上游修正的作用（判冲突只看下游有没有这条 reference，与值无关）。
 - 插入节点页与工作区草稿**功能保持同步**（它是工作区编辑器的客户端复刻版，历史上漏过一批）：清除全部修改、撤销/添加的 toast、筛选框回车取首行位号+当前值、点「修改」滚动到编辑面板、位号框回车先补 Part（`refEnter`，两页同一行为）。插入页改动只在浏览器里，toast 自己往 body 派 `showToast`、离开前有 `beforeunload` 守卫（保存成功要用 `saving` 解除，HX-Redirect 也是一次 unload）；`/insert/check` 失败必须落到 `editError`，全站没有 htmx 错误兜底，不接就是点了毫无反应。CSV 导入同理走 `/insert/import/preview`：解析求差复用 `csv_import` 的同一套函数，**只算不写库**，「应用」不是请求而是把服务端换算好的清单合进浏览器暂存。
@@ -75,4 +75,4 @@ pytest                        # 全部测试
 
 ## MVP 边界（暂不做）
 
-飞线等「位号以外」的修改类型、「按时间回看 / 状态回放」界面、工具内的测试记录功能（测试记录在外部笔记，本工具只提供链接）。多用户登录、按单板授权、网页用户管理和 BOM 版本页见 `docs/superpowers/specs/2026-11-16-multi-user-auth-design.md`。节点乐观锁还没做：两人同时改同一个普通节点，后一次保存会盖住前一次。BOM 版本页的修正已经用 `bom_versions.revision` 拒绝后一次提交。
+飞线等「位号以外」的修改类型、「按时间回看 / 状态回放」界面、工具内的测试记录功能（测试记录在外部笔记，本工具只提供链接）。多用户（登录、按单板授权、网页用户管理、审计操作人、BOM 版本页、节点乐观锁）已全部落地，见 `docs/superpowers/specs/2026-11-16-multi-user-auth-design.md`。草稿和已提交节点用 `nodes.revision`：编辑、撤销、清除、导入、复制到草稿、提交、插入、删除、冲突确认、改标题说明、上传或删除附件都在同一事务里核对版本号，对不上就不覆盖。

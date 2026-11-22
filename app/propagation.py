@@ -50,8 +50,29 @@ def _detect_downstream_conflicts(conn, node, reference, corrected_part) -> list[
     return []
 
 
+def preview_edit_conflicts(conn, node_id, reference, new_value) -> list[Conflict]:
+    """不写库，看这次修正会不会和下游显式值冲突。
+
+    显式节点的解析值不跟着上游变，所以写之前和写之后检出的是同一条冲突。
+    """
+    node = models.get_node(conn, node_id)
+    return _detect_downstream_conflicts(conn, node, reference, new_value)
+
+
+def preview_insert_conflicts(conn, parent_id, changes) -> list[Conflict]:
+    """插入页还没建节点。新节点的下游就是父节点现在的子链。"""
+    parent = models.get_node(conn, parent_id)
+    found: list[Conflict] = []
+    for ch in changes:
+        ref = (ch.get("reference") or "").strip()
+        new_value = None if ch.get("op") == "remove" else ch.get("part")
+        found.extend(_detect_downstream_conflicts(conn, parent, ref, new_value))
+    return found
+
+
 def apply_node_edit(conn, node_id, reference, op, part,
-                    drop_noop: bool = False, *, actor_user_id: int | None = None) -> list[Conflict]:
+                    drop_noop: bool = False, *, actor_user_id: int | None = None,
+                    commit: bool = True) -> list[Conflict]:
     """编辑某节点某位号（修正记录），落库 + 记 direct 日志，返回冲突列表（最多一个）。
 
     op: 'add'|'modify'|'remove'；remove 时 part 传 None。
@@ -66,20 +87,29 @@ def apply_node_edit(conn, node_id, reference, op, part,
 
     默认 False 是刻意的：漏传只会退回旧行为（多留一条无害的空转记录），传反了
     才会静默丢数据。
+
+    commit=False 时不提交。乐观锁由路由先 bump_revision，再调用这里，最后一次提交。
     """
     old_value = _resolved_value(conn, node_id, reference)
     new_value = None if op == "remove" else part
     node = models.get_node(conn, node_id)
-    if drop_noop and is_noop_against_parent(conn, node, new_value, reference):
-        models.delete_change(conn, node_id, reference)
-    else:
-        models.set_change(conn, node_id, reference, op, part)
-    # 日志无论如何都记：append-only 记的是发生过什么，不是最后长什么样，
-    # 「改成 47k 又改回 10k」是确实发生过的两次编辑。
-    audit.record_edit(
-        conn, node_id, reference, old_value, new_value, op, "direct",
-        actor_user_id=actor_user_id,
-    )
+    try:
+        if drop_noop and is_noop_against_parent(conn, node, new_value, reference):
+            models.delete_change(conn, node_id, reference, commit=False)
+        else:
+            models.set_change(conn, node_id, reference, op, part, commit=False)
+        # 日志无论如何都记：append-only 记的是发生过什么，不是最后长什么样，
+        # 「改成 47k 又改回 10k」是确实发生过的两次编辑。
+        audit.record_edit(
+            conn, node_id, reference, old_value, new_value, op, "direct",
+            actor_user_id=actor_user_id, commit=False,
+        )
+        if commit:
+            conn.commit()
+    except Exception:
+        if commit:
+            conn.rollback()
+        raise
 
     # changeset 已是链末显式值（或已删除回落到继承），解析值即 new_value
     node = models.get_node(conn, node_id)
@@ -129,47 +159,69 @@ def detect_delete_conflicts(conn, node_id) -> list[Conflict]:
 
 
 def delete_node(conn, node_id, choices: dict | None = None,
-                *, actor_user_id: int | None = None) -> None:
+                *, actor_user_id: int | None = None,
+                expected_revision: int | None = None,
+                downstream_revisions: dict | None = None,
+                require_choices: bool = False) -> None:
     """删除节点：记删除事件 → 物理删除+下游重接 → 按 choices 处理受影响位号（1-A/3-B）。
 
     choices: {reference: 'keep'|'take'}，缺省 'take'（采用删后的新继承值）。
       · take：D 重新继承新值，记一条 propagated 日志（3-B）；
       · keep：把删前值固化成 D 的显式 op 以冻结，值未变不记日志。
     删除事件挂在父节点上（被删节点行将不存在），op='delete_node'（3-B）。
+
+    乐观锁：被删节点和直接子节点（以及调用方点名的下游节点）的版本号在删除前核对。
+    require_choices 时，有冲突却没逐条选择就抛 WriteAborted，一行都不删。
     """
     choices = choices or {}
     node = models.get_node(conn, node_id)
     parent_id = node["parent_id"]
     assert parent_id is not None, "不能删除根节点"
-    conflicts = detect_delete_conflicts(conn, node_id)
+    if expected_revision is None:
+        expected_revision = int(node["revision"])
+    children = _children_in_order(conn, node["board_id"], node_id)
+    locks = [(node_id, int(expected_revision))]
+    if downstream_revisions:
+        for ds_id, rev in downstream_revisions.items():
+            locks.append((int(ds_id), int(rev)))
+    if children:
+        locks.append((children[0]["id"], int(children[0]["revision"])))
+    paths: list[str] = []
 
-    audit.record_edit(
-        conn, parent_id, "", None, None, "delete_node", "direct",
-        note=f"删除节点 #{node_id}「{node['message'] or '无说明'}」",
-        actor_user_id=actor_user_id,
-    )
-    paths = models.delete_node(conn, node_id)
+    def _body() -> None:
+        conflicts = detect_delete_conflicts(conn, node_id)
+        if require_choices:
+            for cf in conflicts:
+                if choices.get(cf.reference) not in ("keep", "take"):
+                    raise models.WriteAborted()
+        audit.record_edit(
+            conn, parent_id, "", None, None, "delete_node", "direct",
+            note=f"删除节点 #{node_id}「{node['message'] or '无说明'}」",
+            actor_user_id=actor_user_id, commit=False,
+        )
+        paths.extend(models.delete_node(conn, node_id, commit=False))
+        for cf in conflicts:
+            old, new = cf.downstream_value, cf.corrected_value
+            if choices.get(cf.reference, "take") == "keep":
+                # 冻结：把删前值固化成子节点显式 op。值未变但这是一次直接数据变异，
+                # 记一条 direct 日志说明来历（append-only），避免日后无从追溯这条 op。
+                op = "remove" if old is None else ("add" if new is None else "modify")
+                models.set_change(
+                    conn, cf.downstream_node_id, cf.reference, op, old, commit=False)
+                audit.record_edit(
+                    conn, cf.downstream_node_id, cf.reference, old, old, op, "direct",
+                    note=f"因删除节点 #{node_id} 固化保留原继承值",
+                    actor_user_id=actor_user_id, commit=False,
+                )
+            else:  # take：解析值变化，记 propagated。op 按下游视角判定（None→值=add）
+                op = "remove" if new is None else ("add" if old is None else "modify")
+                audit.record_edit(
+                    conn, cf.downstream_node_id, cf.reference, old, new, op, "propagated",
+                    note=f"因删除节点 #{node_id} 重新继承",
+                    actor_user_id=actor_user_id, commit=False,
+                )
 
-    for cf in conflicts:
-        old, new = cf.downstream_value, cf.corrected_value
-        if choices.get(cf.reference, "take") == "keep":
-            # 冻结：把删前值固化成子节点显式 op。值未变但这是一次直接数据变异，
-            # 记一条 direct 日志说明来历（append-only），避免日后无从追溯这条 op。
-            op = "remove" if old is None else ("add" if new is None else "modify")
-            models.set_change(conn, cf.downstream_node_id, cf.reference, op, old)
-            audit.record_edit(
-                conn, cf.downstream_node_id, cf.reference, old, old, op, "direct",
-                note=f"因删除节点 #{node_id} 固化保留原继承值",
-                actor_user_id=actor_user_id,
-            )
-        else:  # take：解析值变化，记 propagated。op 按下游视角判定（None→值=add）
-            op = "remove" if new is None else ("add" if old is None else "modify")
-            audit.record_edit(
-                conn, cf.downstream_node_id, cf.reference, old, new, op, "propagated",
-                note=f"因删除节点 #{node_id} 重新继承",
-                actor_user_id=actor_user_id,
-            )
-
+    models.guarded_write(conn, actor_user_id, locks, _body)
     # 文件清理放最后：DB 侧的冲突固化/传播已全部落定，磁盘文件删除失败
     # （权限、磁盘故障等）只影响附件残留，不应阻断上面的核心传播逻辑。
     if paths:
@@ -178,13 +230,21 @@ def delete_node(conn, node_id, choices: dict | None = None,
 
 def resolve_conflict(conn, conflict: Conflict, choice: str,
                      *, actor_user_id: int | None = None,
-                     note: str | None = None, commit: bool = True) -> None:
+                     note: str | None = None, commit: bool = True,
+                     expected_revision: int | None = None) -> None:
     """choice='keep' 保留下游值（什么都不做）；'take' 采用修正值并向后传播。
 
     传播行的操作人是按下确认的那个人。不传时留空，给不经过路由的旧调用用。
     note 只在采用修正值时写入。BOM 版本页传入以「BOM 版本修正」开头的说明。
     commit=False 时不提交，由外层事务一并提交或回滚。
+    expected_revision 在第一次写之前核对；对不上抛 NodeRevisionError，不改下游。
     """
+    if expected_revision is not None:
+        downstream = models.get_node(conn, conflict.downstream_node_id)
+        current = None if downstream is None else int(downstream["revision"])
+        if current != int(expected_revision):
+            who = None if downstream is None else downstream["revised_by"]
+            raise models.NodeRevisionError(models._actor_label(conn, who))
     if choice == "take":
         old_value = conflict.downstream_value
         models.delete_change(

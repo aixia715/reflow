@@ -36,7 +36,7 @@
       {% if can_edit and r.state == 'mine' and not node.is_committed %}
       <button class="icon-btn danger" title="撤销" aria-label="撤销"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
-              hx-vals='{{ {"reference": r.reference} | tojson }}'
+              hx-vals='js:{reference: {{ r.reference | tojson }}, revision: document.getElementById("node-revision").value}'
               hx-target="#bom" hx-swap="innerHTML">
         <svg class="ico"><use href="#icon-undo"></use></svg>
       </button>
@@ -61,7 +61,7 @@
       {% if can_edit and r.state == 'mine' and not node.is_committed %}
       <button class="icon-btn danger" title="撤销" aria-label="撤销"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/undo"
-              hx-vals='{{ {"reference": r.reference} | tojson }}'
+              hx-vals='js:{reference: {{ r.reference | tojson }}, revision: document.getElementById("node-revision").value}'
               hx-target="#bom" hx-swap="innerHTML">
         <svg class="ico"><use href="#icon-undo"></use></svg>
       </button>

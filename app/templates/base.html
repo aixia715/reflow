@@ -91,6 +91,13 @@
     if (m) e.detail.headers['X-CSRF-Token'] = decodeURIComponent(m[1]);
   });
   document.body.addEventListener('showToast', e => showToast(e.detail.value));
+  document.body.addEventListener('revisionBumped', function (e) {
+    var rev = e.detail && (e.detail.revision != null ? e.detail.revision : e.detail.value);
+    if (rev == null) return;
+    var holder = document.getElementById('node-revision');
+    if (holder) holder.value = rev;
+    document.querySelectorAll('.js-node-revision').forEach(function (el) { el.value = rev; });
+  });
   document.querySelectorAll('#toast-zone .toast')
     .forEach(t => setTimeout(() => t.remove(), 3500));
   function renderLocalDates(root){
