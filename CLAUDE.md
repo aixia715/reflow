@@ -69,8 +69,7 @@ pytest                        # 全部测试
 ## 文档
 
 - 前端风格指南：`docs/前端风格指南.md`（改前端必读）
-- 设计 spec：`docs/superpowers/specs/2026-06-09-reflow-bom-tool-design.md`（另有 HTML 版）
-- 实现计划：`docs/superpowers/plans/2026-06-09-reflow-bom-tool.md`
+- 历史设计文档在 `docs/superpowers/`，仅供参考。
 
 ## MVP 边界（暂不做）
 

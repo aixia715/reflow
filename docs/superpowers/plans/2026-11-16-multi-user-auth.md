@@ -1,7 +1,5 @@
 # 多用户登录与按单板授权 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 给 Reflow 加上不开放注册的多用户登录，并按单板授予所有者 / 可编辑 / 只读三种角色。现有单板和现有 BOM 版本在第一个系统管理员诞生时归他所有。初始 BOM 只在 BOM 版本页修正，单板页的根节点只读。
 
 **Architecture:** 标准库 scrypt 存密码，随机令牌放 cookie、sha256 进 `sessions` 表。自写中间件负责「是否登录」和 CSRF；`app/authz.py` 的守卫表负责「这块板你是什么角色」，表里没有的路由直接 500。折叠引擎不感知权限。传播算法不改判定，只多传 `actor_user_id` 和乐观锁的 revision。共享的 `initial_bom` 不拆表。
