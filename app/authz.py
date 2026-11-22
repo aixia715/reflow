@@ -1,7 +1,7 @@
 """会话中间件、CSRF，以及失败关闭的路由守卫表。
 
-阶段 1 的业务路由全部登记为 login：登录即可，还不检查单板角色。
 表里没有、也不在白名单的路由直接 500，避免新路由忘了登记却默默放行。
+viewer / editor / owner 按单板角色检查；custom 只保证已登录，细规则在处理函数里。
 """
 
 import json
@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
-from app.auth import cookie_secure, session_days, tokens_equal
+from app.auth import cookie_secure, role_at_least, session_days, tokens_equal
 
 SESSION_COOKIE = "reflow_session"
 CSRF_COOKIE = "reflow_csrf"
@@ -26,61 +26,81 @@ WHITELIST = frozenset({
 })
 
 # 与 create_app() 的路由一一对应（白名单除外，/static 挂载除外）。
-# /uploads 仍是 StaticFiles 挂载，阶段 1 要求登录后才能取，所以登记为 login。
+# /uploads 不再挂成静态目录，下载一律走带成员检查的路由。
 _LOGIN = "login"
+_VIEWER = "viewer"
+_EDITOR = "editor"
+_OWNER = "owner"
+_CUSTOM = "custom"
 GUARD: dict[tuple[str, str], str] = {
     ("GET", "/"): _LOGIN,
     ("GET", "/board/new"): _LOGIN,
     ("POST", "/board/new/preview"): _LOGIN,
     ("POST", "/board/new"): _LOGIN,
-    ("DELETE", "/board/{board_id}"): _LOGIN,
-    ("DELETE", "/bom-version"): _LOGIN,
-    ("DELETE", "/board-group"): _LOGIN,
-    ("POST", "/board-group/rename"): _LOGIN,
-    ("POST", "/pcb-version/rename"): _LOGIN,
-    ("POST", "/bom-version/rename"): _LOGIN,
-    ("POST", "/board/{board_id}/rename"): _LOGIN,
-    ("GET", "/board/{board_id}"): _LOGIN,
-    ("GET", "/board/{board_id}/node/{node_id}"): _LOGIN,
-    ("GET", "/board/{board_id}/node/{node_id}/download"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/edit-info"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/lint-changes"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/edit"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/undo"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/undo-all"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/delete"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/delete-confirm"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/resolve"): _LOGIN,
-    ("POST", "/board/{board_id}/workspace/edit"): _LOGIN,
-    ("GET", "/board/{board_id}/node/{node_id}/import/template"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/import/preview"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/import"): _LOGIN,
-    ("GET", "/board/{board_id}/node/{parent_id}/insert"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{parent_id}/insert/import/preview"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{parent_id}/insert/check"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{parent_id}/insert"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/copy-to-draft"): _LOGIN,
-    ("POST", "/board/{board_id}/commit"): _LOGIN,
-    ("GET", "/board/{board_id}/compare"): _LOGIN,
-    ("GET", "/board/{board_id}/compare/download"): _LOGIN,
-    ("GET", "/board/{board_id}/node/{node_id}/attachments"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/attachments"): _LOGIN,
-    ("GET", "/board/{board_id}/node/{node_id}/attachments/{aid}/download"): _LOGIN,
-    ("POST", "/board/{board_id}/node/{node_id}/attachments/{aid}/delete"): _LOGIN,
-    ("GET", "/board/{board_id}/log"): _LOGIN,
-    ("GET", "/board/{board_id}/hard-change/new"): _LOGIN,
-    ("POST", "/board/{board_id}/hard-change"): _LOGIN,
-    ("GET", "/board/{board_id}/hard-change/{hc_id}"): _LOGIN,
-    ("GET", "/board/{board_id}/hard-change/{hc_id}/edit"): _LOGIN,
-    ("POST", "/board/{board_id}/hard-change/{hc_id}/edit"): _LOGIN,
-    ("POST", "/board/{board_id}/hard-change/{hc_id}/delete"): _LOGIN,
-    ("GET", "/hash/{value}"): _LOGIN,
-    ("GET", "/hash-lookup"): _LOGIN,
+    ("DELETE", "/board/{board_id}"): _OWNER,
+    ("DELETE", "/bom-version"): _CUSTOM,
+    ("DELETE", "/board-group"): _CUSTOM,
+    ("POST", "/board-group/rename"): _CUSTOM,
+    ("POST", "/pcb-version/rename"): _CUSTOM,
+    ("POST", "/bom-version/rename"): _CUSTOM,
+    ("POST", "/board/{board_id}/rename"): _OWNER,
+    ("GET", "/board/{board_id}"): _VIEWER,
+    ("GET", "/board/{board_id}/node/{node_id}"): _VIEWER,
+    ("GET", "/board/{board_id}/node/{node_id}/download"): _VIEWER,
+    ("POST", "/board/{board_id}/node/{node_id}/edit-info"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/lint-changes"): _VIEWER,
+    ("POST", "/board/{board_id}/node/{node_id}/edit"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/undo"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/undo-all"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/delete"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/delete-confirm"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/resolve"): _EDITOR,
+    ("POST", "/board/{board_id}/workspace/edit"): _EDITOR,
+    ("GET", "/board/{board_id}/node/{node_id}/import/template"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/import/preview"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/import"): _EDITOR,
+    ("GET", "/board/{board_id}/node/{parent_id}/insert"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{parent_id}/insert/import/preview"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{parent_id}/insert/check"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{parent_id}/insert"): _EDITOR,
+    ("POST", "/board/{board_id}/node/{node_id}/copy-to-draft"): _EDITOR,
+    ("POST", "/board/{board_id}/commit"): _EDITOR,
+    ("GET", "/board/{board_id}/compare"): _VIEWER,
+    ("GET", "/board/{board_id}/compare/download"): _VIEWER,
+    ("GET", "/board/{board_id}/node/{node_id}/attachments"): _VIEWER,
+    ("POST", "/board/{board_id}/node/{node_id}/attachments"): _EDITOR,
+    ("GET", "/board/{board_id}/node/{node_id}/attachments/{aid}/download"): _VIEWER,
+    ("POST", "/board/{board_id}/node/{node_id}/attachments/{aid}/delete"): _EDITOR,
+    ("GET", "/board/{board_id}/log"): _VIEWER,
+    ("GET", "/board/{board_id}/hard-change/new"): _EDITOR,
+    ("POST", "/board/{board_id}/hard-change"): _EDITOR,
+    ("GET", "/board/{board_id}/hard-change/{hc_id}"): _VIEWER,
+    ("GET", "/board/{board_id}/hard-change/{hc_id}/edit"): _EDITOR,
+    ("POST", "/board/{board_id}/hard-change/{hc_id}/edit"): _EDITOR,
+    ("POST", "/board/{board_id}/hard-change/{hc_id}/delete"): _EDITOR,
+    ("GET", "/board/{board_id}/hard-change/{hc_id}/images/{image_id}"): _VIEWER,
+    ("GET", "/board/{board_id}/members"): _OWNER,
+    ("POST", "/board/{board_id}/members"): _OWNER,
+    ("POST", "/board/{board_id}/members/{user_id}"): _OWNER,
+    ("POST", "/board/{board_id}/members/{user_id}/remove"): _OWNER,
+    ("POST", "/board/{board_id}/transfer"): _OWNER,
+    ("GET", "/hash/{value}"): _CUSTOM,
+    ("GET", "/hash-lookup"): _CUSTOM,
     ("POST", "/logout"): _LOGIN,
     ("GET", "/account/password"): _LOGIN,
     ("POST", "/account/password"): _LOGIN,
-    ("GET", "/uploads"): _LOGIN,
 }
+
+# 角色不够时，局部写操作的 toast。跨范围重命名/删除用另一句，不走这里。
+_DENIED_TOAST = "没有权限做这个操作"
+_SCOPE_DENIED = "这个范围内还有不属于你的单板，不能整体重命名或删除。"
+
+
+class AuthzDenied(Exception):
+    """让异常处理器原样返回已经组装好的响应（403 页或 HTMX toast）。"""
+
+    def __init__(self, response: Response):
+        self.response = response
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 _USER_FIELDS = ("id", "username", "is_admin", "disabled_at", "created_at")
@@ -161,23 +181,88 @@ async def csrf_ok(request: Request, cookie_token: str) -> bool:
     return tokens_equal(cookie_token, supplied)
 
 
-def require_registered(request: Request) -> None:
-    """路由匹配之后跑。没登记的路由 500，而不是默默当成已登录放行。"""
+def _partial_write(request: Request) -> bool:
+    """局部写操作被拒绝时用 toast，避免 htmx 把 403 页换进表格。"""
+    return _is_htmx(request) and request.method.upper() not in _SAFE_METHODS
+
+
+def _toast(message: str) -> Response:
+    resp = Response(status_code=200, content=b"")
+    resp.headers["HX-Reswap"] = "none"
+    resp.headers["HX-Trigger"] = json.dumps({"showToast": message})
+    return resp
+
+
+def forbidden_response(request: Request, *, owner_username: str | None,
+                       member: bool = False) -> Response:
+    """不是成员，或角色不够的整页请求。局部写操作改走 toast。"""
+    if _partial_write(request):
+        return _toast(_DENIED_TOAST)
+    from app.main import templates
+    return templates.TemplateResponse(
+        request, "forbidden.html",
+        {"owner_username": owner_username, "member": member},
+        status_code=403,
+    )
+
+
+def scope_denied_response(request: Request) -> Response:
+    """跨范围改名/删除时，范围内还有不属于自己的板。正文不列那些板的 ID。"""
+    if _is_htmx(request):
+        return _toast(_SCOPE_DENIED)
+    return PlainTextResponse(_SCOPE_DENIED, status_code=403)
+
+
+def enforce(request: Request, conn) -> Response | None:
+    """返回 None 表示通过。否则是要直接交出去的响应。
+
+    单板角色先看单板在不在（404），再看成员与角色。没有 board_id 的路由
+    不能登记成 viewer / editor / owner。
+    """
+    from app import models
+
     route = request.scope.get("route")
     path = getattr(route, "path", None)
     if path is None:
-        return
+        return None
     key = (_method(request), path)
     if key in WHITELIST:
-        return
+        return None
     level = GUARD.get(key)
     if level is None:
         raise HTTPException(status_code=500, detail="路由未登记权限")
-    if level == "login":
-        if request.state.user is None:
-            raise HTTPException(status_code=401, detail="未登录")
-        return
-    raise HTTPException(status_code=500, detail="路由未登记权限")
+    user = request.state.user
+    if user is None:
+        return unauthenticated_response(request)
+    if level in (_LOGIN, _CUSTOM):
+        return None
+    if level == "admin":
+        if not user["is_admin"]:
+            return forbidden_response(request, owner_username=None)
+        return None
+    board_id = request.path_params.get("board_id")
+    if board_id is None or level not in ("viewer", "editor", "owner"):
+        raise HTTPException(status_code=500, detail="路由未登记权限")
+    board_id = int(board_id)
+    if models.get_board(conn, board_id) is None:
+        raise HTTPException(status_code=404, detail="单板不存在")
+    role = models.load_membership(conn, user["id"], board_id)
+    if not role_at_least(role, level):
+        return forbidden_response(
+            request,
+            owner_username=models.board_owner_username(conn, board_id),
+            member=role is not None,
+        )
+    request.state.board_role = role
+    return None
+
+
+def require_registered(request: Request) -> None:
+    """路由匹配之后跑。没登记的路由 500，而不是默默放行。"""
+    from app.main import get_conn
+    response = enforce(request, get_conn())
+    if response is not None:
+        raise AuthzDenied(response)
 
 
 class SessionAuthMiddleware(BaseHTTPMiddleware):

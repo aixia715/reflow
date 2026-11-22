@@ -82,6 +82,8 @@ main{max-width:1100px;margin:0 auto;padding:20px 24px}
 .icon-btn:focus-visible{outline:2px solid var(--accent-soft);outline-offset:1px}
 .row-icons{display:inline-flex;gap:4px;align-items:center}
 
+.inline-form{display:inline-flex;gap:6px;align-items:center;justify-content:flex-end}
+.inline-form .input{width:auto}
 .input{border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;
   font-size:13px;font-family:inherit;width:100%;
   background:var(--surface);color:var(--fg)}

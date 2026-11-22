@@ -65,7 +65,7 @@
   <div class="hc-gallery">
     {% for im in images %}
     <label class="hc-thumb">
-      <img src="/uploads/{{ im.filename }}" alt="{{ im.original_name }}">
+      <img src="/board/{{ board_id }}/hard-change/{{ hc.id }}/images/{{ im.id }}" alt="{{ im.original_name }}">
       <span><input type="checkbox" name="delete_image_ids" value="{{ im.id }}"> 删除</span>
     </label>
     {% endfor %}

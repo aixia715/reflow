@@ -154,29 +154,37 @@ def test_edit_response_carries_warning_and_does_not_retrigger(client):
     assert 'hx-trigger="load"' not in r.text
 
 
-def test_root_edit_shows_orphan_warning(client):
-    """根节点的改动写 initial_bom 不进 node_changes，面板恒空、没有行可挂 ⚠——
-    靠表单下方的一次性提示兜底，否则这条反馈会完全消失（见修复报告第 1 项）。"""
+def _initial(board_name="B", bom="bomA"):
+    from app import models
+    from app.main import get_conn
+    return dict(models.get_initial_bom(get_conn(), board_name, "v1", bom))
+
+
+def test_root_edit_is_rejected(client):
+    """单板页不能改根节点，initial_bom 逐行不变。"""
     board_id = _setup_board(client)
     root = _root_node_id(client, board_id)
+    before = _initial()
     r = client.post(f"/board/{board_id}/node/{root}/edit",
                     data={"reference": "R1", "op": "modify", "part": "230R"})
-    assert r.status_code == 200
-    assert "不是标准" in r.text
+    assert r.status_code == 403
+    assert "根节点不能在单板页修改" in r.text
+    assert _initial() == before
 
 
-def test_root_edit_standard_value_has_no_warning(client):
-    """负对照：标准值不应触发兜底警告。"""
+def test_root_edit_standard_value_still_rejected(client):
+    """标准值同样不能从单板页写进初始 BOM。"""
     board_id = _setup_board(client)
     root = _root_node_id(client, board_id)
+    before = _initial()
     r = client.post(f"/board/{board_id}/node/{root}/edit",
                     data={"reference": "R1", "op": "modify", "part": "10k"})
-    assert r.status_code == 200
-    assert "不是标准" not in r.text
+    assert r.status_code == 403
+    assert _initial() == before
 
 
 def test_root_edit_shows_orphan_fix(client):
-    """根节点提交会被归一的写法（1000pF → 1nF），兜底位也要带上 ⓘ 文案。"""
+    """会被归一的写法也不能从单板页改初始 BOM。"""
     r0 = client.post("/board/new",
                       data={"board_name": "RootFix", "pcb_version": "v1",
                             "bom_version": "bomA", "board_uid": "9"},
@@ -185,10 +193,11 @@ def test_root_edit_shows_orphan_fix(client):
                       follow_redirects=False)
     board_id = r0.headers["location"].split("?")[0].rsplit("/", 1)[-1]
     root = _root_node_id(client, board_id)
+    before = _initial("RootFix")
     r = client.post(f"/board/{board_id}/node/{root}/edit",
                     data={"reference": "C1", "op": "modify", "part": "1000pF"})
-    assert r.status_code == 200
-    assert "1000pF → 1nF" in r.text
+    assert r.status_code == 403
+    assert _initial("RootFix") == before
 
 
 def test_workspace_edit_does_not_duplicate_orphan_warning(client):
@@ -206,8 +215,8 @@ def test_validation_failure_clears_lint_flash(client):
     成功编辑留下的一次性提示（不带位号标签）会残留在表单下方，容易被误读成与
     这次失败的提交相关。"""
     board_id = _setup_board(client)
-    root = _root_node_id(client, board_id)
-    r = client.post(f"/board/{board_id}/node/{root}/edit",
+    ws = _workspace_id(client, board_id)
+    r = client.post(f"/board/{board_id}/node/{ws}/edit",
                     data={"reference": "R99", "op": "modify", "part": "10k"})
     assert r.status_code == 200
     assert r.headers.get("HX-Retarget") == "#form-error"

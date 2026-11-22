@@ -1,8 +1,10 @@
-"""硬更改路由：新建、详情、编辑、删除。"""
+"""硬更改路由：新建、详情、编辑、删除、附图下载。"""
+import mimetypes
+import os
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from app.main import templates, get_conn
 from app import models, hard_change, storage
@@ -136,6 +138,25 @@ async def hc_edit(request: Request, board_id: int, hc_id: int,
                               occurred_at.strip() or models._now())
     return RedirectResponse(
         f"/board/{board_id}/hard-change/{hc_id}?flash=✓ 已更新硬更改", status_code=303)
+
+
+@router.get("/board/{board_id}/hard-change/{hc_id}/images/{image_id}")
+def hc_image(board_id: int, hc_id: int, image_id: int):
+    """附图只经过成员检查后才从磁盘读出。图片必须属于这条硬更改。"""
+    conn = get_conn()
+    _require_board(conn, board_id)
+    _require_hc(conn, board_id, hc_id)
+    image = next(
+        (im for im in models.list_hard_change_images(conn, hc_id) if im["id"] == image_id),
+        None,
+    )
+    if image is None:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    full = os.path.join(storage.upload_dir(), image["filename"])
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="图片文件缺失")
+    media = mimetypes.guess_type(image["filename"])[0] or "application/octet-stream"
+    return FileResponse(full, media_type=media)
 
 
 @router.post("/board/{board_id}/hard-change/{hc_id}/delete")

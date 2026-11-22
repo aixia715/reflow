@@ -26,13 +26,6 @@ def _goto_workspace_node(page: Page, base: str, bid: str):
     page.wait_for_load_state("networkidle")
 
 
-def _goto_committed_root_node(page: Page, base: str, bid: str):
-    """从状态图点击「初始状态」卡片进入已提交的根节点详情页。"""
-    page.goto(f"{base}/board/{bid}")
-    page.locator("a.tl-card", has_text="初始状态").click()
-    page.wait_for_load_state("networkidle")
-
-
 def test_filter_enter_uses_first_result_ref(live_server, page: Page):
     """筛选框输入部分字符串按回车，修改区应填入筛选结果第一行的位号与 Part，
     而不是用户键入的原始字符串。"""
@@ -75,10 +68,17 @@ def test_filter_enter_no_match_keeps_typed(live_server, page: Page):
 def test_filter_enter_on_committed_node_opens_edit(live_server, page: Page):
     """已提交历史节点的修改区折叠在 <details>「修订」中。在筛选框按回车
     后，应自动展开该 <details>，并把筛选结果第一项的位号/Part 填入修改区，
-    让光标真正「跳到右边的修改区」（issue #65 中「节点状态界面」的场景）。"""
+    让光标真正「跳到右边的修改区」（issue #65 中「节点状态界面」的场景）。
+    根节点没有修订表单，这里用提交出来的非根节点。"""
     bid = _api_create_board(live_server, name="CommittedNode", uid="CN1",
                             bom="bomC")
-    _goto_committed_root_node(page, live_server, bid)
+    with auth_httpx(live_server, follow_redirects=False) as client:
+        client.post(f"/board/{bid}/workspace/edit",
+                    data={"reference": "C9", "op": "add", "part": "100nF"})
+        client.post(f"/board/{bid}/commit", data={"message": "加 C9"})
+    page.goto(f"{live_server}/board/{bid}")
+    page.locator("a.tl-card", has_text="加 C9").click()
+    page.wait_for_load_state("networkidle")
 
     filter_input = page.locator("input[placeholder='筛选位号 / Part…']")
     details = page.locator("details.panel", has_text="修订")

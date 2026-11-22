@@ -91,8 +91,21 @@ def test_board_delete_confirm_removes_board(live_server, page: Page):
     _click_accept_and_check(page, del_btn, "DB002", live_server)
 
 
+def _confirm_scope_delete(page: Page, btn, typed: str, gone_text: str, base: str):
+    """跨范围删除先出清单，键入当前名称后才真正删除。"""
+    btn.click()
+    modal = page.locator("#modal")
+    expect(modal.locator(".modal")).to_be_visible()
+    modal.locator("input[name=confirm_name]").fill(typed)
+    modal.get_by_role("button", name="确认删除").click()
+    page.wait_for_load_state("networkidle")
+    page.goto(base + "/")
+    page.wait_for_load_state("networkidle")
+    assert gone_text not in page.content(), f"删除后 {gone_text!r} 仍出现在页面"
+
+
 def test_bom_version_delete_confirm(live_server, page: Page):
-    """点 BOM 版本 ⋯ → 删除 BOM 版本 → accept → 版本及其单板消失。"""
+    """点 BOM 版本 ⋯ → 删除 BOM 版本 → 在清单里键入版本名 → 版本及其单板消失。"""
     _api_create_board(live_server, "BomDelBoard", "v1", "bomDel2", "BD002")
     page.goto(live_server)
 
@@ -101,11 +114,11 @@ def test_bom_version_delete_confirm(live_server, page: Page):
     version_head.locator(".menu-btn").click()
     del_btn = version_head.locator("button.del")
 
-    _click_accept_and_check(page, del_btn, "BomDelBoard", live_server)
+    _confirm_scope_delete(page, del_btn, "bomDel2", "BomDelBoard", live_server)
 
 
 def test_board_group_delete_confirm(live_server, page: Page):
-    """点组 ⋯ → 删除整组 → accept → 整组消失。"""
+    """点组 ⋯ → 删除整组 → 在清单里键入组名 → 整组消失。"""
     _api_create_board(live_server, "GroupDelBoard", "v1", "bomG", "GD002")
     page.goto(live_server)
 
@@ -114,4 +127,4 @@ def test_board_group_delete_confirm(live_server, page: Page):
     group.locator(".menu-btn").click()
     del_btn = group.locator("button.del")
 
-    _click_accept_and_check(page, del_btn, "GroupDelBoard", live_server)
+    _confirm_scope_delete(page, del_btn, "GroupDelBoard", "GroupDelBoard", live_server)

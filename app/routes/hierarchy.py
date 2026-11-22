@@ -1,7 +1,8 @@
 import json
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException, Query
-from fastapi.responses import RedirectResponse, Response
+from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 
 from app.main import templates, get_conn
 from app import models, storage
@@ -11,26 +12,47 @@ from app.validation import validate_new_name
 router = APIRouter()
 
 
+def _board_card(conn, row) -> dict:
+    ws = models.workspace_node(conn, row["id"])
+    return {
+        "id": row["id"], "board_uid": row["board_uid"],
+        "role": row["role"],
+        "node_count": len(models.list_nodes(conn, row["id"])),
+        "pending": len(models.get_changeset(conn, ws["id"])) if ws else 0,
+    }
+
+
 @router.get("/")
 def home(request: Request):
     conn = get_conn()
+    user_id = request.state.user["id"]
     groups: dict[str, list[dict]] = {}
-    for v in models.list_bom_versions(conn):
-        boards = []
-        for b in models.list_boards(conn, v["board_name"], v["pcb_version"], v["bom_version"]):
-            ws = models.workspace_node(conn, b["id"])
-            boards.append({
-                "id": b["id"], "board_uid": b["board_uid"],
-                "node_count": len(models.list_nodes(conn, b["id"])),
-                "pending": len(models.get_changeset(conn, ws["id"])) if ws else 0,
+    seen: set[tuple] = set()
+    for row in models.list_visible_boards(conn, user_id):
+        key = (row["board_name"], row["pcb_version"], row["bom_version"])
+        if key not in seen:
+            seen.add(key)
+            groups.setdefault(row["board_name"], []).append({
+                "pcb_version": row["pcb_version"],
+                "bom_version": row["bom_version"],
+                "ref_count": len(models.get_initial_bom(
+                    conn, row["board_name"], row["pcb_version"], row["bom_version"])),
+                "owns_pcb": models.user_owns_all(
+                    conn, user_id, board_name=row["board_name"],
+                    pcb_version=row["pcb_version"]),
+                "owns_bom": models.user_owns_all(
+                    conn, user_id, board_name=row["board_name"],
+                    pcb_version=row["pcb_version"], bom_version=row["bom_version"]),
+                "boards": [],
             })
-        ref_count = len(models.get_initial_bom(
-            conn, v["board_name"], v["pcb_version"], v["bom_version"]))
-        groups.setdefault(v["board_name"], []).append({
-            "pcb_version": v["pcb_version"], "bom_version": v["bom_version"],
-            "ref_count": ref_count, "boards": boards,
-        })
-    return templates.TemplateResponse(request, "home.html", {"groups": groups})
+        groups[row["board_name"]][-1]["boards"].append(_board_card(conn, row))
+    group_owns = {
+        name: models.user_owns_all(conn, user_id, board_name=name)
+        for name in groups
+    }
+    return templates.TemplateResponse(request, "home.html", {
+        "groups": groups, "group_owns": group_owns,
+    })
 
 
 def _strip(*vals: str) -> list[str]:
@@ -50,10 +72,15 @@ async def _read_csv(file: UploadFile):
         return [], [], [], str(e)
 
 
+def _version_choices(conn, request):
+    user_id = request.state.user["id"]
+    return models.list_version_choices(conn, user_id)
+
+
 @router.get("/board/new")
 def board_new(request: Request):
     conn = get_conn()
-    versions = models.list_bom_versions(conn)
+    versions = _version_choices(conn, request)
     return templates.TemplateResponse(request, "board_new.html", {
         "names": sorted({v["board_name"] for v in versions}),
         "pcbs": sorted({v["pcb_version"] for v in versions}),
@@ -73,8 +100,14 @@ async def board_new_preview(
                  "ref_count": 0, "message": ""}
     if board_name and pcb_version and bom_version:
         existing = models.get_initial_bom(conn, board_name, pcb_version, bom_version)
-        if existing:
-            ctx.update(status="exists", ready=True, ref_count=len(existing))
+        version = models.get_bom_version_row(conn, board_name, pcb_version, bom_version)
+        if existing or version:
+            owner_id = version["owner_user_id"] if version else None
+            if owner_id != request.state.user["id"]:
+                ctx.update(status="owned_by_other", ready=False,
+                           ref_count=len(existing))
+            else:
+                ctx.update(status="exists", ready=True, ref_count=len(existing))
         elif file is None or not file.filename:
             ctx["status"] = "need_csv"
         else:
@@ -99,7 +132,15 @@ async def board_create(
         board_name, pcb_version, bom_version, board_uid)
     if not board_uid:
         raise HTTPException(status_code=400, detail="单板 ID 不能为空")
-    if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
+    user_id = request.state.user["id"]
+    version = models.get_bom_version_row(conn, board_name, pcb_version, bom_version)
+    has_initial = bool(models.get_initial_bom(conn, board_name, pcb_version, bom_version))
+    if version or has_initial:
+        owner_id = version["owner_user_id"] if version else None
+        if owner_id != user_id:
+            return PlainTextResponse(
+                "这个 BOM 版本已存在，只有负责人能在其下新建单板。", status_code=403)
+    else:
         if file is None or not file.filename:
             raise HTTPException(status_code=400, detail="新 BOM 版本必须上传初始 BOM CSV")
         entries, problems, _lint_notes, err = await _read_csv(file)
@@ -107,14 +148,16 @@ async def board_create(
             raise HTTPException(status_code=400, detail=err)
         if problems:
             raise HTTPException(status_code=400, detail="CSV 存在校验问题，无法创建")
-        models.create_bom_version(conn, board_name, pcb_version, bom_version, entries)
+        models.create_bom_version(
+            conn, board_name, pcb_version, bom_version, entries,
+            owner_user_id=user_id,
+        )
     if models.board_uid_exists(conn, board_name, pcb_version, bom_version, board_uid):
         raise HTTPException(status_code=400,
                             detail=f"单板 ID “{board_uid}” 在该 BOM 版本下已存在")
-    owner_id = request.state.user["id"] if request.state.user else None
     board_id = models.create_board(
         conn, board_name, pcb_version, bom_version, board_uid,
-        owner_user_id=owner_id,
+        owner_user_id=user_id,
     )
     return RedirectResponse(f"/board/{board_id}?flash=✓ 已创建 板 {board_uid}",
                             status_code=303)
@@ -137,16 +180,68 @@ def board_delete(board_id: int):
     return _hx_redirect("/")
 
 
+async def _merged_params(request: Request) -> dict:
+    """查询串和表单都认。htmx 的 DELETE 把字段放在正文里。"""
+    data = {k: v for k, v in request.query_params.items()}
+    ctype = request.headers.get("content-type", "")
+    if "form" in ctype or "multipart" in ctype:
+        form = await request.form()
+        for key, value in form.multi_items():
+            data[key] = str(value)
+    return data
+
+
+def _impact(request: Request, boards, *, kind: str, action: str, method: str,
+            fields: list[tuple[str, str]], confirm_label: str = ""):
+    return templates.TemplateResponse(
+        request, "_scope_impact.html",
+        {"boards": boards, "kind": kind, "action": action, "method": method,
+         "fields": fields, "confirm_label": confirm_label},
+        headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"},
+    )
+
+
+def _scope_or_deny(request, conn, user_id, **scope):
+    """范围内有板但并非每块都是 owner 时，返回拒绝响应。没有板时返回 None。"""
+    boards = models.boards_in_scope(conn, **scope)
+    if not boards:
+        return None, []
+    if not models.user_owns_all(conn, user_id, **scope):
+        from app.authz import scope_denied_response
+        return scope_denied_response(request), boards
+    return None, boards
+
+
 @router.delete("/bom-version")
-def bom_version_delete(
-    board_name: str = Query(...),
-    pcb_version: str = Query(...),
-    bom_version: str = Query(...),
-):
+async def bom_version_delete(request: Request):
     conn = get_conn()
+    data = await _merged_params(request)
+    board_name = (data.get("board_name") or "").strip()
+    pcb_version = (data.get("pcb_version") or "").strip()
+    bom_version = (data.get("bom_version") or "").strip()
+    confirm_name = (data.get("confirm_name") or "").strip()
     if not models.get_initial_bom(conn, board_name, pcb_version, bom_version):
         raise HTTPException(status_code=404, detail="BOM 版本不存在")
-    board_ids = [b["id"] for b in models.list_boards(conn, board_name, pcb_version, bom_version)]
+    user_id = request.state.user["id"]
+    denied, boards = _scope_or_deny(
+        request, conn, user_id, board_name=board_name,
+        pcb_version=pcb_version, bom_version=bom_version)
+    if denied is not None:
+        return denied
+    if confirm_name != bom_version:
+        if confirm_name:
+            return PlainTextResponse("确认名称不一致", status_code=400)
+        return _impact(
+            request, boards, kind="delete", method="delete",
+            action="/bom-version?" + urlencode({
+                "board_name": board_name, "pcb_version": pcb_version,
+                "bom_version": bom_version,
+            }),
+            fields=[("board_name", board_name), ("pcb_version", pcb_version),
+                    ("bom_version", bom_version)],
+            confirm_label=bom_version,
+        )
+    board_ids = [b["id"] for b in boards]
     att_paths = [p for bid in board_ids for p in models.board_attachment_paths(conn, bid)]
     storage.delete_images(models.delete_bom_version(conn, board_name, pcb_version, bom_version))
     storage.delete_files(att_paths)
@@ -154,8 +249,29 @@ def bom_version_delete(
 
 
 @router.delete("/board-group")
-def board_group_delete(board_name: str = Query(...)):
+async def board_group_delete(request: Request):
     conn = get_conn()
+    data = await _merged_params(request)
+    board_name = (data.get("board_name") or "").strip()
+    confirm_name = (data.get("confirm_name") or "").strip()
+    user_id = request.state.user["id"]
+    denied, boards = _scope_or_deny(request, conn, user_id, board_name=board_name)
+    if denied is not None:
+        return denied
+    if not boards:
+        att_paths = models.board_attachment_paths_by_name(conn, board_name)
+        storage.delete_images(models.delete_board_name(conn, board_name))
+        storage.delete_files(att_paths)
+        return _hx_redirect("/")
+    if confirm_name != board_name:
+        if confirm_name:
+            return PlainTextResponse("确认名称不一致", status_code=400)
+        return _impact(
+            request, boards, kind="delete", method="delete",
+            action="/board-group?" + urlencode({"board_name": board_name}),
+            fields=[("board_name", board_name)],
+            confirm_label=board_name,
+        )
     att_paths = models.board_attachment_paths_by_name(conn, board_name)
     storage.delete_images(models.delete_board_name(conn, board_name))
     storage.delete_files(att_paths)
@@ -168,13 +284,30 @@ def _toast_error(msg: str) -> Response:
                     headers={"HX-Trigger": json.dumps({"showToast": msg})})
 
 
+def _confirmed(request: Request, data: dict) -> bool:
+    return (data.get("confirmed") or "") == "1"
+
+
 @router.post("/board-group/rename")
-def board_group_rename(board_name: str = Form(...), new_name: str = Form(...)):
+async def board_group_rename(request: Request):
     conn = get_conn()
-    new_name = new_name.strip()
-    err = validate_new_name(new_name)
+    data = await _merged_params(request)
+    board_name = (data.get("board_name") or "").strip()
+    new_name = (data.get("new_name") or "").strip()
+    err = validate_new_name(new_name) or models.board_name_rename_error(conn, board_name, new_name)
     if err:
         return _toast_error(err)
+    user_id = request.state.user["id"]
+    denied, boards = _scope_or_deny(request, conn, user_id, board_name=board_name)
+    if denied is not None:
+        return denied
+    if not boards:
+        return _toast_error("没有可重命名的单板")
+    if not _confirmed(request, data):
+        return _impact(
+            request, boards, kind="rename", method="post", action="/board-group/rename",
+            fields=[("board_name", board_name), ("new_name", new_name), ("confirmed", "1")],
+        )
     try:
         models.rename_board_name(conn, board_name, new_name)
     except ValueError as e:
@@ -183,13 +316,29 @@ def board_group_rename(board_name: str = Form(...), new_name: str = Form(...)):
 
 
 @router.post("/pcb-version/rename")
-def pcb_version_rename(board_name: str = Form(...), pcb_version: str = Form(...),
-                       new_name: str = Form(...)):
+async def pcb_version_rename(request: Request):
     conn = get_conn()
-    new_name = new_name.strip()
-    err = validate_new_name(new_name)
+    data = await _merged_params(request)
+    board_name = (data.get("board_name") or "").strip()
+    pcb_version = (data.get("pcb_version") or "").strip()
+    new_name = (data.get("new_name") or "").strip()
+    err = validate_new_name(new_name) or models.pcb_version_rename_error(
+        conn, board_name, pcb_version, new_name)
     if err:
         return _toast_error(err)
+    user_id = request.state.user["id"]
+    denied, boards = _scope_or_deny(
+        request, conn, user_id, board_name=board_name, pcb_version=pcb_version)
+    if denied is not None:
+        return denied
+    if not boards:
+        return _toast_error("没有可重命名的单板")
+    if not _confirmed(request, data):
+        return _impact(
+            request, boards, kind="rename", method="post", action="/pcb-version/rename",
+            fields=[("board_name", board_name), ("pcb_version", pcb_version),
+                    ("new_name", new_name), ("confirmed", "1")],
+        )
     try:
         models.rename_pcb_version(conn, board_name, pcb_version, new_name)
     except ValueError as e:
@@ -198,13 +347,32 @@ def pcb_version_rename(board_name: str = Form(...), pcb_version: str = Form(...)
 
 
 @router.post("/bom-version/rename")
-def bom_version_rename(board_name: str = Form(...), pcb_version: str = Form(...),
-                       bom_version: str = Form(...), new_name: str = Form(...)):
+async def bom_version_rename(request: Request):
     conn = get_conn()
-    new_name = new_name.strip()
-    err = validate_new_name(new_name)
+    data = await _merged_params(request)
+    board_name = (data.get("board_name") or "").strip()
+    pcb_version = (data.get("pcb_version") or "").strip()
+    bom_version = (data.get("bom_version") or "").strip()
+    new_name = (data.get("new_name") or "").strip()
+    err = validate_new_name(new_name) or models.bom_version_rename_error(
+        conn, board_name, pcb_version, bom_version, new_name)
     if err:
         return _toast_error(err)
+    user_id = request.state.user["id"]
+    denied, boards = _scope_or_deny(
+        request, conn, user_id, board_name=board_name,
+        pcb_version=pcb_version, bom_version=bom_version)
+    if denied is not None:
+        return denied
+    if not boards:
+        return _toast_error("没有可重命名的单板")
+    if not _confirmed(request, data):
+        return _impact(
+            request, boards, kind="rename", method="post", action="/bom-version/rename",
+            fields=[("board_name", board_name), ("pcb_version", pcb_version),
+                    ("bom_version", bom_version), ("new_name", new_name),
+                    ("confirmed", "1")],
+        )
     try:
         models.rename_bom_version(conn, board_name, pcb_version, bom_version, new_name)
     except ValueError as e:

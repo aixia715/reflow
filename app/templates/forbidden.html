@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}没有权限 — Reflow{% endblock %}
+{% block content %}
+<div class="empty">
+  <h1>没有访问权限</h1>
+  {% if owner_username %}
+  {% if member %}
+  <p>你没有权限做这个操作。请联系所有者「{{ owner_username }}」。</p>
+  {% else %}
+  <p>你没有这块单板的访问权限。请联系所有者「{{ owner_username }}」。</p>
+  {% endif %}
+  {% else %}
+  <p>请联系系统管理员。</p>
+  {% endif %}
+  <p><a href="/">← 回首页</a></p>
+</div>
+{% endblock %}

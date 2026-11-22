@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse, Response, FileResponse
 
 from app.main import templates, get_conn
-from app import models, propagation, audit, hard_change, attachments, storage
+from app import models, propagation, hard_change, attachments, storage
 from app.bom_engine import fold_bom, stage_change
 from app.bom_export import bom_to_csv, changes_to_csv, diff_to_csv
 from app.component_lint import lint_part, lint_warning_for
@@ -276,6 +276,9 @@ def edit_node(request: Request, board_id: int, node_id: int,
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
+    if node["parent_id"] is None:
+        # 初始 BOM 只在以后的 BOM 版本页修正。阶段 2 起单板页一律拒绝，避免改到共用清单。
+        return PlainTextResponse("根节点不能在单板页修改。", status_code=403)
     reference = reference.strip()
     part_val, fix_note = _lint_with_note(reference, op, part)
     err = _validate(conn, node_id, reference, op, part_val)
@@ -283,16 +286,8 @@ def edit_node(request: Request, board_id: int, node_id: int,
         return templates.TemplateResponse(
             request, "_form_error.html", {"message": err},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
-    if node["parent_id"] is None:
-        board = models.get_board(conn, board_id)
-        old_value = propagation._resolved_value(conn, node_id, reference)
-        models.update_initial_bom(conn, board["board_name"], board["pcb_version"],
-                                  board["bom_version"], reference, part_val)
-        audit.record_edit(conn, node_id, reference, old_value, part_val, op, "direct")
-        conflicts = propagation._detect_downstream_conflicts(conn, node, reference, part_val)
-    else:
-        conflicts = propagation.apply_node_edit(
-            conn, node_id, reference, op, part_val, drop_noop=True)
+    conflicts = propagation.apply_node_edit(
+        conn, node_id, reference, op, part_val, drop_noop=True)
 
     node = models.get_node(conn, node_id)
     ctx = _node_context(conn, board_id, node)
@@ -935,8 +930,11 @@ def compare_nodes(request: Request, board_id: int, left: int | None = None, righ
         raise HTTPException(status_code=404, detail="单板不存在")
     if left is None:
         raise HTTPException(status_code=404, detail="缺少对比节点参数")
-    # 可比较范围 = 同「单板名称 + PCB版本」下的兄弟单板（跨 BOM 版本）
-    siblings = models.list_sibling_boards(conn, board_id)
+    # 可比较范围 = 同「单板名称 + PCB版本」下、当前用户看得见的兄弟单板
+    siblings = [
+        s for s in models.list_sibling_boards(conn, board_id)
+        if s["id"] in models.visible_board_ids(conn, request.state.user["id"])
+    ]
     sibling_ids = {s["id"] for s in siblings}
     ln = _sibling_node(conn, sibling_ids, left)
     if right is None:
@@ -1004,13 +1002,16 @@ def _compare_download_filename(board, left_label: str, right_label: str) -> str:
 
 
 @router.get("/board/{board_id}/compare/download")
-def download_compare_diff(board_id: int, left: int, right: int):
+def download_compare_diff(request: Request, board_id: int, left: int, right: int):
     """下载对比页当前差异表的 CSV：只含有差异的行（新增/修改/不贴），不含相同行。"""
     conn = get_conn()
     board = models.get_board(conn, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="单板不存在")
-    siblings = models.list_sibling_boards(conn, board_id)
+    allowed = models.visible_board_ids(conn, request.state.user["id"])
+    siblings = [
+        s for s in models.list_sibling_boards(conn, board_id) if s["id"] in allowed
+    ]
     sibling_ids = {s["id"] for s in siblings}
     ln = _sibling_node(conn, sibling_ids, left)
     rn = _sibling_node(conn, sibling_ids, right)

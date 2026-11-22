@@ -6,9 +6,11 @@
 硬更改
 {% endblock %}
 {% block ctxlinks %}
+{% if can_edit %}
 <a class="btn btn-outline" href="/board/{{ board_id }}/hard-change/{{ hc.id }}/edit">编辑</a>
 <button class="btn-link danger" hx-post="/board/{{ board_id }}/hard-change/{{ hc.id }}/delete"
         hx-confirm="确认删除硬更改「{{ hc.title }}」？此操作将一并删除其所有附图，不可恢复。">删除</button>
+{% endif %}
 {% endblock %}
 {% block content %}
 <div class="page-head">
@@ -21,10 +23,10 @@
   {% if images %}
   <div class="hc-gallery" x-data="{ open: false, src: '', alt: '' }">
     {% for im in images %}
-    <a class="hc-photo" href="/uploads/{{ im.filename }}"
-       data-src="/uploads/{{ im.filename }}" data-alt="{{ im.original_name }}"
+    <a class="hc-photo" href="/board/{{ board_id }}/hard-change/{{ hc.id }}/images/{{ im.id }}"
+       data-src="/board/{{ board_id }}/hard-change/{{ hc.id }}/images/{{ im.id }}" data-alt="{{ im.original_name }}"
        @click.prevent="src = $el.dataset.src; alt = $el.dataset.alt; open = true">
-      <img src="/uploads/{{ im.filename }}" alt="{{ im.original_name }}" loading="lazy">
+      <img src="/board/{{ board_id }}/hard-change/{{ hc.id }}/images/{{ im.id }}" alt="{{ im.original_name }}" loading="lazy">
     </a>
     {% endfor %}
     <div class="lightbox" x-cloak x-show="open"

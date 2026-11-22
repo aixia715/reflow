@@ -1,0 +1,65 @@
+<div id="members-panel" class="panel">
+  <div class="panel-title">成员</div>
+  <div class="table-scroll">
+  <table class="bom">
+    <thead><tr><th>用户名</th><th>角色</th><th>加入时间</th><th></th></tr></thead>
+    <tbody>
+    {% for m in members %}
+    <tr>
+      <td>{{ m.username }}{% if m.disabled_at %} <span class="muted">（已停用）</span>{% endif %}</td>
+      <td>
+        {% if m.role == 'owner' %}
+        <span class="badge badge-green">所有者</span>
+        {% elif m.role == 'editor' %}
+        <span class="badge badge-blue">可编辑</span>
+        {% else %}
+        <span class="badge">只读</span>
+        {% endif %}
+      </td>
+      <td class="muted"><time class="local-dt" datetime="{{ m.created_at }}">{{ m.created_at }}</time></td>
+      <td class="row-actions">
+        {% if m.role == 'owner' %}
+        {% set candidates = members | rejectattr('role', 'equalto', 'owner') | rejectattr('disabled_at') | list %}
+        {% if candidates %}
+        <form class="inline-form" hx-post="/board/{{ board_id }}/transfer"
+              hx-swap="none"
+              hx-confirm="转让后你将变为可编辑，对方成为所有者">
+          <select class="input" name="user_id">
+            {% for c in candidates %}
+            <option value="{{ c.id }}">{{ c.username }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn" type="submit">转让</button>
+        </form>
+        {% endif %}
+        {% else %}
+        <form class="inline-form" hx-post="/board/{{ board_id }}/members/{{ m.id }}"
+              hx-target="#members-panel" hx-swap="outerHTML">
+          <select class="input" name="role">
+            <option value="editor" {% if m.role == 'editor' %}selected{% endif %}>可编辑</option>
+            <option value="viewer" {% if m.role == 'viewer' %}selected{% endif %}>只读</option>
+          </select>
+          <button class="btn" type="submit">更改</button>
+        </form>
+        <button type="button" class="btn-link danger"
+                hx-post="/board/{{ board_id }}/members/{{ m.id }}/remove"
+                hx-target="#members-panel" hx-swap="outerHTML"
+                hx-confirm="确认将「{{ m.username }}」移出这块单板？他将不能再打开该板。">移除</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <form class="edit-form" hx-post="/board/{{ board_id }}/members"
+        hx-target="#members-panel" hx-swap="outerHTML">
+    <div class="panel-title">添加成员</div>
+    <input class="input" name="username" placeholder="已有用户的登录名" autocomplete="off" required>
+    <select class="input" name="role">
+      <option value="editor">可编辑</option>
+      <option value="viewer">只读</option>
+    </select>
+    <button class="btn btn-primary" type="submit">添加</button>
+  </form>
+</div>

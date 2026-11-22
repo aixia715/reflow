@@ -8,17 +8,20 @@
            title="下载 {{ a.filename }}">{{ a.filename }}</a>
         <span class="muted">· <time class="local-dt" datetime="{{ a.created_at }}">{{ a.created_at }}</time></span>
       </span>
+      {% if can_edit %}
       <button type="button" class="icon-btn danger" title="删除附件" aria-label="删除附件"
               hx-post="/board/{{ board_id }}/node/{{ node.id }}/attachments/{{ a.id }}/delete"
               hx-target="#attachments" hx-swap="outerHTML"
               hx-confirm="确认删除附件「{{ a.filename }}」？该文件将从磁盘移除，不可恢复。">
         <svg class="ico"><use href="#icon-trash"></use></svg>
       </button>
+      {% endif %}
     </div>
     {% else %}
     <p class="muted">还没有附件</p>
     {% endfor %}
   </div>
+  {% if can_edit %}
   <form class="attach-form"
         hx-post="/board/{{ board_id }}/node/{{ node.id }}/attachments"
         hx-target="#attachments" hx-swap="outerHTML"
@@ -27,4 +30,5 @@
     <input class="input" type="file" name="files" multiple x-ref="fileInput">
     <button class="btn btn-outline" type="submit">上传附件</button>
   </form>
+  {% endif %}
 </div>
