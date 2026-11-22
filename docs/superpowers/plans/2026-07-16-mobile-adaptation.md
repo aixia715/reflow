@@ -1,7 +1,5 @@
 # 移动端适配 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 让 Reflow 在手机上「查看 + 轻量编辑」可用：header 不挤爆、节点详情页侧栏堆叠、触屏能看到并点到悬停按钮、宽表格横向滚动。
 
 **Architecture:** 纯 CSS 为主——在 `app/static/style.css` 末尾新增「移动端适配」分区，含两组独立规则：`@media (max-width:720px)` 管窄屏布局、`@media (hover:none)` 管触屏；全部是追加覆盖，不改桌面样式。另有两处小模板改动：四个 `table.bom` 外套新组件 `.table-scroll`，`node_detail.html` 回填表单后 `scrollIntoView`。

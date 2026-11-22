@@ -1,7 +1,5 @@
 # Reflow UI/UX 改版实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 按 `docs/superpowers/specs/2026-06-09-reflow-ui-ux-redesign-design.md` 整体升级 Reflow 所有页面的视觉与交互：修复表单残留、增加工作区撤销、统一新建流程、GitHub 工程风视觉，共解决 13 个交互问题。
 
 **Architecture:** 渐进增强——保留 Jinja2 + HTMX 服务端渲染三层架构，新增一个纯逻辑校验模块；CSS 全量重写为 Primer 风格；引入 Alpine.js（CDN）处理客户端小交互。传播/冲突核心算法 `propagation.py` 不动。
@@ -1760,10 +1758,6 @@ REFLOW_DB=/tmp/reflow-e2e.sqlite uvicorn app.main:app --port 8001
 git add CLAUDE.md
 git commit -m "docs: CLAUDE.md 更新路由职责与前端约定"
 ```
-
-- [ ] **Step 5: 分支收尾**
-
-使用 superpowers:finishing-a-development-branch 技能决定 merge / PR / 保留。
 
 ---
 

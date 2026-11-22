@@ -1,7 +1,5 @@
 # 元器件值 Lint 异步化 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把元器件值 lint 从「Part 输入框失焦」这条输入路径上摘掉，改为「本节点修改」面板行上的异步批量检查。
 
 **Architecture:** 删除 `/lint-part` 路由与输入框上的 blur 触发；新增 `/lint-changes` 批量端点，面板首次渲染只显示「检查中」占位、由 `hx-trigger="load"` 异步补上 ⚠；ⓘ（自动修正）因原值在归一后不留存，只能由执行写入的那次请求一次性报告。

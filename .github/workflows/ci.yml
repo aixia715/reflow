@@ -1,5 +1,6 @@
 name: ci
 
+# 不写 branches：指向 test 的开发 PR 和指向 master 的验收 PR 都会触发。
 on:
   pull_request:
     types: [opened, reopened, synchronize]

@@ -1,7 +1,5 @@
 # 节点对比功能 + 时间统一 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 在状态图上任选两个节点，对比其完整 BOM 差异并列出两节点之间发生的硬更改；同时把全站时间统一为「存 UTC、渲染浏览器本地」。
 
 **Architecture:** 新增纯逻辑模块 `app/compare.py`（`diff_boms` / `hard_changes_between`）；薄路由 `GET /board/{board_id}/compare`，复用 `models.get_chain` + `bom_engine.fold_bom` 折叠双方 BOM；新建 `compare.html` 模板与状态图「对比模式」勾选入口。时间统一：硬更改 `occurred_at` 写入时由前端转 UTC、展示层用 `.local-dt` JS 渲染本地、一次性迁移脚本把旧值按 `Asia/Singapore` 补成 UTC。

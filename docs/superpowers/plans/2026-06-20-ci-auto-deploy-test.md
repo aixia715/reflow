@@ -1,7 +1,5 @@
 # 合并后自动部署到测试服务器 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 每次代码合并到 master 后，CI 自动把最新 master 部署到测试服务器（测试通过才部署）。
 
 **Architecture:** 把现有 `ci.yml` 里的 `tests` + `docker-smoke` 抽到可复用 workflow `_checks.yml`（`workflow_call`）；`ci.yml`（PR）与新增的 `deploy.yml`（push master）都 `uses:` 它。`deploy.yml` 复用 SSH 推送模型（GitHub 云 runner `docker build` → `docker save | ssh docker load` → 远端替换容器），远端替换逻辑内联进 workflow，不改 `deploy.sh`。

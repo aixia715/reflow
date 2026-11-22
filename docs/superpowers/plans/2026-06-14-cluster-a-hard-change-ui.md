@@ -1,7 +1,5 @@
 # 集群 A：硬更改 UI（时间本地化 + 图片灯箱）实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 让硬更改「发生时间」默认值取浏览器本地时间（issue #14），并把详情页附图改为缩略图 + 同页灯箱查看（issue #11）。
 
 **Architecture:** 两项均为前端小改动，落在硬更改子系统。#14 把服务器端预填的时间改为客户端 Alpine `x-init` 用浏览器本地时间填充，服务器不再注入硬编码时间；#11 用已加载的 Alpine 在详情页做一个局部灯箱组件，遮罩层背景与现有 `.modal-overlay` 同风格，新增 `.lightbox` 系列类（中性 rgba 叠层，两套主题通用，无需新增主题色变量）。

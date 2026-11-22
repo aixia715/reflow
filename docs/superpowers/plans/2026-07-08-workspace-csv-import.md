@@ -1,7 +1,5 @@
 # 工作区从 CSV 导入修改项 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 在工作区草稿页上传一份 CSV（Reference / Part / 可选 OP 三列），预览校验通过后把其中每行批量写进草稿的 changeset。
 
 **Architecture:** 两层。纯逻辑层在 `app/csv_import.py` 新增 `parse_change_csv`（解析三列、拆分逗号合并位号、查 CSV 内重复）与 `plan_changes`（op 推断 + 逐条复用 `validation.validate_edit` 校验），二者零 Web/DB 依赖，是测试重点。路由层在 `app/routes/board.py` 加两个薄路由：`import/preview` 渲染预览片段并把解析结果序列化成隐藏 JSON，`import` 收 JSON 后**重新校验**、全对才逐条 `propagation.apply_node_edit`。

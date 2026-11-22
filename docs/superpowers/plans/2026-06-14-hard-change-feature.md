@@ -1,7 +1,5 @@
 # 硬更改（飞线/割线）功能 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 在每个单板ID 下记录「硬更改」（飞线/割线等位号以外的物理改动），含标题/时间/文字/多图，按时间混排进状态图时间线。
 
 **Architecture:** 沿用现有三层（纯逻辑 → 数据访问 → 薄路由）。硬更改独立两张表，不进 BOM 折叠引擎；图片存文件系统、DB 存路径；状态图渲染时把硬更改与 BOM 节点按时间合并展示。
