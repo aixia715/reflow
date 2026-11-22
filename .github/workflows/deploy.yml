@@ -87,10 +87,11 @@ jobs:
             docker stop "${CONTAINER_NAME}" 2>/dev/null || true
             docker rm   "${CONTAINER_NAME}" 2>/dev/null || true
 
+            # 只绑本机。公网网卡不监听，人通过 SSH 隧道访问。
             docker run -d \
               --name "${CONTAINER_NAME}" \
               --restart unless-stopped \
-              -p "${HOST_PORT}:8000" \
+              -p "127.0.0.1:${HOST_PORT}:8000" \
               -v "${DATA_VOLUME}:/data" \
               "${FULL_IMAGE}"
 
