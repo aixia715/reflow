@@ -8,7 +8,7 @@
 
 **Tech Stack:** FastAPI / Starlette 1.2.1、SQLite（WAL）、Jinja2 + HTMX + Alpine.js、pytest、Playwright。不新增运行时依赖。
 
-**设计来源：** `docs/superpowers/specs/2026-11-16-multi-user-auth-design.md`。文中的矩阵、文案、未决问题以该文档为准。未决问题没有改判之前，按该文档的建议实现，不要在代码里另选一套。
+**设计来源：** `docs/superpowers/specs/2026-11-16-multi-user-auth-design.md`（已定稿）。矩阵、文案和「已决定」一节就是实现依据。
 
 ## Global Constraints
 
@@ -39,7 +39,7 @@
 | 5 | `app/routes/bom_version.py`、`app/templates/bom_version.html`、`tests/test_bom_version.py` | 版本页单事务提交；根节点页的提示链接；`CLAUDE.md` 可放到本阶段末尾，此时「多用户不做」已经不成立 |
 | 6 | `tests/test_revision.py` | `nodes.revision` / `revised_by`；各写路径和冲突弹窗；`propagation.py` 的事务边界 |
 
-`CLAUDE.md` 放在阶段 5：版本页和审计列都已落地，写进去的约定不会马上过时。阶段 6 若改了冲突弹窗的交互，再补一句乐观锁。
+`CLAUDE.md` 放在阶段 5：版本页和审计列都已落地，写进去的约定不会马上过时。阶段 6 改完冲突弹窗后，再补一句乐观锁。
 
 `CLAUDE.md` 放到阶段 4 一起改：届时「多用户不做」这句已经不成立，守卫表和 HTMX 约定也稳定了。阶段 1 的 README 只写部署和「登录还不是授权」。
 
@@ -715,7 +715,7 @@ git commit -m "在 BOM 版本页统一修正初始清单"
 git commit -m "保存节点时用版本号拒绝后一次覆盖"
 ```
 
-阶段 6 可合并。到这里设计文档里已确认的方案和仍建议的未决项都有落点。
+阶段 6 可合并。到这里定稿方案全部落地。
 
 ---
 
@@ -734,4 +734,4 @@ git commit -m "保存节点时用版本号拒绝后一次覆盖"
 
 ## 不在本计划里的事
 
-设计文档「非目标」和「未决问题」。未决问题一旦改判，先改设计文档的矩阵和本计划里对应任务的断言，再写代码。不要两处各实现一套。
+设计文档「非目标」里的项。定稿之后不要在实现里另选一套角色、文案或事务边界。
