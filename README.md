@@ -32,6 +32,15 @@ uvicorn app.main:app --reload
 pytest
 ```
 
+## 分支与测试部署
+
+长期分支是 `test` 和 `master`。`test` 从 `master` 拉出。
+
+- 开发 PR 指向 `test`。`ci.yml` 不限 base 分支，指向 `test` 与指向 `master` 的 PR 都会跑 pytest 和 Docker 冒烟。CI 通过后把 PR 合并进 `test`。
+- push 到 `test` 自动部署测试服务器（`.github/workflows/deploy.yml`，工作流名 `deploy-test`）。Actions 里也可以对 `test` 手动触发同一条流水线。部署前先再跑一遍 `_checks.yml`，通过才替换容器；数据卷保留，不清库。
+- 在测试服务器上验收。通过后从 `test` 开 PR 合并到 `master`，这一批改动整批进入 `master`。合并 `master` 不部署，也不打 tag。
+- 发版仍是下面的手动 tag，`publish-image.yml` 不变。Secrets、数据卷和首次 `create-admin` 见 `docs/部署-测试环境-CI.md`。
+
 ## 发版（触发 GHCR 自动构建镜像）
 
 推 `v*.*.*` 格式的 git tag 会触发 `publish-image.yml`，构建并推送镜像到
@@ -39,7 +48,7 @@ pytest
 ——CI 里 `verify-tag-on-master` 这一步会用 `git merge-base --is-ancestor` 校验，
 tag 打在还没合并的分支/PR 上会直接报错终止，不会构建发布。
 
-正确顺序：先把改动合并到 `master`，再对 `master` 上的提交打 tag：
+正确顺序：验收后把 `test` 整批合并到 `master`，再对 `master` 上的提交打 tag。合并本身不会打 tag，也不会部署：
 
 ```bash
 git checkout master && git pull
