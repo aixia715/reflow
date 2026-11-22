@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 给 Reflow 加上不开放注册的多用户登录，并按单板授予所有者 / 可编辑 / 只读三种角色。现有单板在第一个系统管理员诞生时归他所有。
+**Goal:** 给 Reflow 加上不开放注册的多用户登录，并按单板授予所有者 / 可编辑 / 只读三种角色。现有单板和现有 BOM 版本在第一个系统管理员诞生时归他所有。初始 BOM 只在 BOM 版本页修正，单板页的根节点只读。
 
-**Architecture:** 标准库 scrypt 存密码，随机令牌放 cookie、sha256 进 `sessions` 表。自写中间件负责「是否登录」和 CSRF；`app/authz.py` 的守卫表负责「这块板你是什么角色」，表里没有的路由直接 500。折叠引擎和传播算法不感知权限，传播只多传一个 `actor_user_id`。
+**Architecture:** 标准库 scrypt 存密码，随机令牌放 cookie、sha256 进 `sessions` 表。自写中间件负责「是否登录」和 CSRF；`app/authz.py` 的守卫表负责「这块板你是什么角色」，表里没有的路由直接 500。折叠引擎不感知权限。传播算法不改判定，只多传 `actor_user_id` 和乐观锁的 revision。共享的 `initial_bom` 不拆表。
 
 **Tech Stack:** FastAPI / Starlette 1.2.1、SQLite（WAL）、Jinja2 + HTMX + Alpine.js、pytest、Playwright。不新增运行时依赖。
 
@@ -33,9 +33,13 @@
 | 阶段 | 新建 | 主要修改 |
 |---|---|---|
 | 1 | `app/auth.py`、`app/authz.py`、`app/cli.py`、`app/routes/auth.py`、`app/templates/login.html`、`app/templates/password.html`、`tests/helpers.py`、`tests/test_auth.py`、`tests/test_accounts.py`、`tests/test_authz.py`、`tests/test_auth_routes.py` | `app/db.py`、`app/models.py`、`app/main.py`、`tests/conftest.py`、现有会访问页面的测试、`README.md`、`deploy.sh` 注释 |
-| 2 | `app/routes/members.py`、`app/templates/members.html`、`app/templates/forbidden.html`、`tests/test_permissions.py`、`tests/test_auth_ui.py` | 守卫表收紧；`hierarchy.py`、`board.py`、`log.py`、`hard_change.py`、`hashes.py`；首页、状态图、节点页及片段、硬更改模板；`style.css` |
-| 3 | `app/routes/admin_users.py`、`app/templates/admin_users.html`、`tests/test_admin_routes.py` | `base.html` 增加「用户管理」入口 |
-| 4 | 无 | `app/audit.py`、`app/propagation.py`、`app/db.py`（加列）、`log.html`、写日志的路由、`tests/test_audit.py`、`CLAUDE.md` |
+| 2 | `app/routes/members.py`、`app/templates/members.html`、`app/templates/forbidden.html`、`app/templates/_scope_impact.html`、`tests/test_permissions.py`、`tests/test_auth_ui.py` | 守卫表收紧；`bom_versions`；根节点编辑改 403；`hierarchy.py`、`board.py`、`log.py`、`hard_change.py`、`hashes.py`；首页、状态图、节点页及片段、硬更改模板；去掉 `/uploads`；`style.css` |
+| 3 | `app/routes/admin_users.py`、`app/templates/admin_users.html`、`tests/test_admin_routes.py` | `base.html` 增加「用户管理」；强制转让与 `reflow.admin` 日志 |
+| 4 | 无 | `app/audit.py`、`app/propagation.py`、`app/db.py`（`actor_user_id`）、`log.html`、写日志的路由、`tests/test_audit.py` |
+| 5 | `app/routes/bom_version.py`、`app/templates/bom_version.html`、`tests/test_bom_version.py` | 版本页单事务提交；根节点页的提示链接；`CLAUDE.md` 可放到本阶段末尾，此时「多用户不做」已经不成立 |
+| 6 | `tests/test_revision.py` | `nodes.revision` / `revised_by`；各写路径和冲突弹窗；`propagation.py` 的事务边界 |
+
+`CLAUDE.md` 放在阶段 5：版本页和审计列都已落地，写进去的约定不会马上过时。阶段 6 若改了冲突弹窗的交互，再补一句乐观锁。
 
 `CLAUDE.md` 放到阶段 4 一起改：届时「多用户不做」这句已经不成立，守卫表和 HTMX 约定也稳定了。阶段 1 的 README 只写部署和「登录还不是授权」。
 
@@ -353,7 +357,7 @@ git commit -m "现有测试改为已登录，并写明首次创建管理员的�
 - `GET /`、`GET/POST /board/new`、`POST /board/new/preview`（`login` 即可，但建板的「能否复用 BOM 版本」在处理函数里）
 - `DELETE /board-group`、`DELETE /bom-version`、两级 rename 以外的 `POST /board-group/rename`、`POST /pcb-version/rename`、`POST /bom-version/rename`
 - `GET /hash/{value}`、`GET /hash-lookup`
-- `POST /board/{board_id}/node/{node_id}/edit` 仍登记为 `editor`（先挡住 viewer）；根节点的「每块共用板都要是 editor」在 `edit_node` 里面额外查
+- `POST /board/{board_id}/node/{node_id}/edit` 登记为 `editor`（先挡住 viewer）。根节点在处理函数里一律 403，不写 `initial_bom`。本阶段不要做「editor 够了就可以改根节点」
 - `GET /board/{board_id}/compare` 与 `compare/download` 登记为 `viewer`（先保证对本板有读权限）；兄弟板可见性在处理函数里过滤
 
 `/admin/users` 的路由阶段 3 才存在。阶段 2 不要预先登记一条还不存在的路由，否则 Task 5 的「表与路由一致」会红。阶段 3 加路由时一起登记为 `admin`。
@@ -430,79 +434,90 @@ git commit -m "所有者可以管理成员并转让所有权"
 
 ---
 
-### Task 9: 首页过滤、只读界面、共用初始 BOM、跨范围删除
+### Task 9: 首页过滤、只读界面、根节点只读、负责人、影响清单
 
 **Files:**
-- Modify: `app/routes/hierarchy.py`、`app/routes/board.py`、`app/models.py`
-- Modify: `home.html`、`state_graph.html`、`node_detail.html`、`_edit_form.html`、`_bom_table.html`、`_changes_panel.html`、`_attachments.html`、`hard_change_detail.html`、`compare.html`（只确认数据已过滤）
-- Create: `app/templates/forbidden.html`
-- Test: `tests/test_permissions.py`
+- Modify: `app/db.py`、`app/models.py`、`app/routes/hierarchy.py`、`app/routes/board.py`
+- Modify: `home.html`、`state_graph.html`、`node_detail.html`、`_edit_form.html`、`_bom_table.html`、`_changes_panel.html`、`_attachments.html`
+- Create: `app/templates/forbidden.html`、`app/templates/_scope_impact.html`
+- Test: `tests/test_permissions.py`、`tests/test_accounts.py`（`bom_versions`）
 
 **Interfaces:**
-- `list_visible_boards(conn, user_id)` 供首页使用，返回的结构仍能拼出现在的 `groups`，但只含该用户的板。`ref_count` 仍是该 BOM 版本的初始 BOM 位数（他能看见这个版本，才算得出来）。
+- `bom_versions` 表，定义见设计文档。`create_bom_version` 在写入 `initial_bom` 的同一事务里插入负责人。
+- `ensure_bom_version(conn, board_name, pcb_version, bom_version, owner_user_id) -> int` 已有三元组则返回 id，不改负责人。
+- 迁移与 `assign-orphans`：没有 `bom_versions` 行的三元组，负责人设为第一个管理员（或 CLI 指定的用户）。已有负责人的不动。
+- `list_visible_boards(conn, user_id)` 只含该用户的板。`ref_count` 仍是该 BOM 版本的初始 BOM 位数。
 - `user_owns_all(conn, user_id, *, board_name, pcb_version=None, bom_version=None) -> bool`
-- `user_can_edit_initial_bom(conn, user_id, board_name, pcb_version, bom_version) -> bool` 该版本下每一块板的角色都 `>= editor`
-- 新建单板：三元组尚不存在时，任何登录用户可建，`owner_user_id` 为当前用户。三元组已存在时，当前用户必须已是其中一块板的成员，否则 403，不插板。
-- 下拉 `names` / `pcbs` / `boms` 只来自可见板。
+- 新建单板：三元组不存在时，任何登录用户可建，他是板的 owner，也是版本负责人。三元组已存在时，只有该版本负责人能建，新板 owner 是他；其他人 403，不插板。
+- 下拉只来自可见板，加上自己担任负责人的版本。
+- `edit_node` 在 `parent_id is None` 时返回 403，正文含「请到 BOM 版本页修正」，不调用 `update_initial_bom`。
+- 跨范围重命名/删除：`user_owns_all` 失败则 403，且响应正文不含范围内他不是成员的 `board_uid`。通过之后返回 `_scope_impact.html`，列出每块板的 `board_uid`。删除的真正执行要多一个表单字段，值等于当前名称；不对就 400，数据不变。重命名在清单确认后才 `UPDATE`，并在同一事务里改 `bom_versions` 的对应列。
 
 - [ ] **Step 1: 写失败测试**
 
 - 用户 A 的板不出现在用户 B 的首页 HTML 里。B 的首页空状态含「你还没有被加入任何单板」。
-- A、B 两块板共用一个 BOM 版本。A 的 editor（不是 B 的成员）POST 根节点编辑，状态被拒，`initial_bom` 的值不变。把这个人加成 B 的 editor 之后，同一次编辑成功，两块板折叠出的该位号都是新值。
-- A 是某单板名称下唯一可见板的 owner，但同名下还有别人的板。A 的首页不渲染「删除整组」；直接 `DELETE /board-group` 被拒，两块板都在。A `DELETE /board/{自己的}` 成功。
-- viewer 的节点页 HTML 不含 `action=".../commit"`、不含 `"/edit"` 的 `hx-post`。含「你对这块单板是只读」。
-- 非成员建板时复用别人的 BOM 版本，响应 403，`boards_hierarchy` 行数不变。
+- owner、editor、viewer 以及另一个版本的负责人，POST 根节点编辑都被拒，`initial_bom` 逐行不变。根节点 HTML 没有指向 `/edit` 的 `hx-post`。本阶段的拒绝文案只要说明根节点不能在单板页修改；「请到 BOM 版本页修正」这句话和页面上的链接在阶段 5 再锁定，那时版本页才存在。
+- 已有版本下，普通成员建板 403，行数不变。负责人建板成功，且他是新板的 owner。全新三元组仍可由非负责人创建，创建后他是 `bom_versions.owner_user_id`。
+- 只拥有同名分组中一块板的人，`DELETE /board-group` 被拒，响应不含另一块的 `board_uid`。范围内每块都是 owner 时，第一次请求返回清单且含全部 `board_uid`，未带对的确认名称则板还在；名称正确才删除。
+- viewer 的非根节点页不含 `action=".../commit"`，含「你对这块单板是只读」。
+- 现有会在根节点上 POST 编辑并期望写入 `initial_bom` 的测试（至少 `tests/test_lint_async.py` 里根节点那两条）改成期望 403。不要为了让旧断言继续通过而保留写入路径。
 
 - [ ] **Step 2: 跑红**
 
 - [ ] **Step 3: 实现**
 
-根节点分支在 `edit_node` 里、调用 `update_initial_bom` 之前判断。拒绝时走与「没有权限」相同的 HTMX toast，不要先把初始 BOM 写进去再回滚——判断放在写之前。
+403 页 `{% extends "base.html" %}`。没有 owner 时用「请联系系统管理员」。
 
-首页按钮的显示条件调用同一个 `user_owns_all`，不要在模板里复刻 SQL。
+首页按钮的显示条件调用 `user_owns_all`，不要在模板里复刻 SQL。影响清单用 `.modal`，删除输入框用 `.input`。
 
-403 页 `{% extends "base.html" %}`，`.empty` 里写设计文档的句子，所有者登录名由 `authz` 查出来传进模板。没有 owner 时用「请联系系统管理员」。
+阶段 2 没有 `/bom-version/{id}`。根节点上的那句链接放到阶段 5，避免链到 404。本阶段的 403 文案可以先只说「根节点不能在单板页修改」。阶段 5 再改成「请到 BOM 版本页修正」，并补上链接。测试在阶段 2 锁定「不写 `initial_bom`」；文案后半句在阶段 5 收紧。
 
 - [ ] **Step 4: 跑绿并提交**
 
 ```bash
-git commit -m "首页按成员过滤，并挡住共用初始 BOM 的越权修改"
+git commit -m "按成员过滤首页，根节点不再修改初始 BOM"
 ```
 
 ---
 
-### Task 10: 哈希、对比、硬更改图片
+### Task 10: 哈希、对比，以及全部文件出口
 
 **Files:**
-- Modify: `app/routes/hashes.py`、`app/routes/board.py`（compare）、`app/routes/hard_change.py`、`app/main.py`、`hard_change_detail.html`
-- Test: `tests/test_permissions.py`、必要时 `tests/test_hash_routes.py`
+- Modify: `app/routes/hashes.py`、`app/routes/board.py`、`app/routes/hard_change.py`、`app/main.py`
+- Modify: `app/templates/hard_change_detail.html`、`app/templates/hard_change_form.html`、`app/templates/compare.html`（只确认没有不可见板的链接）
+- Test: `tests/test_permissions.py`、必要时 `tests/test_hash_routes.py`、`tests/test_node_attachments_routes.py`
+
+设计文档「文件下载与静态路径」那张表是本任务的清单，不要只处理硬更改图片。
 
 **Interfaces:**
 - `find_hash_target` 增加 `allowed_board_ids: set[int]`。不在集合里的节点和硬更改当不存在。
-- `list_sibling_boards` 的调用方在比较前滤掉当前用户不可见的 id。滤完之后原来的「节点不在兄弟集合」路径自然变成 404。
-- `GET /board/{board_id}/hard-change/{hc_id}/images/{image_id}` 登记 `viewer`。核对图片行的 `hard_change_id` 与路径一致。
-- 删除 `app.mount("/uploads", ...)`。
+- `list_sibling_boards` 的调用方在比较前滤掉当前用户不可见的 id。滤完之后原来的「节点不在兄弟集合」路径自然变成 404。`compare/download` 使用同一过滤。
+- `GET /board/{board_id}/hard-change/{hc_id}/images/{image_id}` 登记 `viewer`。核对图片行的 `hard_change_id` 与路径一致，再 `FileResponse`。
+- 附件下载路由登记 `viewer`，保留「附件不属于该节点则 404」。
+- `import/template` 登记 `editor`。`download`（full 与 changes）登记 `viewer`。
+- 删除 `app.mount("/uploads", ...)`。磁盘目录和 `storage.save_image` / `save_attachment` 的相对路径不变。
 
 - [ ] **Step 1: 写失败测试**
 
 - 只命中不可见板的短哈希，`/hash-lookup` 的 toast 与对空库查询一个合法但不存在的前缀相同（都含「未找到」）。
-- viewer 能 `GET` 到硬更改图片的字节；非成员 403；`GET /uploads/{filename}` 是 404。
-- 对比页 HTML 里不出现不可见兄弟板的 `board_uid`。
+- 对比差异 CSV：一侧板不可见时 404，正文不含那块板的 `board_uid`。两侧都可见时 200，且是 CSV。
+- viewer `GET` 硬更改图片鉴权路由，响应体等于磁盘文件字节；非成员 403；未登录是 303 到 `/login`。
+- `hard_change_detail.html` 与 `hard_change_form.html` 渲染结果不含字面量 `/uploads/`。灯箱用的 `data-src` 是鉴权路由。
+- viewer 下载节点附件得到字节。用该行的 `storage_path` 请求 `/uploads/<storage_path>` 得到 404。用硬更改的 `filename` 请求 `/uploads/<filename>` 也是 404。
+- viewer 下载 `scope=full` 与 `scope=changes` 为 200。非成员 403。viewer 请求 `import/template` 为 403，editor 为 200。
 
 - [ ] **Step 2: 跑红**
 
-- [ ] **Step 3: 实现并改模板里的图片地址**
+- [ ] **Step 3: 实现**
 
-搜 `"/uploads/` 确认没有遗漏的模板。节点附件本来就走自己的下载路由，不要改存储路径。
+`rg '"/uploads/' app/templates` 必须为空。`rg 'mount\\("/uploads"' app` 必须为空。不要把节点附件改存到别的目录。
 
-- [ ] **Step 4: 跑相关测试与全量 pytest**
-
-现有硬更改 UI 测试若点到图片灯箱或 `href="/uploads/`，选择器改成新路由。
+- [ ] **Step 4: 跑相关测试。硬更改 UI 测试里点灯箱或断言 `/uploads/` 的，改成新路由。**
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git commit -m "哈希、跨板对比和硬更改图片只对成员可见"
+git commit -m "下载与图片只经成员校验，关掉上传目录的静态挂载"
 ```
 
 ---
@@ -536,7 +551,7 @@ UI 本身应在 Task 9 已经完成。本任务主要是把测试补上并修真
 git commit -m "补上只读与无权访问的界面测试"
 ```
 
-更新 README：阶段 2 之后，登录用户只能看到自己的板；创建普通用户的命令；所有者在「成员」页授权。删掉阶段 1 那句「登录后人人都能改」，改成「若生产环境还停在只合并了阶段 1 的版本，则仍然人人都能改」——避免文档和代码各说各的。以本阶段合并后的行为作为 README 的主叙述。
+更新 README：阶段 2 之后，登录用户只能看到自己的板；创建普通用户的命令；所有者在「成员」页授权；单板页不能改根节点，初始 BOM 要等版本页（阶段 5）。删掉阶段 1 那句「登录后人人都能改」，改成「若生产环境还停在只合并了阶段 1 的版本，则仍然人人都能改」。以本阶段合并后的行为作为 README 的主叙述。
 
 阶段 2 可合并。
 
@@ -544,7 +559,7 @@ git commit -m "补上只读与无权访问的界面测试"
 
 ## 阶段 3 — 网页用户管理
 
-### Task 12: 管理员的创建、停用、重置密码
+### Task 12: 管理员的创建、停用、重置密码与强制转让
 
 **Files:**
 - Create: `app/routes/admin_users.py`、`app/templates/admin_users.html`、`tests/test_admin_routes.py`
@@ -554,6 +569,9 @@ git commit -m "补上只读与无权访问的界面测试"
 - `disable_user(conn, actor_id, target_id) -> None` 拒绝：actor 不是管理员；target 是 actor 自己；target 是最后一位 `disabled_at IS NULL AND is_admin = 1` 的用户。成功时写 `disabled_at` 并 `delete_sessions_for_user`。
 - `enable_user(conn, target_id) -> None`
 - `set_password(conn, target_id, password) -> None` 校验长度，更新哈希，吊销该用户全部会话。管理员重置别人用它；自己改密仍走阶段 1 的页面（保留当前会话）。
+- `force_transfer_board(conn, actor_id, board_id, new_username) -> None` 只允许管理员。新用户必须存在且未停用。效果与普通转让相同：新用户成为 owner，原 owner 降为 editor。不读取 changeset，不返回 BOM。
+- `force_transfer_bom_version(conn, actor_id, version_id, new_username) -> None` 只改 `bom_versions.owner_user_id`，不改各板成员。
+- 两者成功后 `logging.getLogger("reflow.admin").info(...)`，字段为操作者 id、对象种类、对象 id、新用户 id。不写 `edit_log`。
 
 路由登记为 `admin`：
 
@@ -562,10 +580,14 @@ git commit -m "补上只读与无权访问的界面测试"
 - `POST /admin/users/{user_id}/disable`
 - `POST /admin/users/{user_id}/enable`
 - `POST /admin/users/{user_id}/password`
+- `POST /admin/boards/{board_id}/transfer`
+- `POST /admin/bom-versions/{version_id}/transfer`
 
 - [ ] **Step 1: 写失败测试**
 
 非管理员 GET 列表 403。管理员创建普通用户后，该用户能登录。停用后旧 cookie 访问首页得到 303，登录表单显示「账号已停用，请联系管理员」。停用自己被拒，会话仍在。两位管理员时可以停用其中另一位；只剩一位时停用被拒。重置密码后旧会话失效，新密码可以登录。
+
+另用 `caplog`：停用某板 owner 后，管理员页 HTML 含 `board_uid` 和单板名称，不含该板初始 BOM 里的位号值，不含 `/board/{id}` 链接。强制转让后新用户是 owner，管理员 `GET /board/{id}` 仍是 403。`reflow.admin` 有一条 INFO。对 BOM 版本做同样的断言：页面有三个名称，没有位号；转让后 `owner_user_id` 变了，各板成员行数不变。
 
 - [ ] **Step 2: 跑红**
 
@@ -573,12 +595,12 @@ git commit -m "补上只读与无权访问的界面测试"
 
 顶栏 ⋯ 菜单在 `user.is_admin` 时显示「用户管理」。表单带 CSRF。停用按钮 `hx-confirm`，文案写明对方将不能登录。自己和最后一位管理员的停用按钮不渲染。
 
-没有「删除用户」。
+没有「删除用户」。停用清单用两张 `.panel`，不要做成进入单板的目录。转让输入的是登录名。
 
 - [ ] **Step 4: 跑绿，全量 pytest，提交**
 
 ```bash
-git commit -m "系统管理员可以在网页上创建和停用账号"
+git commit -m "系统管理员可以创建、停用账号并移交无主的板"
 ```
 
 阶段 3 可合并。
@@ -591,13 +613,12 @@ git commit -m "系统管理员可以在网页上创建和停用账号"
 
 **Files:**
 - Modify: `app/db.py`、`app/audit.py`、`app/propagation.py`、`app/models.py`（`list_board_log`）、`app/routes/board.py`、`app/templates/log.html`、`tests/test_audit.py`、相关传播测试若断言了列集合
-- Modify: `CLAUDE.md`
 
 **Interfaces:**
 - `_migrate`：`PRAGMA table_info(edit_log)` 不含 `actor_user_id` 时 `ALTER TABLE edit_log ADD COLUMN actor_user_id INTEGER REFERENCES users(id)`。
 - `record_edit(..., note=None, *, actor_user_id: int | None = None)`。星号后面的参数，保证现有位置参数调用不用改。
 - `apply_node_edit`、`delete_node`、`resolve_conflict` 增加关键字参数 `actor_user_id: int | None = None`，传给该函数体内每一次 `record_edit`。
-- 路由从 `request.state.user["id"]` 传入。根节点那条在 `board.py` 里直接调用的 `record_edit` 同样传入。
+- 路由从 `request.state.user["id"]` 传入。阶段 2 已经去掉根节点上那条直接 `record_edit`，这里不要加回来。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -611,13 +632,7 @@ git commit -m "系统管理员可以在网页上创建和停用账号"
 
 - [ ] **Step 3: 实现**
 
-日志表头在「来源」左侧加「操作人」。不要改 `edit_log` 的其他列语义。成员管理和用户管理不要写这张表。
-
-`CLAUDE.md`：
-
-- 删掉或改写「MVP 边界」里的「多用户/并发/权限」。改成指向本设计文档，并写明并发仍不是协同编辑，只是 WAL。
-- 「约定」里加两条：新路由必须同时写进 `app/authz.py` 的守卫表；HTMX 未登录用 200 + `HX-Redirect`。
-- 运行一节不必写口令。可加一句「首次使用见 README 的管理员初始化」。
+日志表头在「来源」左侧加「操作人」。不要改 `edit_log` 的其他列语义，也不要新增 source 值。成员管理、用户管理和强制转让不要写这张表。`CLAUDE.md` 留到阶段 5。
 
 - [ ] **Step 4: 全量 pytest 通过后提交**
 
@@ -625,7 +640,82 @@ git commit -m "系统管理员可以在网页上创建和停用账号"
 git commit -m "审计日志记录操作人"
 ```
 
-阶段 4 可合并。到这里设计文档里的建议方案全部落地。
+阶段 4 可合并。
+
+---
+
+## 阶段 5 — BOM 版本页
+
+### Task 14: 影响清单、单事务修正、负责人转让
+
+**Files:**
+- Create: `app/routes/bom_version.py`、`app/templates/bom_version.html`、`tests/test_bom_version.py`
+- Modify: `app/models.py`、`app/authz.py`、`app/main.py`、`app/routes/board.py`（根节点 403 文案与页面链接）、`app/templates/node_detail.html`、`CLAUDE.md`、`README.md`
+
+**Interfaces:**
+- `can_correct_bom_version(conn, user_id, version_id) -> bool` 合取：是负责人，且每一块板的角色都 `>= editor`。实现时不要把失败的板 id 返回给路由拼进文案。
+- `preview_bom_version_change(...) -> list` 只算不写。每块板一项：`board_uid`、折叠差异、传播冲突。冲突检测复用现有函数。
+- `apply_bom_version_change(conn, version_id, actor_user_id, expected_revision, reference, op, part, choices) -> None` 一个事务：`bom_versions.revision` 不符则抛错且不改 `initial_bom`；缺任何一条冲突的选择则抛错；成功时更新初始 BOM、按选择处理每块板的下游、每块板根节点写 `edit_log`（`note` 以「BOM 版本修正」开头，`actor_user_id` 为提交者，传播行同样带这个前缀），最后 `revision + 1`。中途失败全部回滚。
+- 路由：`GET /bom-version/{version_id}`、`POST /bom-version/{version_id}/preview`、`POST /bom-version/{version_id}`、`POST /bom-version/{version_id}/transfer`。登记 `custom`。GET：负责人或任一成员。POST 修正：`can_correct_bom_version`。转让：仅现任负责人，对象是未停用用户，不改各板成员。
+- 根节点页增加「初始清单在 BOM 版本页维护。」403 文案改为「根节点是初始 BOM，请到 BOM 版本页修正。」
+
+- [ ] **Step 1: 写失败测试**
+
+按设计文档 `tests/test_bom_version.py` 那一段：清单含两块 `board_uid`；未选冲突则 `initial_bom` 不变；全部确认后两块折叠一起变，且 note 前缀与操作人正确；第二块写入失败时第一块也不变；负责人被降为 viewer 时没有表单，403 正文不含那块 `board_uid`。再加：转让负责人后原负责人不能再 POST 修正（若他因此不再满足合取），新负责人在也是各板 editor 时可以。`revision` 用旧值提交时不写库，提示「已被 {用户名} 修改，请刷新」。
+
+- [ ] **Step 2: 跑红**
+
+- [ ] **Step 3: 实现**
+
+预览与提交分成两次请求。提交请求带上预览时的 `revision` 和每条冲突的选择。不要在预览请求里写库。页面复用 `.panel`、`.modal`、冲突弹窗里已有的「保留 / 采用」文案。
+
+`CLAUDE.md`：MVP 边界里的「多用户/并发/权限」改为指向本设计；约定里写新路由必须登记守卫表、HTMX 未登录用 200 + `HX-Redirect`、单板页不写 `initial_bom`。运行一节指向 README 的管理员初始化。README 写明版本页是改初始 BOM 的地方；若生产还停在阶段 2 到阶段 4，则网页暂时不能改初始 BOM。
+
+- [ ] **Step 4: 全量 pytest 后提交**
+
+```bash
+git commit -m "在 BOM 版本页统一修正初始清单"
+```
+
+阶段 5 可合并。
+
+---
+
+## 阶段 6 — 节点乐观锁
+
+### Task 15: 草稿与节点的版本号
+
+**Files:**
+- Modify: `app/db.py`、`app/models.py`、`app/propagation.py`、`app/routes/board.py`、相关模板（`_edit_form.html`、`node_detail.html`、`_conflict_modal.html`、`_delete_conflict_modal.html`、`insert_node.html`、`_bom_table.html`、`_changes_panel.html`、`_attachments.html`）
+- Create: `tests/test_revision.py`
+- Modify: `README.md`（删掉「单板编辑仍会后写覆盖」那句）、`CLAUDE.md` 补一句乐观锁文案
+
+**Interfaces:**
+- `nodes.revision INTEGER NOT NULL DEFAULT 0`，`nodes.revised_by INTEGER REFERENCES users(id)`。`_migrate` 用 `PRAGMA table_info` 判断后再 `ALTER`。
+- `bump_revision(conn, node_id, expected, user_id) -> bool`。SQL 为 `UPDATE nodes SET revision = revision + 1, revised_by = ? WHERE id = ? AND revision = ?`。返回是否更新到一行。
+- 写路径增加关键字参数 `commit: bool = True`。乐观锁的那一次请求自己 `BEGIN`，内部传 `commit=False`，全部 bump 成功才 `commit`，否则 `rollback`。
+- 有下游冲突的编辑：第一个请求不写库，响应是确认弹窗，隐藏域带被编辑节点和各下游节点当时的 revision。确认请求才写入。取消不写。
+- 冲突响应：200、`HX-Reswap: none`，`#form-error` 与 toast 为「已被 {用户名} 修改，请刷新」。`revised_by` 为空时用「其他人」。
+
+- [ ] **Step 1: 写失败测试**
+
+`tests/test_revision.py`：两个已登录用户先后编辑同一草稿。后一个带着先打开页面时的 `revision`，changeset 仍是前一个写入的值，响应含前一个用户的登录名。冲突确认里下游 revision 过期时，被编辑节点的 changeset 也不变。插入保存带上过期的父节点 revision 时不产生新节点。
+
+- [ ] **Step 2: 跑红**
+
+- [ ] **Step 3: 实现**
+
+隐藏域和 `hx-vals` 按设计文档。插入页把父节点 revision 放进页面的 Alpine 状态，check 与保存都提交它；失败写进 `editError`。
+
+不要在这个阶段改 BOM 版本页已经用着的 `bom_versions.revision`。
+
+- [ ] **Step 4: 全量 pytest 后提交**
+
+```bash
+git commit -m "保存节点时用版本号拒绝后一次覆盖"
+```
+
+阶段 6 可合并。到这里设计文档里已确认的方案和仍建议的未决项都有落点。
 
 ---
 
@@ -634,11 +724,13 @@ git commit -m "审计日志记录操作人"
 每个阶段合并前：
 
 - [ ] `pytest` 全绿（含 Playwright；浏览器缺失要先装，不要把 UI 测试标成跳过）
-- [ ] `rg "mount\\(\"/uploads\"" app` 无结果（阶段 2 之后）
+- [ ] `rg 'mount\\("/uploads"' app` 无结果（阶段 2 的 Task 10 之后）
+- [ ] `rg '"/uploads/' app/templates` 无结果（同上）
 - [ ] `rg "REFLOW_SECRET_KEY" app` 无结果
 - [ ] 守卫表测试在，且新路由没有用「先合并再补登记」的方式送进去
-- [ ] 登录页、成员页、用户管理页、只读节点页在白天和夜间都看过；375px 宽下登录表单不横滚
-- [ ] README 的初始化步骤能在一个空目录的 sqlite 上走通：`REFLOW_DB=... python -m app.cli create-admin --username admin`，然后用该账号登录，看见迁移前就存在的板
+- [ ] 登录页、成员页、用户管理页、只读节点页、版本页、影响清单在白天和夜间都看过；375px 宽下登录表单不横滚
+- [ ] README 的初始化步骤能在一个空目录的 sqlite 上走通：`REFLOW_DB=... python -m app.cli create-admin --username admin`，然后用该账号登录，看见迁移前就存在的板，并且那些板所在的 BOM 版本负责人是他
+- [ ] 阶段 2 到阶段 4 的 README 写明网页还不能改初始 BOM。阶段 5 起改成指向版本页。阶段 6 起删掉「单板编辑会后写覆盖」
 
 ## 不在本计划里的事
 

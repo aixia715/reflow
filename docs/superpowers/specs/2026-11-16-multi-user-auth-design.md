@@ -1,7 +1,7 @@
 # 多用户登录与按单板授权
 
-日期：2026-11-16
-状态：设计草案。正文按「建议方案」写完整，便于直接实现；标了「未决」的点若改判，先改本文再写代码。
+日期：2026-11-16（2026-11-22 按已确认的决定改了一版）
+状态：设计草案。2026-11-22 已确认的部分（根节点只读、BOM 版本页、版本负责人、乐观锁、跨范围操作的影响清单、管理员强制转让、下载路径鉴权）以本文为准。文末「未决问题」仍待回答；那些点若改判，先改本文再写代码。
 
 ## 背景与目标
 
@@ -35,8 +35,8 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 - 机器账号、API token、给脚本用的长期密钥。
 - 硬删除用户（停用即可。审计和成员行要留得住人）。
 - 同一块单板多个所有者。
-- 把 `initial_bom` 从 BOM 版本下沉到单板。这是现有数据模型的共用点，本次用权限规则包住它，不拆表。
-- 多人同时编辑同一节点的锁、操作变换、实时协同。SQLite 仍然是单写者；只把「database is locked」的概率降下来（WAL + busy timeout），不保证两人同时改同一位号的结果。
+- 把 `initial_bom` 从 BOM 版本下沉到单板。表仍按版本共用。单板页不再写它，只在 BOM 版本页修正。
+- 操作变换、实时协同、编辑中的长锁。两人同时改用乐观锁拒绝后一次提交，不合并两个人的位号。SQLite 仍然是单写者，另加 WAL 降低 `database is locked`。
 - 登录失败次数限制、验证码、IP 封禁。部署在实验室内网，不对外。
 - 恢复已经从仓库删除的 Windows 桌面版（`6a5844d`），也不为它留自动登录开关。
 
@@ -48,8 +48,9 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 
 | | 存在哪 | 含义 |
 |---|---|---|
-| 系统管理员 | `users.is_admin = 1` | 全库的账号管理员：创建用户、停用、重置别人的密码。可以同时在某块板上有成员角色，也可以一块板都没有。 |
+| 系统管理员 | `users.is_admin = 1` | 全库的账号管理员：创建用户、停用、重置别人的密码。可以同时在某块板上有成员角色，也可以一块板都没有。停用导致的强制转让是例外，只看名称、不看内容。 |
 | 单板角色 | `board_members.role` | 只对这一块板生效：`owner` > `editor` > `viewer`。一块板恰好一名 owner。 |
+| BOM 版本负责人 | `bom_versions.owner_user_id` | 对一个「名称 + PCB 版本 + BOM 版本」负责。不是第四种单板角色。能否修正初始清单，还要看他是不是每块板的 editor。 |
 
 一个人可以是管理员，同时是甲板的 owner、乙板的 viewer、丙板的陌生人。丙板上他什么都看不见。管理员身份不会把他在丙板上抬成 owner。
 
@@ -72,9 +73,12 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 | `/static/**` | 任何人（样式和已内置的 htmx / Alpine，无业务数据） |
 | `/docs`、`/redoc`、`/openapi.json` | 关掉。这不是对外 API，默认文档等于把路由表公开。 |
 | 首页单板列表 | 已登录。只列出自己至少是 viewer 的单板。分组、位号数、单板数都按可见单板重算，不把看不见的兄弟板算进去。 |
-| 新建单板（全新的「名称 + PCB 版本 + BOM 版本」） | 任何未停用的已登录用户。创建者成为这块新板的 owner。 |
-| 新建单板（复用已有 BOM 版本，不上传 CSV） | 必须已经是该 BOM 版本下至少一块单板的成员。否则 403。下拉建议也只给这些可见版本，避免把别人的项目名列出来。 |
+| 新建单板（全新的「名称 + PCB 版本 + BOM 版本」，上传 CSV） | 任何未停用的已登录用户。创建者成为这块新板的 owner，并成为该 BOM 版本的负责人。 |
+| 在已有 BOM 版本下再建一块单板（不上传 CSV） | 只有该 BOM 版本的负责人。创建者成为新板的 owner。其他人 POST 返回 403，不产生新板。这样不会出现「任意成员建一块自己当 owner 的板，把初始 BOM 修正卡死」。 |
+| 打开 BOM 版本页，看初始清单 | 该版本的负责人，或该版本下至少一块板的成员。只显示初始清单本身，不列出他看不见的板。 |
+| 修正初始 BOM | 必须同时是该版本的负责人，并且对该版本下每一块板至少是 editor。见「初始 BOM 与 BOM 版本页」。 |
 | 用户管理（列表、创建、停用、启用、重置他人密码） | 系统管理员 |
+| 看见「所有者已停用」的单板和 BOM 版本，并强制转让 | 系统管理员。清单只有名称和登录名，没有进入单板、没有 BOM 内容。转让不授予管理员阅读权。 |
 | 哈希跳转 `/hash/{value}`、`/hash-lookup` | 已登录。只在**自己可见**的已提交节点和硬更改里匹配。唯一命中落在看不见的板上时，文案与「未找到」相同，不说「没有权限」（前缀查询会变成存在性探针）。 |
 
 ### 一块单板内部
@@ -95,9 +99,11 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 | 改节点标题和说明 | 不能 | 能 | 能 |
 | 上传、删除节点附件 | 不能 | 能 | 能 |
 | 新建、编辑、删除硬更改 | 不能 | 能 | 能 |
-| 根节点修正（写入 `initial_bom`） | 不能 | 有条件，见下一节 | 有条件，见下一节 |
+| 在单板页修正根节点（写入 `initial_bom`） | 不能 | 不能 | 不能 |
 | 重命名这块板的单板 ID、删除这块板 | 不能 | 不能 | 能 |
 | 成员管理、转让所有权 | 不能 | 不能 | 能 |
+
+单板页上的根节点对所有角色只读，不渲染编辑入口。直接 POST 原来的编辑路径返回 403，正文「根节点是初始 BOM，请到 BOM 版本页修正。」`initial_bom` 不变。这块板自己的差异用本板上的新节点表达，不改共享的初始清单。
 
 跨板对比（同单板名称 + PCB 版本、可跨 BOM 版本，现有 `list_sibling_boards`）：下拉里只出现当前用户至少是 viewer 的兄弟板。`left` / `right` 指向看不见的板时，按今天的「节点不存在」返回 404，不报出那块板的名字。两侧都看得见才出对比结果和差异 CSV。
 
@@ -105,26 +111,93 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 
 首页的重命名和删除作用在**名称 / PCB 版本 / BOM 版本**上，一条 SQL 会碰到这个范围内的每一块板（`rename_board_name`、`rename_pcb_version`、`rename_bom_version`、`delete_board_name`、`delete_bom_version`）。
 
-规则：操作者必须是该范围内**每一块**单板的 owner，按钮才渲染；直接 POST / DELETE 时若有任何一块不是，返回 403，toast「这个范围内还有不属于你的单板，不能整体重命名或删除。」不列出那些板的 ID（其中可能有他根本看不见的）。
+两步，缺一不可：
 
-只拥有其中一块时，他仍然可以重命名、删除**那一块自己的**单板 ID。
+1. 权限：操作者必须是该范围内**每一块**单板的 owner，按钮才渲染。直接 POST / DELETE 时若有任何一块不是，返回 403，toast「这个范围内还有不属于你的单板，不能整体重命名或删除。」不列出那些板的 ID。
+2. 权限通过之后，先弹出影响清单，列出将被改名或删除的每一块板（`board_uid`，以及它的 PCB 版本、BOM 版本）。用户看过清单再提交。删除还要在输入框里键入当前名称（整组是单板名称，PCB 那一级是 PCB 版本字符串，BOM 那一级是 BOM 版本字符串），与库里的值一致才执行。`hx-confirm` 一句不够。
 
-## 初始 BOM 是共用的
+清单里的板他本来就都是 owner，列出来不构成额外泄露。权限没过时连清单都没有。
 
-这是现有模型，不是这次要改的结构，但权限必须认它。
+只拥有其中一块时，他仍然可以重命名、删除**那一块自己的**单板 ID。删单块板沿用现在的 `hx-confirm`，不走这份跨范围清单。
 
-`initial_bom` 的键是 `(board_name, pcb_version, bom_version, reference)`，不是 `board_id`。根节点的修正走 `models.update_initial_bom`（`app/routes/board.py` 里 `parent_id is None` 的那条编辑路径）。同一 BOM 版本下的每一块板折叠时都读这同一份初始 BOM。
+重命名会改 `boards_hierarchy` 上的文本，也要在同一事务里改 `bom_versions` 的对应列，否则版本页和负责人会挂在旧名字上。删除范围时删掉已经没有任何板、也没有初始 BOM 的 `bom_versions` 行。
 
-举例：板 A 和板 B 共用 `bomA`。甲是 A 的 editor，不是 B 的成员。若允许甲改 A 的根节点，B 的折叠结果会跟着变，而甲在界面上根本看不到 B。
+## 初始 BOM 与 BOM 版本页
 
-因此：**根节点编辑**（以及任何会调用 `update_initial_bom` 的路径）要求操作者对该 BOM 版本下的**每一块**单板至少是 editor。做不到时：
+`initial_bom` 的键是 `(board_name, pcb_version, bom_version, reference)`，不是 `board_id`。同一 BOM 版本下的每一块板折叠时都读这一份。单板页上的根节点若还能改，改的就是别人的板。
 
-- 节点页不渲染根节点的编辑入口；
-- 直接 POST 返回 403，toast「初始 BOM 由多块单板共用，你对其中部分单板没有编辑权限，不能修改。」不点名那些板。
+已确认的做法：单板页不再写 `initial_bom`。共享清单只在 BOM 版本页修正。
 
-非根节点的 changeset 存在 `node_changes` 里，按 `node_id` 隔离，editor 只改得到自己这块板。传播也只沿这块板自己的 `parent_id` 链走，不跨板。
+### 单板页上的根节点
 
-复用已有 BOM 版本来建新板时，创建者会读到这份初始 BOM（不读就建不出板）。这不等于能看到其他板的节点链。限制已写在矩阵里：不是该版本的成员，就不能复用。
+根节点（`parent_id is NULL`）一律只读。viewer、editor、owner 都不渲染编辑表单、行内修订、导入。`app/routes/board.py` 里 `edit_node` 的 `parent_id is None` 分支删掉对 `models.update_initial_bom` 的调用，改为 403，正文「根节点是初始 BOM，请到 BOM 版本页修正。」测试锁定：这次 POST 之后 `initial_bom` 与请求前逐行相同。
+
+这块板特有的改动在本板新建节点（工作区或插入）。那条 changeset 在 `node_changes` 里，传播只沿本板的 `parent_id` 链走。
+
+根节点页留一句说明和链接：「初始清单在 BOM 版本页维护。」链到下面的版本页。只读成员也能点开版本页看清单，但看不到修正表单。
+
+### BOM 版本负责人
+
+新表 `bom_versions`，一行对应一个三元组，而不是把负责人塞进 `initial_bom` 的每一行：
+
+```sql
+CREATE TABLE IF NOT EXISTS bom_versions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_name    TEXT NOT NULL,
+    pcb_version   TEXT NOT NULL,
+    bom_version   TEXT NOT NULL,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id),
+    revision      INTEGER NOT NULL DEFAULT 0,          -- 乐观锁，见「并发」
+    revised_by    INTEGER REFERENCES users(id),
+    created_at    TEXT NOT NULL,
+    UNIQUE(board_name, pcb_version, bom_version)
+);
+```
+
+- 迁移：每个已存在的三元组一行，`owner_user_id` 是第一个系统管理员。与「现有单板归第一个管理员」同一次完成。
+- 用 CSV 新建一个此前不存在的三元组：创建者成为负责人，同时成为那块新板的 owner。
+- 负责人可以转让给另一名未停用用户（版本页上的操作，原子更新 `owner_user_id`）。转让**不**自动把他加成各板的 editor，也不把他从板上移除。
+- 系统管理员可以在不打开单板的前提下强制更换负责人，见「所有者停用」。
+- 一个版本始终有一名负责人。不设「多负责人」。
+
+### 谁可以修正
+
+必须**同时**满足：
+
+1. 是这个 BOM 版本的负责人；
+2. 对该版本下的每一块板至少是 editor。零块板时，第 2 条自然成立。
+
+推荐这个合取，而不是「负责人或全体 editor 二选一」：
+
+- 影响清单要展开每块板的折叠差异和历史链上的传播冲突。那是板的内容。不是成员就不该看，更不该往别人的链上写传播结果。「采用修正值」会删掉下游显式 op，viewer 不够，所以下限是 editor。
+- 只要求「每块板都是 editor」时，负责人对这份共享清单没有决定权。只要求「是负责人」时，已经把某块板转出去、自己不再是 editor 的人，会越过单板权限改那块板的历史。
+- 「只有负责人能在该版本下新建单板」堵住了另一条路：任意成员建一块自己当 owner 的板，使「每块板都是 editor」永远达不成。负责人建出来的板，owner 就是他本人，第 2 条对他成立。以后若那块板的新所有者把他从成员里移除或降成 viewer，他暂时不能修正，直到被重新加为 editor。入口不显示，POST 403，文案「你还不能修正这份初始 BOM。」不点名他看不见的板。
+
+未决问题里保留这一条，便于改判。改判前按合取实现。
+
+### 版本页
+
+路径：`/bom-version/{version_id}`。用表上的 id，不用三个文本拼查询串，避免改名之后旧链接指错，也避免把名称暴露在不必登录就能试的参数里。守卫是 `custom`：负责人或任一成员可 GET；修正用的 POST 再跑上面的合取。
+
+页面：
+
+- 初始清单只读表（位号、值）。
+- 有修正权时才有编辑表单：一次改一条位号（增 / 改 / 不贴），交互与节点编辑同一套校验和 lint，但**先不写库**。
+- 提交前的影响清单标题是「将影响以下 N 块板」。每一块列出 `board_uid`、折叠结果里会变化的位号（改前 → 改后），以及这条链上的传播冲突预览（下游节点、位号、下游当前值、修正后的值）。预览调用与今天根节点修正相同的冲突检测，只算不写。
+- 每块板上的每条冲突都要在本页选出「保留下游值 / 采用修正值」。有未选的，提交按钮不可用，POST 直接 400，不写任何一行。
+- 全部选完才 POST。服务端在**一个事务**里：核对 `bom_versions.revision`，更新 `initial_bom`，按各板的选择处理冲突并记审计，然后 `revision + 1`。任一步失败就整单回滚。不允许一部分板已经变了、另一部分还是旧值。
+- 没有修正权的人看到清单和那句「你还不能修正这份初始 BOM。」没有表单，没有其他板的 `board_uid`。
+
+版本页自己的乐观锁用 `bom_versions.revision`。隐藏域带上打开页面时的值。不一致时不写库，提示「已被 {用户名} 修改，请刷新」。这与节点上的乐观锁是同一句话，落地分属阶段 5 和阶段 6。
+
+### 审计
+
+`edit_log.source` 的 CHECK 只有 `direct` 和 `propagated`，不为这件事加第三种 source（SQLite 改 CHECK 得重建表）。用 `note` 的固定前缀「BOM 版本修正」：
+
+- 每块受影响板的**根节点**记一行 `source='direct'`，`note` 以「BOM 版本修正」开头，`actor_user_id` 是按下提交的那个人。
+- 某块板上「采用修正值」产生的传播，仍是 `source='propagated'`，`note` 同样带这个前缀，操作人还是同一个人。
+
+单板的审计日志因此看得到这件事。根节点页在日志之外再放一句：「原始清单在 {时间} 被 {用户名} 修正。」取该根节点上最新一条带这个前缀的记录。没有这样的记录就不显示（升级前的旧修正没有这句前缀，不回填）。
 
 ## 交互
 
@@ -159,7 +232,9 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 
 空状态两句：「你还没有被加入任何单板。」以及「点右上角「＋ 新建单板」可以建一块新的；已有的板要请所有者把你加为成员。」
 
-新建页的名称 / PCB / BOM 下拉只含自己已经是成员的版本。三个字段仍可手输新值。
+新建页的名称 / PCB / BOM 下拉只含自己已经是成员的版本，另加自己担任负责人的版本。三个字段仍可手输。手输命中已有三元组时，只有负责人能提交；其他人在预览区看到「这个 BOM 版本已存在，只有负责人能在其下新建单板。」手输全新三元组则任何已登录用户都能建。
+
+整组、PCB 版本、BOM 版本的重命名和删除，先走影响清单（见「跨多块板的首页操作」），不要一点就执行。
 
 ### 只读成员看到的差别
 
@@ -174,7 +249,7 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 - 附件的上传和删除
 - 首页上不属于他的重命名和删除
 
-节点页顶部一条 `.flash-info`：「你对这块单板是只读，不能修改。」editor 和 owner 不显示这条。
+节点页顶部一条 `.flash-info`：「你对这块单板是只读，不能修改。」editor 和 owner 不显示这条。根节点页另有一句指向 BOM 版本页的说明，三种角色都看得到；修正表单则谁都没有。
 
 隐藏不够。对应的 POST 仍然按矩阵返回 403。
 
@@ -201,6 +276,15 @@ Reflow 今天没有身份。`app/` 下没有登录、会话或密码；`deploy.s
 停用 / 启用：`hx-confirm`。停用自己、停用最后一位管理员，按钮不渲染，POST 也拒绝，toast 说明原因。停用会立刻使其会话失效。
 
 重置密码：一行里的「重置密码」，展开后两个密码框。成功后那名用户的全部会话失效，他需要用新密码重新登录。管理员自己走「修改自己的密码」，不走重置。
+
+同一页的下方，而不是另一套「全部单板」目录：
+
+- 「所有者已停用的单板」：`board_name`、`pcb_version`、`bom_version`、`board_uid`、已停用的所有者登录名。没有链到 `/board/{id}`，页面上不出现位号、节点或附件。
+- 「负责人已停用的 BOM 版本」：三个名称加已停用的负责人登录名。同样不展示初始清单。
+
+每一行一个「转让」：输入已存在且未停用的登录名。单板转让与普通转让一样，把对方设为 owner，原来的那名（已停用）所有者降为 editor，成员行保留。BOM 版本只改 `bom_versions.owner_user_id`，不动各板成员。管理员因此也不变成成员，转让完仍然打不开这些板。
+
+未决问题 10 仍建议这些动作不进 `edit_log`。在落地之前至少打应用日志：logger 名 `reflow.admin`，INFO，内容包含操作者 id、对象种类（单板或 BOM 版本）、对象 id、新的用户 id。不记录 BOM 内容。若未决问题 10 改成要单独的管理审计表，这条日志仍保留。
 
 ### 修改自己的密码
 
@@ -275,6 +359,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS board_one_owner
     ON board_members(board_id) WHERE role = 'owner';
 ```
 
+`bom_versions` 的定义在「初始 BOM 与 BOM 版本页」。`nodes` 增加两列，给乐观锁用：
+
+```sql
+ALTER TABLE nodes ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE nodes ADD COLUMN revised_by INTEGER REFERENCES users(id);
+```
+
+旧行 `revision` 为 0、`revised_by` 为空。空的 `revised_by` 在冲突文案里显示「其他人」，不显示空白。
+
 登录名：规范化成小写后存储。合法形式 `^[a-z0-9][a-z0-9_-]{2,31}$`（3–32 位，字母数字开头）。大小写不算两个账号。没有邮箱、没有显示名，界面上的「谁」就是登录名。
 
 `edit_log` 增加一列，旧行留空：
@@ -302,8 +395,8 @@ WAL 的 `-wal` / `-shm` 和 `reflow.sqlite` 同在 `/data` 卷上。README 里�
 调用点：
 
 1. `init_db` 末尾调用 `backfill_owners_if_unassigned`。阶段 1 先有了管理员、阶段 2 才建成员表的话，升级启动会把旧板一次领给最早的管理员。两个阶段一起上线时，这一下通常是空操作。
-2. 创建**全库第一个用户**时（只能是管理员，见下），接着调用 `assign_boards_without_owner`。这就是「上线后现有单板归首个管理员」。
-3. 修复入口：`python -m app.cli assign-orphans --username <管理员>`，内部还是 `assign_boards_without_owner`。只补没有 owner 的板。
+2. 创建**全库第一个用户**时（只能是管理员，见下），接着调用 `assign_boards_without_owner`，并为每个还没有 `bom_versions` 行的三元组插入一行、负责人设成他。这就是「上线后现有单板和现有 BOM 版本归首个管理员」。
+3. 修复入口：`python -m app.cli assign-orphans --username <管理员>`，内部还是 `assign_boards_without_owner`，并补没有负责人的版本。只补空缺，不改已经有主的板或版本。
 
 `models.create_board` 增加参数 `owner_user_id`。路由在建板成功的同一事务里写下 owner。不存在「建出来暂时没有所有者」的窗口。删除单板时 `ON DELETE CASCADE` 把成员行一起删掉。
 
@@ -355,7 +448,7 @@ Web 上永远没有「第一个人打开页面就设管理员密码」的表单�
 - `viewer` / `editor` / `owner`：单板不存在 → 404；角色不够或不是成员 → 403。
 - `admin`：`is_admin` 不为 1 → 403。
 - `login`：登录即可（首页、新建单板、改自己的密码）。
-- `custom`：中间件只保证已登录，细规则在处理函数里。用于哈希跳转、跨范围重命名删除、根节点的「共用初始 BOM」附加条件、跨板对比。这些函数开头调用同一个 `authz` 里的函数，不另写一套判断。
+- `custom`：中间件只保证已登录，细规则在处理函数里。用于哈希跳转、跨范围重命名删除（先权限、再影响清单）、BOM 版本页、在已有版本下建板、跨板对比。这些函数开头调用同一个 `authz` 里的函数，不另写一套判断。单板页上的根节点编辑不进 `custom`：它登记为 `editor` 之后，处理函数对根节点一律 403。
 
 既有路由**不**为了加 `Depends` 把几十个函数签名重写一遍。守卫表加中间件是统一入口；处理函数里需要「当前用户」时读 `request.state.user`。新写的登录、成员、用户管理路由同样登记进这张表，可以用 `Depends`，但运行时仍以表为准。
 
@@ -398,13 +491,52 @@ toast 的 JSON 继续 `json.dumps`，中文会是 `\u` 转义，和现有 `showT
 
 日志页多一列「操作人」。`actor_user_id` 联 `users.username`。NULL 显示「（升级前）」。用户后来被停用，名字仍在，不改成「已删除」。
 
-成员变动和账号管理**不**写进 `edit_log`。那张表是位号变更，硬塞「把某人加成 viewer」会让筛选和列语义变脏。以后若要审，另做一张表。
+成员变动、账号管理和强制转让**不**写进 `edit_log`。那张表是位号变更。强制转让先打 `reflow.admin` 日志（见「用户管理」）。未决问题 10 若改成要管理审计表，再另做，不往位号日志里塞。
 
-### 上传文件不再公开挂静态目录
+BOM 版本修正是位号变更，写进各板的 `edit_log`，规则见「初始 BOM 与 BOM 版本页」。
 
-`/uploads` 今天用 `StaticFiles` 挂出去，硬更改图片的地址是 `/uploads/{uuid}`。uuid 猜不到，但链接一旦传出去，没有成员身份也能取图。节点附件已经走带单板 id 的下载路由，硬更改还没有。
+### 文件下载与静态路径
 
-去掉 `/uploads` 的公开挂载。硬更改图片改成 `GET /board/{boardId}/hard-change/{hcId}/images/{imageId}`，守卫 `viewer`，处理函数核对图片属于这条硬更改、这条硬更改属于这块板，再 `FileResponse`。模板里的 `href` 改到这条路由。磁盘布局和 `REFLOW_UPLOAD_DIR` 不变。
+对照当前代码，业务文件只有下面这些出口。`/static` 只有样式和内置脚本，保持公开。
+
+| 路径 | 现在怎么来的 | 处理 |
+|---|---|---|
+| `GET /board/{board_id}/node/{node_id}/download` | `board.py` 在内存里生成 CSV（`scope=full` 折叠 BOM，`scope=changes` 本节点 changeset）。不落盘。 | 守卫 `viewer`。节点不属于该板则 404。 |
+| `GET /board/{board_id}/compare/download` | 同样是内存里的差异 CSV。 | 守卫 `viewer`（先对本板）。左右节点所在的板都必须至少是 viewer，否则与对比页一样 404，不报出那块板的名字。 |
+| `GET /board/{board_id}/node/{node_id}/import/template` | 固定表头的空模板（`change_csv_template` / `full_bom_csv_template`），没有业务数据。 | 守卫 `editor`。只读成员用不上导入模板。 |
+| `GET /board/{board_id}/node/{node_id}/attachments/{aid}/download` | `FileResponse`。已核对附件行的 `node_id`。磁盘文件在 `REFLOW_UPLOAD_DIR/<board_id>/<node_id>/<uuid>`（`attachments.rel_path` + `storage.save_attachment`）。 | 守卫 `viewer`。核对逻辑保留。 |
+| `GET /board/{board_id}/node/{node_id}/attachments` | 附件列表 HTML。 | 守卫 `viewer`。上传和删除仍是 `editor`。 |
+| 硬更改图片 | 磁盘文件在 `REFLOW_UPLOAD_DIR/<uuid>.<ext>`（`storage.save_image`）。`hard_change_detail.html` 的 `href`、`data-src`、`<img src>`，以及 `hard_change_form.html` 的 `<img src>`，都指向 `/uploads/{{ filename }}`。 | 改为 `GET /board/{board_id}/hard-change/{hc_id}/images/{image_id}`，守卫 `viewer`，核对图片属于这条硬更改、硬更改属于这块板，再 `FileResponse`。灯箱的 `data-src` 一并改。编辑页上的缩略图也走这条路由。 |
+| `GET /uploads/**` | `app/main.py` 把整个 `REFLOW_UPLOAD_DIR` 挂成 `StaticFiles`。硬更改图片因此不经成员检查。节点附件虽然页面走的是下载路由，同一文件仍可由 `/uploads/<board_id>/<node_id>/<uuid>` 取到：目录结构是可推的，uuid 难猜，但路径一旦出现在日志或引用里就不再看权限。 | **去掉这个挂载。** 不留「猜不到就算了」的旁路。 |
+| `GET /static/**` | `StaticFiles`，htmx、Alpine、css、js。 | 保持公开，写在白名单里。 |
+| 新建单板、导入预览用的 CSV | 请求体内解析进 `initial_bom` 或预览，不落盘。 | 没有下载 URL。 |
+
+测试要同时打鉴权路由和旧的静态 URL：viewer 能拿到字节；非成员 403；未登录走登录跳转；`/uploads/<硬更改文件名>` 和 `/uploads/<storage_path>` 都是 404。
+
+### 并发：乐观锁
+
+WAL 和 5 秒 busy timeout 仍然要加，避免「一个人在写、另一个人在读」立刻 `database is locked`。`get_conn()` 继续每次开连接、请求结束不显式关闭。这只解决锁等待，不解决静默覆盖。
+
+静默覆盖用版本号挡。`nodes.revision` 与 `nodes.revised_by` 见数据模型。工作区草稿和已提交节点用同一列。每次成功的写（编辑、撤销、清除、导入、复制到草稿、commit、插入、删除节点、冲突确认、改标题说明、上传或删除附件）在同一事务里执行：
+
+```sql
+UPDATE nodes
+   SET revision = revision + 1, revised_by = ?
+ WHERE id = ? AND revision = ?
+```
+
+`rowcount` 为 0 则整单回滚，不改 changeset。响应按 HTMX 规则：200、`HX-Reswap: none`，`#form-error` 与 toast 都是「已被 {用户名} 修改，请刷新」。`revised_by` 为空时用户名用「其他人」。不把后一次提交盖上去。
+
+前端把打开页面时的 `revision` 带回去：
+
+- 普通表单（编辑、commit、改说明、导入）加隐藏域 `revision`。
+- 行内 `hx-post`（撤销、删除附件）用 `hx-vals` 带上同一值，属性用单引号、值用 `|tojson`。
+- 冲突确认弹窗带上**被编辑节点**的 revision，以及每条下游节点在算出冲突时的 revision。确认请求在同一事务里逐个 `UPDATE ... WHERE revision = ?`，有一个对不上就全部回滚，上游那次修正也不保留——前提是这次修正还没在前一个请求里提交。今天的交互是先写入再弹窗。乐观锁落地后改成：有冲突时第一个请求**不写库**，只返回弹窗和当时读到的 revision；确认请求才在一个事务里写入并传播。取消仍是什么都不做。
+- 插入页的改动在浏览器里。打开页面时记下父节点的 `revision`，`/insert/check` 和最终保存都带上。对不上就进 `editError`，不往暂存里塞，也不插节点。
+
+传播的读改写不单独开一个不检查版本的口子。`apply_node_edit`、`delete_node`、`resolve_conflict` 收到的 revision 在它们第一次写之前核对。这些函数今天内部会 `commit`。乐观锁路径要改成路由开事务、内部函数可以不提交、最后一次成功才 `commit`，失败 `rollback`。默认参数保持「自己提交」，避免把所有旧调用一次性改坏；新参数用关键字，例如 `commit: bool = True`。
+
+BOM 版本页用 `bom_versions.revision`，同一句话、同一事务边界，在阶段 5 就做。节点列在阶段 6 加。阶段 5 合并、阶段 6 还没合并时，单板编辑仍是后写覆盖，README 用一句话写明。
 
 ### 配置项
 
@@ -419,12 +551,6 @@ toast 的 JSON 继续 `json.dumps`，中文会是 `\u` 转义，和现有 `showT
 
 没有 `REFLOW_SECRET_KEY`。
 
-### 并发
-
-`get_conn()` 仍然是每次调用开一个连接、请求结束不显式关闭。单人 MVP 的这个取舍先不动，避免为了收口连接去改每一处调用。WAL 和 5 秒 busy timeout 让「一个人在提交、另一个人在读」不再立刻报 locked。
-
-两人同时改同一块板的同一位号：后写入的那行覆盖 `UNIQUE(node_id, reference)`，审计里会留下两行。不做乐观锁。这是已知限制，写在 README 的多用户小节里，不在界面上假装有锁。
-
 ## 需要修改的文件
 
 ### 新建
@@ -432,47 +558,53 @@ toast 的 JSON 继续 `json.dumps`，中文会是 `\u` 转义，和现有 `showT
 | 文件 | 改什么 |
 |---|---|
 | `app/auth.py` | 纯逻辑：scrypt 编码与校验、登录名规范化、角色比较、`next` 白名单、CSRF 常量时间比较 |
-| `app/authz.py` | 守卫表、按单板取角色、跨范围「是否每块板都满足角色」、共用初始 BOM 的附加判断、403/未登录响应（区分 HTMX） |
+| `app/authz.py` | 守卫表、按单板取角色、跨范围「是否每块板都是 owner」、能否修正初始 BOM 的合取判断、403/未登录响应（区分 HTMX） |
 | `app/cli.py` | `python -m app.cli create-admin` / `create-user` / `assign-orphans`。密码用 `getpass`。`create-user` 到阶段 2 才挂到命令上 |
 | `app/routes/auth.py` | 登录、登出、修改自己的密码 |
 | `app/routes/members.py` | 成员列表、添加、改角色、移除、转让 |
-| `app/routes/admin_users.py` | 用户管理页 |
+| `app/routes/admin_users.py` | 用户管理页；「所有者已停用」清单与强制转让 |
+| `app/routes/bom_version.py` | BOM 版本页：只读清单、影响预览、单事务提交、转让负责人 |
 | `app/templates/login.html` | 登录页，不继承顶栏 |
 | `app/templates/forbidden.html` | 403 |
 | `app/templates/members.html` | 成员管理 |
-| `app/templates/admin_users.html` | 用户管理 |
+| `app/templates/admin_users.html` | 用户管理，含停用所有者清单 |
 | `app/templates/password.html` | 修改自己的密码 |
+| `app/templates/bom_version.html` | BOM 版本页 |
+| `app/templates/_scope_impact.html` | 跨范围重命名/删除的影响清单弹窗 |
 | `tests/test_auth.py` | 纯逻辑 |
 | `tests/test_authz.py` | 守卫表与真实路由一致、失败关闭 |
 | `tests/test_accounts.py` | 用户、会话、认领无主单板 |
 | `tests/test_auth_routes.py` | 登录、登出、CSRF、HTMX 未登录 |
-| `tests/test_permissions.py` | 矩阵里的允许与拒绝，含稳定链接和根节点 |
-| `tests/test_admin_routes.py` | 用户管理 |
-| `tests/test_auth_ui.py` | Playwright：登录、只读界面、403 |
+| `tests/test_permissions.py` | 矩阵里的允许与拒绝，含稳定链接、根节点只读、只有负责人能在已有版本下建板 |
+| `tests/test_admin_routes.py` | 用户管理、强制转让、停用清单不出现板内容 |
+| `tests/test_bom_version.py` | 影响清单、逐板确认、单事务回滚、审计前缀 |
+| `tests/test_revision.py` | 乐观锁：版本不符不覆盖，传播同一事务 |
+| `tests/test_auth_ui.py` | Playwright：登录、只读界面、403、影响清单、版本冲突提示 |
 
 ### 修改
 
 | 文件 | 改什么 |
 |---|---|
-| `app/db.py` | 三张新表、owner 部分唯一索引；`_migrate` 给 `edit_log` 加 `actor_user_id`；`connect` 开 WAL 和 timeout |
-| `app/models.py` | 用户与会话 CRUD、成员 CRUD、转让（同一事务）、`create_board(..., owner_user_id)`、无主单板认领、首页用的「某用户可见的板」、日志查询带上用户名 |
+| `app/db.py` | 用户/会话/成员三张表、`bom_versions`、owner 部分唯一索引；`_migrate` 给 `edit_log` 加 `actor_user_id`、给 `nodes` 加 `revision` 与 `revised_by`；`connect` 开 WAL 和 timeout |
+| `app/models.py` | 用户与会话 CRUD、成员 CRUD、转让（同一事务）、`bom_versions` 的创建与认领、`create_board(..., owner_user_id)`、无主单板认领、首页用的「某用户可见的板」、日志查询带上用户名、乐观锁的条件更新。重命名/删除范围时同步 `bom_versions` |
 | `app/audit.py` | `record_edit` 增加 `actor_user_id` |
-| `app/propagation.py` | `apply_node_edit` / `delete_node` / `resolve_conflict` 把 `actor_user_id` 传给每一条 `record_edit`。算法不变 |
+| `app/propagation.py` | `apply_node_edit` / `delete_node` / `resolve_conflict` 把 `actor_user_id` 传给每一条 `record_edit`，并接受 revision、支持把提交推迟到外层事务。冲突检测算法不变 |
 | `app/main.py` | 挂中间件；关掉 docs/redoc/openapi；去掉 `/uploads` 的公开 `StaticFiles`；注册新路由；401/403 的异常形态以中间件为准，现有 404 页保留 |
-| `app/routes/hierarchy.py` | 首页按成员过滤；建板时写 owner，复用 BOM 版本要先是成员；整组/版本的改名和删除走「每块都是 owner」；下拉数据只含可见版本 |
-| `app/routes/board.py` | 路由登记进守卫表。根节点编辑额外调用共用初始 BOM 判断。对比的兄弟板列表按可见性过滤。`record_edit` 和 propagation 调用带上当前用户 |
+| `app/routes/hierarchy.py` | 首页按成员过滤；全新三元组谁都能建并成为负责人；已有三元组只有负责人能建板；整组/版本的改名和删除先出影响清单，删除要键入名称；下拉只含可见版本和自己负责的版本 |
+| `app/routes/board.py` | 路由登记进守卫表。根节点的编辑分支改为 403，不再调用 `update_initial_bom`。对比的兄弟板列表按可见性过滤。写路径带 `revision`。`record_edit` 和 propagation 调用带上当前用户 |
 | `app/routes/log.py` | 登记为 viewer；模板上下文多操作人 |
 | `app/routes/hard_change.py` | 读 viewer、写 editor；新增图片下载路由 |
 | `app/routes/hashes.py` | 只在可见板里匹配 |
 | `app/templates/base.html` | 用户名、修改密码、用户管理、退出；`htmx:configRequest` 带 CSRF 头 |
-| `app/templates/home.html` | 角色徽章；按角色显示重命名和删除；空状态文案 |
+| `app/templates/home.html` | 角色徽章；按角色显示重命名和删除；空状态文案；重命名/删除改为先要影响清单 |
 | `app/templates/board_new.html` | CSRF 隐藏域 |
 | `app/templates/state_graph.html` | viewer 不显示插入、复制到草稿、记录硬更改；owner 才有「成员」 |
-| `app/templates/node_detail.html` | viewer 去掉编辑、导入、commit、改说明；只读提示条；commit 和改说明的表单加 CSRF |
+| `app/templates/node_detail.html` | viewer 去掉编辑、导入、commit、改说明；只读提示条；根节点对所有人去掉编辑并链到版本页；表单带 CSRF 和 `revision` |
 | `app/templates/_edit_form.html`、`_bom_table.html`、`_changes_panel.html`、`_attachments.html` | viewer 不渲染写操作。这些片段被节点页 include，条件用模板变量 `can_edit` |
 | `app/templates/compare.html` | 下拉数据已经是过滤后的；无需新交互，确认没有指向不可见板的链接 |
-| `app/templates/hard_change_detail.html` | 图片链接改到鉴权路由；viewer 不显示编辑和删除 |
-| `app/templates/hard_change_form.html` | CSRF 隐藏域 |
+| `app/templates/hard_change_detail.html` | `href`、`data-src`、`<img src>` 都改到鉴权路由；viewer 不显示编辑和删除 |
+| `app/templates/hard_change_form.html` | CSRF 隐藏域；已有图片的 `<img src>` 改到鉴权路由 |
+| `app/templates/_conflict_modal.html`、`_delete_conflict_modal.html`、`insert_node.html` | 带上节点 revision；冲突确认改为「先选完再写入」 |
 | `app/templates/log.html` | 「操作人」列 |
 | `app/static/style.css` | 登录页居中所需要的少量布局类。能用现有 `.panel` 就不要新颜色 |
 | `README.md` | 多用户怎么初始化、环境变量、WAL 备份、阶段说明里的「登录后在授权完成前人人都能改」若分阶段上线要写明 |
@@ -531,12 +663,19 @@ TDD：每张新表、每个纯函数、每条守卫，先有失败测试再写�
 - owner 可以添加 viewer、把 editor 转成所有者，自己变成 editor。
 - 非成员打开 `/board/{id}/node/{nodeId}` 得到 403 页，且正文含所有者登录名；URL 不会被改写成首页。
 - 不存在的 board id 是 404。
-- 两块板共用一个 BOM 版本时，只是其中一块 editor 的人 POST 根节点编辑被拒，`initial_bom` 不变；两块都是 editor 时可以改，两块板的折叠结果一起变。
-- 只拥有分组中一块板的人，DELETE 整组被拒，自己那块还在；DELETE 自己的板成功。
-- 复用一个自己不是成员的 BOM 版本来建板，403，不产生新板。
+- 任何人 POST 单板页上的根节点编辑都被拒，`initial_bom` 不变，响应含「请到 BOM 版本页修正」。根节点 HTML 没有编辑用的 `hx-post`。
+- 只拥有分组中一块板的人，DELETE 整组被拒，自己那块还在，响应里不出现另一块板的 `board_uid`。范围内每块都是 owner 时，删除前的清单列出全部 `board_uid`；名称没键对则不删。
+- 不是负责人的成员在已有 BOM 版本下建板，403，不产生新板。负责人可以，且新板的 owner 是他。
 - 哈希前缀只命中别人的板时，toast 与「未找到」相同。
-- 硬更改图片在未登录和在非成员时都拿不到字节；viewer 拿得到。
-- `/uploads/` 前缀不再返回文件。
+- 硬更改图片：viewer 经鉴权路由拿得到字节；非成员 403；未登录走登录跳转。`hard_change_detail.html` 与 `hard_change_form.html` 的 HTML 里不再出现 `/uploads/`。
+- 节点附件：viewer 经 `.../attachments/{aid}/download` 拿得到字节。把 `storage_path` 拼成 `/uploads/<storage_path>` 是 404。硬更改文件名拼成 `/uploads/<filename>` 也是 404。
+- 对比差异 CSV：一侧板不可见时 404，正文不含那块板的 `board_uid`。
+
+`tests/test_bom_version.py`：两块板共用一个版本。负责人且两块都是 editor 时，影响清单含两块板的 `board_uid` 和冲突；有冲突未选择时 POST 不改 `initial_bom`；全部确认后两块板的折叠一起变，每块根节点的 `edit_log.note` 以「BOM 版本修正」开头，操作人是提交者。中途让第二块板的 revision 对不上（或在事务里模拟第二块写入失败）时，第一块也保持原值。负责人被从其中一块降为 viewer 时，页面没有表单，POST 403，正文不出现那块板的 `board_uid`。
+
+`tests/test_revision.py`：两个客户端先后编辑同一草稿，后一个带着旧 `revision` 时 changeset 仍是前一个的值，响应含「已被 {前者用户名} 修改，请刷新」。冲突确认请求里下游 revision 过期时，上游修正也不落库。
+
+`tests/test_admin_routes.py` 追加：停用某板 owner 后，管理员页出现该板的名称和 `board_uid`，HTML 不含位号值；强制转让后新用户是 owner，管理员自己仍打不开这块板；日志调用可借 `caplog` 断言 `reflow.admin` 有一条 INFO。
 
 `tests/test_admin_routes.py`：非管理员 403；创建用户；停用后该用户登录失败且旧会话无效；不能停用自己；不能停用最后一位管理员；重置密码后旧会话无效。
 
@@ -562,27 +701,33 @@ TDD：每张新表、每个纯函数、每条守卫，先有失败测试再写�
 
 这一阶段上线后，未登录进不来，但任一登录用户的权力与今天相同。CLI 只提供 `create-admin`，不要提前发普通用户。README 写明这一点。
 
-**阶段 2 — 按单板授权。** 把守卫表改成矩阵里的角色；首页过滤；只读界面；成员管理与转让；共用初始 BOM 和跨范围删除的附加规则；哈希与对比的可见性；硬更改图片改走鉴权路由；CLI `create-user`。本阶段结束时，普通用户可以被命令行造出来，并由所有者在网页上加进单板。
+**阶段 2 — 按单板授权。** 把守卫表改成矩阵里的角色；首页过滤；只读界面；成员管理与转让；`bom_versions` 与负责人（迁移归第一个管理员，新建版本的人成为负责人，只有负责人能在已有版本下建板）；单板页根节点改为 403，本阶段还没有版本页，拒绝文案先说明不能在单板页改，阶段 5 再改成「请到 BOM 版本页修正」并加上链接；跨范围重命名/删除的权限检查、影响清单和删除时的名称确认；哈希与对比的可见性；按「文件下载与静态路径」关掉 `/uploads` 并把硬更改图片、附件下载放进守卫；CLI `create-user`。本阶段结束时，普通用户可以被命令行造出来，并由所有者在网页上加进单板。初始 BOM 在版本页落地之前不能从网页改，README 写明。
 
-**阶段 3 — 网页上的用户管理。** `/admin/users` 的创建、停用、启用、重置密码，以及停用/重置时吊销会话。规则（不能停用自己、不能停用最后一位管理员）有路由测试。
+**阶段 3 — 网页上的用户管理。** `/admin/users` 的创建、停用、启用、重置密码，以及停用/重置时吊销会话。规则（不能停用自己、不能停用最后一位管理员）有路由测试。同一页加上「所有者已停用」的单板和 BOM 版本清单（只有名称），以及不打开板内容的强制转让，并打 `reflow.admin` 日志。
 
-**阶段 4 — 审计操作人。** `edit_log.actor_user_id`、propagation 传参、日志页新列。旧数据显示「（升级前）」。与权限无关，故放在最后，避免和守卫表的改动缠在同一个 diff 里。
+**阶段 4 — 审计操作人。** `edit_log.actor_user_id`、propagation 传参、日志页新列。旧数据显示「（升级前）」。放在版本页之前，版本页写审计时直接带上操作人。
 
-阶段 2 是权限真正生效的那一刀，不要和阶段 1 的「人人登录即可改」混在一个含糊的中间版本里对外说「已经有权限了」。
+**阶段 5 — BOM 版本页。** `/bom-version/{id}` 的只读清单、影响预览、逐板确认、单事务提交、`bom_versions.revision`、每块板的「BOM 版本修正」审计、根节点页上的那句提示、负责人转让。本阶段不做节点乐观锁。
+
+**阶段 6 — 节点乐观锁。** `nodes.revision` / `revised_by`，各写路径带版本号，冲突确认改为先选后写，传播在同一事务里核对下游版本。文案「已被 {用户名} 修改，请刷新」。
+
+阶段 2 是权限真正生效的那一刀。阶段 5 之前，网页上不能改初始 BOM，这是有意的空窗，不要在阶段 2 临时放回单板页上的根节点编辑。
 
 ## 未决问题
 
 正文已按括号里的建议写了实现方案。改判任何一条，都要先改矩阵和交互再开工。
 
-1. **系统管理员要不要自动看见、修改、删除所有单板？** 建议否。管理员只管理账号；板的访问一律看成员行。第一个管理员因为迁移成为现有板的 owner，这是数据迁移，不是一项永久的超权。若改为「管理员等于每块板的 owner」，成员表对管理员形同虚设，审计里也分不清他是不是被邀请的。
-2. **谁可以新建单板？** 建议任何未停用用户都可以建全新的 BOM 版本，创建者成为 owner。复用已有 BOM 版本则必须已经是该版本的成员。若改为「只有管理员能建板」，矩阵里「新建单板」那一行改到管理员，首页按钮也只对管理员渲染。
-3. **一块板是否永远只有一个所有者？** 建议是。转让是原子替换，原所有者降为 editor，不离开这块板。若要多所有者，删掉部分唯一索引，并重新定义「谁能转让、谁能删板」。
+1. **系统管理员要不要自动看见、修改、删除所有单板的内容？** 建议否。管理员只管理账号。强制转让「所有者已停用」的板和 BOM 版本已经单独定了：只看名称、不看内容、转让后管理员自己仍不是成员。这不扩展成打开任意单板。第一个管理员因为迁移成为现有板的 owner 和现有版本的负责人，是数据迁移，不是一项永久的超权。
+2. **谁可以新建一份全新的 BOM 版本？** 已决定的是：在已有版本下再建板，只有该版本负责人可以。尚未决定的是全新三元组。建议任何未停用用户都可以上传 CSV 新建，创建者成为负责人，也成为那块板的 owner。若改为「只有管理员能建全新版本」，矩阵里那一行和首页按钮只对管理员开放；已有版本下的规则不变。
+3. **一块板是否永远只有一个所有者？** 建议是。转让是原子替换，原所有者降为 editor，不离开这块板。强制转让沿用同一条。若要多所有者，删掉部分唯一索引，并重新定义「谁能转让、谁能删板」。
 4. **只读成员能不能看见工作区草稿？** 建议能看不能改。草稿是这块板的当前工作状态，稳定链接也可能指向它。若改为看不见，viewer 的「当前 BOM」应定义成最新已提交节点，下载和节点链接都要跟着改。
 5. **不是成员时用 403 还是假装 404？** 建议已登录用户看具体 URL 时用 403，并写出所有者登录名。哈希前缀查询不区分「没有」和「不能看」。若更在意单板 id 可被枚举，则两种情况都返回现在的 404 页，成员管理的联系路径要另外做。
 6. **停用账号的失败文案要不要和密码错误相同？** 建议分开（「账号已停用，请联系管理员」）。登录名由管理员分配，不存在公开注册意义上的撞库枚举。若要完全不区分，两句合成一句，测试一起改。
 7. **密码策略。** 建议仅「至少 8 位」，不强制字符种类，不过期。实验室口令写在内部笔记里，复杂度规则帮不上忙，锁死的是重置流程。
 8. **会话天数。** 建议 14 天滑动。若希望每天重新登录，把默认改成 1，并接受 Playwright 与长时间导入被打断。
 9. **转让后原所有者变成什么？** 建议 editor。若应立刻失去访问，转让时删掉他的成员行，他下一次打开就是 403。
-10. **成员变更和账号管理要不要进审计？** 建议本次不进 `edit_log`。若需要，另开一张 `admin_log`，不要复用位号日志的列。
+10. **成员变更、账号管理和强制转让要不要进审计？** BOM 版本修正已经决定写入各板的 `edit_log`（`note` 前缀「BOM 版本修正」），不要把它理解成这道题的答案。成员变更、停用、重置密码、强制转让建议仍不进 `edit_log`。强制转让在此之前打 `reflow.admin` 应用日志。若需要可查询的管理审计，另开一张 `admin_log`，不要复用位号日志的列。
 11. **cookie 的 Secure 默认值。** 建议默认关闭，因为当前是 HTTP 部署。确认会在反代上终结 TLS 之后，再把部署脚本的默认改成 `REFLOW_COOKIE_SECURE=1`。
 12. **零用户时的提示是否暴露「请在服务器上执行 CLI」？** 建议暴露。能打开这个端口的人，和能部署它的人是同一拨；藏起来只会让第一次启动没有入口。这不是注册入口，页面上没有设密码的表单。
+13. **修正初始 BOM 时，负责人和「每块板至少 editor」是什么关系？** 建议必须同时满足，理由见「谁可以修正」。若改为只要求负责人，他会在已经不是成员的板上看到历史并写入传播。若改为只要求每块板都是 editor，负责人对共享清单没有决定权。改判后版本页的入口条件和测试一起改。
+14. **BOM 版本负责人能否自己转让？** 建议能，对象是另一名未停用用户，不自动改各板成员。系统管理员在负责人已停用时的强制更换已经决定，与这一条互不代替。若改为不能自己转让，版本页去掉该表单，只留管理员那条路径。
