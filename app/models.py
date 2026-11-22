@@ -17,8 +17,14 @@ def create_bom_version(
     conn: sqlite3.Connection,
     board_name: str, pcb_version: str, bom_version: str,
     entries: list[CsvEntry],
+    *,
+    owner_user_id: int | None = None,
 ) -> None:
-    """建立一个 BOM版本 的初始 BOM。三元组重复时抛 ValueError。"""
+    """建立一个 BOM版本 的初始 BOM。三元组重复时抛 ValueError。
+
+    owner_user_id 给出时，在同一事务里写下 bom_versions 负责人。
+    三元组已经有负责人则不改。
+    """
     exists = conn.execute(
         "SELECT 1 FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
         (board_name, pcb_version, bom_version),
@@ -30,6 +36,8 @@ def create_bom_version(
         " VALUES(?,?,?,?,?)",
         [(board_name, pcb_version, bom_version, e.reference, e.part) for e in entries],
     )
+    if owner_user_id is not None:
+        ensure_bom_version(conn, board_name, pcb_version, bom_version, owner_user_id)
     conn.commit()
 
 
@@ -47,6 +55,40 @@ def list_bom_versions(conn) -> list[sqlite3.Row]:
         "SELECT DISTINCT board_name, pcb_version, bom_version FROM initial_bom"
         " ORDER BY board_name, pcb_version, bom_version"
     ).fetchall()
+
+
+def ensure_bom_version(conn, board_name, pcb_version, bom_version, owner_user_id) -> int:
+    """已有三元组则返回 id，不改负责人。没有则插入一行。不提交。"""
+    row = conn.execute(
+        "SELECT id FROM bom_versions"
+        " WHERE board_name=? AND pcb_version=? AND bom_version=?",
+        (board_name, pcb_version, bom_version),
+    ).fetchone()
+    if row:
+        return row["id"]
+    cur = conn.execute(
+        "INSERT INTO bom_versions(board_name,pcb_version,bom_version,owner_user_id,created_at)"
+        " VALUES(?,?,?,?,?)",
+        (board_name, pcb_version, bom_version, owner_user_id, _now()),
+    )
+    return cur.lastrowid
+
+
+def get_bom_version_row(conn, board_name, pcb_version, bom_version):
+    return conn.execute(
+        "SELECT * FROM bom_versions WHERE board_name=? AND pcb_version=? AND bom_version=?",
+        (board_name, pcb_version, bom_version),
+    ).fetchone()
+
+
+def bom_version_exists(conn, board_name, pcb_version, bom_version) -> bool:
+    """三元组在初始 BOM 或 bom_versions 里出现过，就算已存在。"""
+    if get_bom_version_row(conn, board_name, pcb_version, bom_version):
+        return True
+    return conn.execute(
+        "SELECT 1 FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
+        (board_name, pcb_version, bom_version),
+    ).fetchone() is not None
 
 
 # ---------- 单板 & 节点 ----------
@@ -263,7 +305,10 @@ def delete_board(conn, board_id) -> list[str]:
 
 
 def delete_bom_version(conn, board_name, pcb_version, bom_version) -> list[str]:
-    """删除 BOM 版本下所有单板及初始 BOM（级联）。返回被删图片 filename。"""
+    """删除 BOM 版本下所有单板及初始 BOM（级联）。返回被删图片 filename。
+
+    范围内已经没有单板、也没有初始 BOM 时，删掉对应的 bom_versions 行。
+    """
     boards = conn.execute(
         "SELECT id FROM boards_hierarchy WHERE board_name=? AND pcb_version=? AND bom_version=?",
         (board_name, pcb_version, bom_version),
@@ -275,6 +320,7 @@ def delete_bom_version(conn, board_name, pcb_version, bom_version) -> list[str]:
         "DELETE FROM initial_bom WHERE board_name=? AND pcb_version=? AND bom_version=?",
         (board_name, pcb_version, bom_version),
     )
+    _drop_empty_bom_version(conn, board_name, pcb_version, bom_version)
     conn.commit()
     return filenames
 
@@ -282,8 +328,12 @@ def delete_bom_version(conn, board_name, pcb_version, bom_version) -> list[str]:
 def delete_board_name(conn, board_name) -> list[str]:
     """删除单板名称下所有 BOM 版本及其数据（级联）。返回被删图片 filename。"""
     versions = conn.execute(
-        "SELECT DISTINCT pcb_version, bom_version FROM initial_bom WHERE board_name=?",
-        (board_name,),
+        """SELECT DISTINCT pcb_version, bom_version FROM initial_bom WHERE board_name=?
+           UNION
+           SELECT DISTINCT pcb_version, bom_version FROM boards_hierarchy WHERE board_name=?
+           UNION
+           SELECT DISTINCT pcb_version, bom_version FROM bom_versions WHERE board_name=?""",
+        (board_name, board_name, board_name),
     ).fetchall()
     filenames: list[str] = []
     for v in versions:
@@ -292,60 +342,129 @@ def delete_board_name(conn, board_name) -> list[str]:
     return filenames
 
 
-def rename_board_name(conn, old, new) -> None:
-    """重命名单板名称：级联更新两表所有匹配行。同名冲突抛 ValueError。"""
-    if new == old:
+def _drop_empty_bom_version(conn, board_name, pcb_version, bom_version) -> None:
+    """没有单板、也没有初始 BOM 时删掉负责人行。不提交。"""
+    still = conn.execute(
+        """SELECT 1 FROM boards_hierarchy
+           WHERE board_name=? AND pcb_version=? AND bom_version=?
+           UNION ALL
+           SELECT 1 FROM initial_bom
+           WHERE board_name=? AND pcb_version=? AND bom_version=?
+           LIMIT 1""",
+        (board_name, pcb_version, bom_version, board_name, pcb_version, bom_version),
+    ).fetchone()
+    if still:
         return
+    conn.execute(
+        "DELETE FROM bom_versions WHERE board_name=? AND pcb_version=? AND bom_version=?",
+        (board_name, pcb_version, bom_version),
+    )
+
+
+def _version_name_taken(conn, board_name, pcb_version, bom_version) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM boards_hierarchy"
+            " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
+            (board_name, pcb_version, bom_version),
+        ).fetchone()
+        or conn.execute(
+            "SELECT 1 FROM initial_bom"
+            " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
+            (board_name, pcb_version, bom_version),
+        ).fetchone()
+        or conn.execute(
+            "SELECT 1 FROM bom_versions"
+            " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
+            (board_name, pcb_version, bom_version),
+        ).fetchone()
+    )
+
+
+def board_name_rename_error(conn, old, new) -> str | None:
+    """重名时返回给页面的中文原因。新旧相同不算错。"""
+    if new == old:
+        return None
     exists = (
-        conn.execute("SELECT 1 FROM boards_hierarchy WHERE board_name=? LIMIT 1",
-                     (new,)).fetchone()
-        or conn.execute("SELECT 1 FROM initial_bom WHERE board_name=? LIMIT 1",
-                        (new,)).fetchone()
+        conn.execute("SELECT 1 FROM boards_hierarchy WHERE board_name=? LIMIT 1", (new,)).fetchone()
+        or conn.execute("SELECT 1 FROM initial_bom WHERE board_name=? LIMIT 1", (new,)).fetchone()
+        or conn.execute("SELECT 1 FROM bom_versions WHERE board_name=? LIMIT 1", (new,)).fetchone()
     )
     if exists:
-        raise ValueError(f"单板名称「{new}」已存在")
+        return f"单板名称「{new}」已存在"
+    return None
+
+
+def pcb_version_rename_error(conn, board_name, old, new) -> str | None:
+    if new == old:
+        return None
+    exists = (
+        conn.execute(
+            "SELECT 1 FROM boards_hierarchy WHERE board_name=? AND pcb_version=? LIMIT 1",
+            (board_name, new)).fetchone()
+        or conn.execute(
+            "SELECT 1 FROM initial_bom WHERE board_name=? AND pcb_version=? LIMIT 1",
+            (board_name, new)).fetchone()
+        or conn.execute(
+            "SELECT 1 FROM bom_versions WHERE board_name=? AND pcb_version=? LIMIT 1",
+            (board_name, new)).fetchone()
+    )
+    if exists:
+        return f"PCB 版本「{new}」已存在"
+    return None
+
+
+def bom_version_rename_error(conn, board_name, pcb_version, old, new) -> str | None:
+    if new == old:
+        return None
+    if _version_name_taken(conn, board_name, pcb_version, new):
+        return f"BOM 版本「{new}」已存在"
+    return None
+
+
+def rename_board_name(conn, old, new) -> None:
+    """重命名单板名称：级联更新层级、初始 BOM 和版本负责人。同名冲突抛 ValueError。"""
+    err = board_name_rename_error(conn, old, new)
+    if err:
+        raise ValueError(err)
+    if new == old:
+        return
     conn.execute("UPDATE boards_hierarchy SET board_name=? WHERE board_name=?", (new, old))
     conn.execute("UPDATE initial_bom SET board_name=? WHERE board_name=?", (new, old))
+    conn.execute("UPDATE bom_versions SET board_name=? WHERE board_name=?", (new, old))
     conn.commit()
 
 
 def rename_pcb_version(conn, board_name, old, new) -> None:
     """重命名 PCB 版本：级联该 board_name 下该 PCB 的所有行。冲突抛 ValueError。"""
+    err = pcb_version_rename_error(conn, board_name, old, new)
+    if err:
+        raise ValueError(err)
     if new == old:
         return
-    exists = (
-        conn.execute("SELECT 1 FROM boards_hierarchy WHERE board_name=? AND pcb_version=? LIMIT 1",
-                     (board_name, new)).fetchone()
-        or conn.execute("SELECT 1 FROM initial_bom WHERE board_name=? AND pcb_version=? LIMIT 1",
-                        (board_name, new)).fetchone()
-    )
-    if exists:
-        raise ValueError(f"PCB 版本「{new}」已存在")
     conn.execute("UPDATE boards_hierarchy SET pcb_version=? WHERE board_name=? AND pcb_version=?",
                  (new, board_name, old))
     conn.execute("UPDATE initial_bom SET pcb_version=? WHERE board_name=? AND pcb_version=?",
+                 (new, board_name, old))
+    conn.execute("UPDATE bom_versions SET pcb_version=? WHERE board_name=? AND pcb_version=?",
                  (new, board_name, old))
     conn.commit()
 
 
 def rename_bom_version(conn, board_name, pcb_version, old, new) -> None:
     """重命名 BOM 版本：只动 (board_name, pcb_version, old) 三元组。冲突抛 ValueError。"""
+    err = bom_version_rename_error(conn, board_name, pcb_version, old, new)
+    if err:
+        raise ValueError(err)
     if new == old:
         return
-    exists = (
-        conn.execute("SELECT 1 FROM boards_hierarchy"
-                     " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
-                     (board_name, pcb_version, new)).fetchone()
-        or conn.execute("SELECT 1 FROM initial_bom"
-                        " WHERE board_name=? AND pcb_version=? AND bom_version=? LIMIT 1",
-                        (board_name, pcb_version, new)).fetchone()
-    )
-    if exists:
-        raise ValueError(f"BOM 版本「{new}」已存在")
     conn.execute("UPDATE boards_hierarchy SET bom_version=?"
                  " WHERE board_name=? AND pcb_version=? AND bom_version=?",
                  (new, board_name, pcb_version, old))
     conn.execute("UPDATE initial_bom SET bom_version=?"
+                 " WHERE board_name=? AND pcb_version=? AND bom_version=?",
+                 (new, board_name, pcb_version, old))
+    conn.execute("UPDATE bom_versions SET bom_version=?"
                  " WHERE board_name=? AND pcb_version=? AND bom_version=?",
                  (new, board_name, pcb_version, old))
     conn.commit()
@@ -667,6 +786,7 @@ def create_user(conn, username: str, password: str, is_admin: bool) -> int:
     user_id = cur.lastrowid
     if count == 0:
         assign_boards_without_owner(conn, user_id)
+        assign_bom_versions_without_owner(conn, user_id)
     conn.commit()
     return user_id
 
@@ -788,9 +908,216 @@ def backfill_owners_if_unassigned(conn) -> int:
         "SELECT 1 FROM board_members WHERE role='owner' LIMIT 1"
     ).fetchone():
         return 0
-    admin = conn.execute(
-        "SELECT id FROM users WHERE is_admin=1 AND disabled_at IS NULL ORDER BY id LIMIT 1"
-    ).fetchone()
+    admin = _first_enabled_admin(conn)
     if admin is None:
         return 0
-    return assign_boards_without_owner(conn, admin["id"])
+    return assign_boards_without_owner(conn, admin)
+
+
+def _first_enabled_admin(conn) -> int | None:
+    row = conn.execute(
+        "SELECT id FROM users WHERE is_admin=1 AND disabled_at IS NULL ORDER BY id LIMIT 1"
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def assign_bom_versions_without_owner(conn, user_id: int) -> int:
+    """给还没有 bom_versions 行的三元组补负责人。已有负责人的不动。返回补上的个数。"""
+    before = conn.execute("SELECT COUNT(*) AS n FROM bom_versions").fetchone()["n"]
+    conn.execute(
+        """INSERT INTO bom_versions(board_name,pcb_version,bom_version,owner_user_id,created_at)
+           SELECT board_name, pcb_version, bom_version, ?, ? FROM (
+             SELECT board_name, pcb_version, bom_version FROM initial_bom
+             UNION
+             SELECT board_name, pcb_version, bom_version FROM boards_hierarchy
+           ) AS triples
+           WHERE NOT EXISTS (
+             SELECT 1 FROM bom_versions v
+             WHERE v.board_name=triples.board_name
+               AND v.pcb_version=triples.pcb_version
+               AND v.bom_version=triples.bom_version
+           )""",
+        (user_id, _now()),
+    )
+    conn.commit()
+    after = conn.execute("SELECT COUNT(*) AS n FROM bom_versions").fetchone()["n"]
+    return after - before
+
+
+def backfill_bom_version_owners(conn) -> int:
+    """尚无负责人的三元组归最早的未停用管理员。没有管理员时什么都不做。"""
+    admin = _first_enabled_admin(conn)
+    if admin is None:
+        return 0
+    return assign_bom_versions_without_owner(conn, admin)
+
+
+def load_membership(conn, user_id: int, board_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT role FROM board_members WHERE board_id=? AND user_id=?",
+        (board_id, user_id),
+    ).fetchone()
+    return row["role"] if row else None
+
+
+def board_owner_username(conn, board_id: int) -> str | None:
+    row = conn.execute(
+        """SELECT u.username FROM board_members m
+           JOIN users u ON u.id=m.user_id
+           WHERE m.board_id=? AND m.role='owner'""",
+        (board_id,),
+    ).fetchone()
+    return row["username"] if row else None
+
+
+def visible_board_ids(conn, user_id: int) -> set[int]:
+    rows = conn.execute(
+        "SELECT board_id FROM board_members WHERE user_id=?", (user_id,)
+    ).fetchall()
+    return {r["board_id"] for r in rows}
+
+
+def list_visible_boards(conn, user_id: int) -> list[sqlite3.Row]:
+    """这个用户至少是 viewer 的单板，带上他在这块板上的角色。"""
+    return conn.execute(
+        """SELECT b.*, m.role FROM boards_hierarchy b
+           JOIN board_members m ON m.board_id=b.id AND m.user_id=?
+           ORDER BY b.board_name, b.pcb_version, b.bom_version, b.board_uid""",
+        (user_id,),
+    ).fetchall()
+
+
+def list_version_choices(conn, user_id: int) -> list[sqlite3.Row]:
+    """新建页下拉：自己已经是成员的版本，加上自己担任负责人的版本。"""
+    return conn.execute(
+        """SELECT DISTINCT board_name, pcb_version, bom_version FROM (
+             SELECT b.board_name, b.pcb_version, b.bom_version
+               FROM boards_hierarchy b
+               JOIN board_members m ON m.board_id=b.id AND m.user_id=?
+             UNION
+             SELECT board_name, pcb_version, bom_version
+               FROM bom_versions WHERE owner_user_id=?
+           ) ORDER BY board_name, pcb_version, bom_version""",
+        (user_id, user_id),
+    ).fetchall()
+
+
+def boards_in_scope(conn, *, board_name: str, pcb_version: str | None = None,
+                    bom_version: str | None = None) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM boards_hierarchy WHERE board_name=?"
+    params: list = [board_name]
+    if pcb_version is not None:
+        sql += " AND pcb_version=?"
+        params.append(pcb_version)
+    if bom_version is not None:
+        sql += " AND bom_version=?"
+        params.append(bom_version)
+    sql += " ORDER BY pcb_version, bom_version, board_uid"
+    return conn.execute(sql, params).fetchall()
+
+
+def user_owns_all(conn, user_id: int, *, board_name: str,
+                  pcb_version: str | None = None,
+                  bom_version: str | None = None) -> bool:
+    """范围内每一块单板都是这个用户的 owner。一块都没有时为假。"""
+    boards = boards_in_scope(
+        conn, board_name=board_name, pcb_version=pcb_version, bom_version=bom_version)
+    if not boards:
+        return False
+    for board in boards:
+        if load_membership(conn, user_id, board["id"]) != "owner":
+            return False
+    return True
+
+
+def list_members(conn, board_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT u.id AS id, u.username, u.disabled_at, m.role, m.created_at
+           FROM board_members m JOIN users u ON u.id=m.user_id
+           WHERE m.board_id=?
+           ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END,
+                    u.username""",
+        (board_id,),
+    ).fetchall()
+
+
+def add_member(conn, board_id: int, username: str, role: str) -> None:
+    """把已有用户加为 editor 或 viewer。找不到、已停用、已是成员都抛 ValueError。"""
+    if role not in ("editor", "viewer"):
+        raise ValueError("只能添加为可编辑或只读")
+    user = get_user_by_username(conn, username)
+    if user is None:
+        raise ValueError("没有这个用户")
+    if user["disabled_at"]:
+        raise ValueError("该账号已停用")
+    existing = load_membership(conn, user["id"], board_id)
+    if existing:
+        raise ValueError("已经是这块单板的成员")
+    conn.execute(
+        "INSERT INTO board_members(board_id,user_id,role,created_at) VALUES(?,?,?,?)",
+        (board_id, user["id"], role, _now()),
+    )
+    conn.commit()
+
+
+def set_member_role(conn, board_id: int, user_id: int, role: str) -> None:
+    """只在 editor 与 viewer 之间改。不能改 owner 那一行。"""
+    if role not in ("editor", "viewer"):
+        raise ValueError("角色只能是可编辑或只读")
+    current = load_membership(conn, user_id, board_id)
+    if current is None:
+        raise ValueError("不是这块单板的成员")
+    if current == "owner":
+        raise ValueError("不能修改所有者的角色，请使用转让")
+    conn.execute(
+        "UPDATE board_members SET role=? WHERE board_id=? AND user_id=?",
+        (role, board_id, user_id),
+    )
+    conn.commit()
+
+
+def remove_member(conn, board_id: int, user_id: int) -> None:
+    current = load_membership(conn, user_id, board_id)
+    if current is None:
+        raise ValueError("不是这块单板的成员")
+    if current == "owner":
+        raise ValueError("不能移除所有者")
+    conn.execute(
+        "DELETE FROM board_members WHERE board_id=? AND user_id=?",
+        (board_id, user_id),
+    )
+    conn.commit()
+
+
+def transfer_ownership(conn, board_id: int, from_user_id: int, to_user_id: int) -> None:
+    """同一事务：原所有者降为 editor，目标成员升为 owner。
+
+    先降级再升级，否则部分唯一索引会在中间态看到两名 owner。
+    目标必须已是本板成员且未停用。
+    """
+    if from_user_id == to_user_id:
+        raise ValueError("不能转让给自己")
+    if load_membership(conn, from_user_id, board_id) != "owner":
+        raise ValueError("只有所有者能转让")
+    target_role = load_membership(conn, to_user_id, board_id)
+    if target_role is None:
+        raise ValueError("对方还不是这块单板的成员")
+    target = conn.execute(
+        "SELECT disabled_at FROM users WHERE id=?", (to_user_id,)
+    ).fetchone()
+    if target is None or target["disabled_at"]:
+        raise ValueError("不能转给已停用的账号")
+    try:
+        # 先降级再升级，部分唯一索引才不会在中间态看到两名 owner。
+        conn.execute(
+            "UPDATE board_members SET role='editor' WHERE board_id=? AND user_id=? AND role='owner'",
+            (board_id, from_user_id),
+        )
+        conn.execute(
+            "UPDATE board_members SET role='owner' WHERE board_id=? AND user_id=?",
+            (board_id, to_user_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise

@@ -92,6 +92,52 @@ def test_cli_assign_orphans_fills_only_gaps(tmp_path, monkeypatch):
     ]
 
 
+def test_cli_create_user_after_admin(tmp_path, monkeypatch, capsys):
+    _prepare(tmp_path, monkeypatch)
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": "correct-horse")
+    assert main(["create-admin", "--username", "admin"]) == 0
+    assert main(["create-user", "--username", "Huaqing"]) == 0
+    assert "huaqing" in capsys.readouterr().out
+    conn = connect(str(tmp_path / "t.sqlite"))
+    init_db(conn)
+    row = conn.execute(
+        "SELECT username, is_admin FROM users WHERE username='huaqing'"
+    ).fetchone()
+    assert row["is_admin"] == 0
+
+
+def test_cli_create_user_refuses_on_empty_db(tmp_path, monkeypatch, capsys):
+    _prepare(tmp_path, monkeypatch)
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": "correct-horse")
+    assert main(["create-user", "--username", "huaqing"]) == 1
+    assert "create-admin" in capsys.readouterr().err
+
+
+def test_cli_assign_orphans_fills_bom_version(tmp_path, monkeypatch):
+    db = _prepare(tmp_path, monkeypatch)
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": "correct-horse")
+    assert main(["create-admin", "--username", "admin"]) == 0
+    conn = connect(str(db))
+    init_db(conn)
+    conn.execute(
+        "INSERT INTO initial_bom(board_name,pcb_version,bom_version,reference,part)"
+        " VALUES('New','p','b','R1','10k')"
+    )
+    conn.commit()
+    conn.close()
+    assert main(["assign-orphans", "--username", "admin"]) == 0
+    conn = connect(str(db))
+    init_db(conn)
+    row = conn.execute(
+        """SELECT u.username FROM bom_versions v
+           JOIN users u ON u.id=v.owner_user_id
+           WHERE v.board_name='New'"""
+    ).fetchone()
+    assert row["username"] == "admin"
+    assert main(["assign-orphans", "--username", "admin"]) == 0
+    assert conn.execute("SELECT COUNT(*) AS n FROM bom_versions WHERE board_name='New'").fetchone()["n"] == 1
+
+
 def test_bootstrap_creates_admin_and_does_not_reset(tmp_path, monkeypatch):
     db = _prepare(tmp_path, monkeypatch)
     conn = connect(str(db))
