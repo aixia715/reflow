@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}BOM 版本 {{ version.bom_version }} — Reflow{% endblock %}
+{% block crumbs %}
+<a href="/">首页</a> /
+{{ version.board_name }} / {{ version.pcb_version }} / {{ version.bom_version }}
+{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>BOM 版本</h1>
+  <span class="badge badge-purple">{{ version.board_name }} / {{ version.pcb_version }} / {{ version.bom_version }}</span>
+</div>
+<p class="muted">负责人 {{ owner_username }}。这份初始清单被该版本下的每一块单板共用，单板页上的根节点不能改它。</p>
+
+{% if error %}
+<div class="flash flash-error">{{ error }}</div>
+{% endif %}
+{% if not can_correct %}
+<div class="flash flash-info">你还不能修正这份初始 BOM。</div>
+{% endif %}
+
+<div class="{% if can_correct %}two-col{% endif %}">
+  <div class="panel">
+    <div class="panel-title">初始清单 · {{ rows|length }} 个位号</div>
+    {% if rows %}
+    <div class="table-scroll">
+      <table class="bom">
+        <thead><tr><th>位号</th><th>值</th></tr></thead>
+        <tbody>
+        {% for ref, part in rows %}
+        <tr><td><code>{{ ref }}</code></td><td>{{ part }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">这份初始清单还没有位号。{% if can_correct %}在右侧新增一条。{% endif %}</div>
+    {% endif %}
+  </div>
+
+  {% if can_correct %}
+  <aside>
+    <div class="panel" x-data="{ op: 'modify' }">
+      <div class="panel-title">修正一条位号</div>
+      <p class="muted">先看会影响哪些板，确认之后才写入。一次改一条。</p>
+      <form class="edit-form"
+            hx-post="/bom-version/{{ version.id }}/preview"
+            hx-target="#modal" hx-swap="innerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ version.revision }}">
+        <input class="input" name="reference" list="version-refs"
+               placeholder="位号" required autocomplete="off">
+        <datalist id="version-refs">{% for ref, part in rows %}<option value="{{ ref }}">{% endfor %}</datalist>
+        <div class="seg">
+          <label :class="{on: op==='modify'}"><input type="radio" name="op" value="modify" x-model="op">修改</label>
+          <label :class="{on: op==='add'}"><input type="radio" name="op" value="add" x-model="op">新增</label>
+          <label :class="{on: op==='remove'}"><input type="radio" name="op" value="remove" x-model="op">不贴</label>
+        </div>
+        <input class="input" name="part" placeholder="新 Part 值" :disabled="op==='remove'" autocomplete="off">
+        <button class="btn btn-primary">查看影响</button>
+        <div id="form-error"></div>
+      </form>
+    </div>
+  </aside>
+  {% endif %}
+</div>
+
+{% if is_owner %}
+<form class="panel form-stack" method="post" action="/bom-version/{{ version.id }}/transfer">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="panel-title">转让负责人</div>
+  <p class="muted">对方成为这份 BOM 版本的负责人。各板的成员不变；对方还要是每块板的可编辑，才能修正初始清单。</p>
+  <label>新负责人的登录名
+    <input class="input" name="username" required autocomplete="off"></label>
+  <button class="btn btn-outline" type="submit">转让负责人</button>
+</form>
+{% endif %}
+{% endblock %}

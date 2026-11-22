@@ -1,0 +1,49 @@
+<div class="modal-overlay">
+  <div class="modal">
+    <div class="modal-head">将影响以下 {{ items|length }} 块板</div>
+    {% if fix_note %}
+    <div class="flash flash-info">{{ fix_note }}</div>
+    {% endif %}
+    <form method="post" action="/bom-version/{{ version.id }}"
+          hx-post="/bom-version/{{ version.id }}"
+          hx-target="#modal" hx-swap="innerHTML"
+          hx-validate="true"
+          x-data="{ count: {{ conflict_count }}, picked: 0 }"
+          @change="picked = $el.querySelectorAll('input[type=radio]:checked').length">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ revision }}">
+      <input type="hidden" name="reference" value="{{ reference }}">
+      <input type="hidden" name="op" value="{{ op }}">
+      <input type="hidden" name="part" value="{{ part }}">
+      {% for item in items %}
+      <fieldset class="conflict">
+        <legend>板 {{ item.board_uid }}</legend>
+        {% if item.diffs %}
+          {% for d in item.diffs %}
+          <p><code>{{ d.reference }}</code>：{{ d.before or '不贴' }} → {{ d.after or '不贴' }}
+            {% if d.shadowed %}<span class="muted">（当前折叠被下游显式值挡住）</span>{% endif %}</p>
+          {% endfor %}
+        {% else %}
+        <p class="muted">折叠结果不变</p>
+        {% endif %}
+        {% for c in item.conflicts %}
+        <p><code>{{ c.reference }}</code> 在下游节点 #{{ c.downstream_node_id }} 被显式修改过</p>
+        <label><input type="radio" name="choice_{{ c.downstream_node_id }}" value="keep" required>
+          保留下游值（{{ c.downstream_value or '不贴' }}），下游不变</label>
+        <label><input type="radio" name="choice_{{ c.downstream_node_id }}" value="take" required>
+          采用修正值（{{ c.corrected_value or '不贴' }}）并向后传播</label>
+        {% endfor %}
+      </fieldset>
+      {% endfor %}
+      {% if not items %}
+      <p class="muted">这个版本下还没有单板。确认后只更新初始清单。</p>
+      {% endif %}
+      <div class="modal-foot">
+        <button type="button" class="btn"
+                onclick="document.getElementById('modal').innerHTML=''">取消</button>
+        <button class="btn btn-primary" :disabled="picked < count">确认修正</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div id="form-error" hx-swap-oob="true"></div>

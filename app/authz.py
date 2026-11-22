@@ -97,6 +97,11 @@ GUARD: dict[tuple[str, str], str] = {
     ("POST", "/admin/users/{user_id}/admin"): "admin",
     ("POST", "/admin/boards/{board_id}/transfer"): "admin",
     ("POST", "/admin/bom-versions/{version_id}/transfer"): "admin",
+    # BOM 版本页。custom：GET 是负责人或任一成员；修正和转让在处理函数里再判。
+    ("GET", "/bom-version/{version_id}"): _CUSTOM,
+    ("POST", "/bom-version/{version_id}/preview"): _CUSTOM,
+    ("POST", "/bom-version/{version_id}"): _CUSTOM,
+    ("POST", "/bom-version/{version_id}/transfer"): _CUSTOM,
 }
 
 # 角色不够时，局部写操作的 toast。跨范围重命名/删除用另一句，不走这里。
@@ -263,6 +268,47 @@ def enforce(request: Request, conn) -> Response | None:
         )
     request.state.board_role = role
     return None
+
+
+def can_view_bom_version(conn, user_id: int, version_id: int) -> bool:
+    """负责人，或该版本下至少一块板的成员。版本不存在时为假。"""
+    from app import models
+
+    version = models.get_bom_version(conn, version_id)
+    if version is None:
+        return False
+    if version["owner_user_id"] == user_id:
+        return True
+    boards = models.boards_in_scope(
+        conn,
+        board_name=version["board_name"],
+        pcb_version=version["pcb_version"],
+        bom_version=version["bom_version"],
+    )
+    return any(models.load_membership(conn, user_id, board["id"]) for board in boards)
+
+
+def can_correct_bom_version(conn, user_id: int, version_id: int) -> bool:
+    """合取：是负责人，且每一块板的角色都至少是 editor。
+
+    只返回能不能，不把没通过的板 id 交出去。零块板时第二条自然成立。
+    """
+    from app import models
+
+    version = models.get_bom_version(conn, version_id)
+    if version is None or version["owner_user_id"] != user_id:
+        return False
+    boards = models.boards_in_scope(
+        conn,
+        board_name=version["board_name"],
+        pcb_version=version["pcb_version"],
+        bom_version=version["bom_version"],
+    )
+    for board in boards:
+        role = models.load_membership(conn, user_id, board["id"])
+        if not role_at_least(role, "editor"):
+            return False
+    return True
 
 
 def require_registered(request: Request) -> None:

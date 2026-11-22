@@ -7,18 +7,21 @@ def record_edit(
     old_part: str | None, new_part: str | None,
     op: str, source: str, note: str | None = None,
     *, actor_user_id: int | None = None,
+    commit: bool = True,
 ) -> None:
     """追加一条审计记录，永不覆盖。source: 'direct' | 'propagated'。
 
     actor_user_id 只能用关键字传入，已有按位置传 note 的调用不用改。
     不传时列为 NULL，日志页显示「（升级前）」。
+    commit=False 时不提交，让调用方把几块板的审计放进同一个事务。
     """
     conn.execute(
         "INSERT INTO edit_log(node_id,reference,old_part,new_part,op,source,created_at,note,actor_user_id)"
         " VALUES(?,?,?,?,?,?,?,?,?)",
         (node_id, reference, old_part, new_part, op, source, _now(), note, actor_user_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def list_log(conn, node_id: int | None = None) -> list[sqlite3.Row]:

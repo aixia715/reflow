@@ -73,7 +73,10 @@
 <div class="flash flash-info">你对这块单板是只读，不能修改。</div>
 {% endif %}
 {% if node.parent_id is none %}
-<div class="flash flash-info">根节点不能在单板页修改。</div>
+<div class="flash flash-info">初始清单在 BOM 版本页维护。{% if bom_version_id %} <a href="/bom-version/{{ bom_version_id }}">打开 BOM 版本页</a>{% endif %}</div>
+{% if initial_correction %}
+<div class="flash flash-info">原始清单在 <time class="local-dt" datetime="{{ initial_correction.created_at }}">{{ initial_correction.created_at }}</time> 被 {{ initial_correction.actor_username or '（升级前）' }} 修正。</div>
+{% endif %}
 {% endif %}
 {% if can_edit and node.is_committed and node.parent_id is not none %}
 <div class="flash flash-warn">⚠ 这是已提交的历史节点，链接 <code>/board/{{ board_id }}/node/{{ node.id }}</code> 已固定。在此编辑＝<b>修正历史记录</b>：链接不变但内容会变，引用此链接的笔记将不再准确；同时自动向下游传播，下游改过同位号需逐个确认。如需记录新变更，建议在工作区修改后提交。</div>

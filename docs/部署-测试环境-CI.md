@@ -54,6 +54,8 @@ docker exec -it reflow python -m app.cli create-user --username huaqing
 
 审计操作人同样不用手工迁移，也不清库。容器起来时若 `edit_log` 还没有 `actor_user_id` 就补一列，已有记录留空、不删行，重复部署不会再改这些行。日志页上这些空行显示「（升级前）」。账号停用之后，历史里仍显示其登录名。
 
+BOM 版本页同样不用手工迁移，也不清库。`initial_bom` 和已经有负责人的 `bom_versions` 原样保留，重复部署不会改这些行。容器起来之后，从单板的根节点进入 BOM 版本页，才能改这份共用的初始清单。单板页上改根节点会被拒绝。提交前列出每一块板的变化和冲突，确认后一次写完。两人同时改同一个普通节点，这一版仍是后保存的覆盖先保存的；BOM 版本页上的修正会拒绝后一次提交并提示刷新。
+
 ## 需要在仓库设置的 Secrets / Variables
 
 Secrets（Settings → Secrets and variables → Actions → Secrets）：

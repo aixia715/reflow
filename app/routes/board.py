@@ -135,7 +135,8 @@ def _lint_or_none(reference: str, op: str, part: str | None) -> str | None:
 
     契约：**任何写入 changeset / initial_bom 的路径都必须先经本函数或
     `lint_entries`**（现有写入方：节点编辑、工作区编辑、CSV 导入、插入节点、
-    建板初始 BOM；复制到草稿搬的是已归一化的值）。渲染修改面板的
+    建板初始 BOM；BOM 版本页走 `models.normalized_bom_part`，同一条 lint；
+    复制到草稿搬的是已归一化的值）。渲染修改面板的
     `lint_warning_for` 依赖这一点——它只报 warning 级，新增写入路径若漏掉
     lint，fix 级问题会被静默吞掉：既不修正，也不在界面上提示。
     """
@@ -177,9 +178,17 @@ def node_detail(request: Request, board_id: int, node_id: int):
     node = models.get_node(conn, node_id)
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
-    return templates.TemplateResponse(
-        request, "node_detail.html",
-        _node_context(conn, board_id, node, with_lint=False))
+    ctx = _node_context(conn, board_id, node, with_lint=False)
+    ctx["bom_version_id"] = None
+    ctx["initial_correction"] = None
+    if node["parent_id"] is None:
+        version = models.get_bom_version_row(
+            conn, ctx["board"]["board_name"], ctx["board"]["pcb_version"],
+            ctx["board"]["bom_version"])
+        if version is not None:
+            ctx["bom_version_id"] = version["id"]
+        ctx["initial_correction"] = models.latest_initial_correction(conn, node["id"])
+    return templates.TemplateResponse(request, "node_detail.html", ctx)
 
 
 def _content_disposition(filename: str) -> str:
@@ -282,8 +291,14 @@ def edit_node(request: Request, board_id: int, node_id: int,
     if node is None or node["board_id"] != board_id:
         raise HTTPException(status_code=404, detail="节点不存在")
     if node["parent_id"] is None:
-        # 初始 BOM 只在以后的 BOM 版本页修正。阶段 2 起单板页一律拒绝，避免改到共用清单。
-        return PlainTextResponse("根节点不能在单板页修改。", status_code=403)
+        # 共用初始清单只在 BOM 版本页修正。这里拒绝，避免改到别的板。
+        board = models.get_board(conn, board_id)
+        version = models.get_bom_version_row(
+            conn, board["board_name"], board["pcb_version"], board["bom_version"])
+        message = "根节点是初始 BOM，请到 BOM 版本页修正。"
+        if version is not None:
+            message += f" /bom-version/{version['id']}"
+        return PlainTextResponse(message, status_code=403)
     reference = reference.strip()
     part_val, fix_note = _lint_with_note(reference, op, part)
     err = _validate(conn, node_id, reference, op, part_val)

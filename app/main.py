@@ -79,7 +79,10 @@ def create_app() -> FastAPI:
                 request, "404.html", {}, status_code=404)
         return PlainTextResponse(str(exc.detail), status_code=exc.status_code)
 
-    from app.routes import hierarchy, board, log, hard_change, hashes, auth, members, admin_users
+    from app.routes import (
+        hierarchy, board, log, hard_change, hashes, auth, members, admin_users,
+        bom_version,
+    )
     app.include_router(hierarchy.router)
     app.include_router(board.router)
     app.include_router(log.router)
@@ -88,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(members.router)
     app.include_router(admin_users.router)
+    app.include_router(bom_version.router)
 
     @app.get("/healthz")
     def healthz():
