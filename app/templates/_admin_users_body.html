@@ -1,0 +1,152 @@
+<div id="admin-body">
+  <div id="admin-error"></div>
+
+  <div class="panel">
+    <div class="panel-title">账号</div>
+    <div class="table-scroll">
+    <table class="bom" id="users-table">
+      <thead>
+        <tr><th>登录名</th><th>是否管理员</th><th>是否停用</th><th>创建时间</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.username }}</td>
+        <td>
+          {% if u.is_admin %}<span class="badge badge-purple">管理员</span>
+          {% else %}<span class="badge">普通用户</span>{% endif %}
+        </td>
+        <td>
+          {% if u.disabled_at %}<span class="badge badge-red">已停用</span>
+          {% else %}<span class="badge badge-green">正常</span>{% endif %}
+        </td>
+        <td class="muted"><time class="local-dt" datetime="{{ u.created_at }}">{{ u.created_at }}</time></td>
+        <td class="row-actions">
+          {% if u.disabled_at %}
+          <button type="button" class="btn-link"
+                  hx-post="/admin/users/{{ u.id }}/enable"
+                  hx-target="#admin-body" hx-swap="outerHTML"
+                  hx-confirm="确认重新启用「{{ u.username }}」？对方可以再次登录。">启用</button>
+          {% elif u.id != user.id and not (u.is_admin and enabled_admin_count <= 1) %}
+          <button type="button" class="btn-link danger"
+                  hx-post="/admin/users/{{ u.id }}/disable"
+                  hx-target="#admin-body" hx-swap="outerHTML"
+                  hx-confirm="确认停用「{{ u.username }}」？对方将不能登录，已有会话会立刻失效。">停用</button>
+          {% elif u.id == user.id %}
+          <span class="muted">不能停用自己</span>
+          {% else %}
+          <span class="muted">最后一位管理员</span>
+          {% endif %}
+          {% if u.id != user.id %}
+          <span x-data="{reset:false}">
+            <button type="button" class="btn-link" @click="reset=!reset">重置密码</button>
+            <form class="inline-form" x-show="reset" x-cloak
+                  hx-post="/admin/users/{{ u.id }}/password"
+                  hx-target="#admin-body" hx-swap="outerHTML">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input class="input" type="password" name="password" placeholder="新密码"
+                     autocomplete="new-password" required>
+              <input class="input" type="password" name="password2" placeholder="再输入一次"
+                     autocomplete="new-password" required>
+              <button class="btn" type="submit">确定</button>
+            </form>
+          </span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <form class="panel form-stack" hx-post="/admin/users"
+        hx-target="#admin-body" hx-swap="outerHTML">
+    <div class="panel-title">新建账号</div>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>登录名
+      <input class="input" name="username" autocomplete="off" required>
+    </label>
+    <label>初始密码
+      <input class="input" type="password" name="password" autocomplete="new-password" required>
+    </label>
+    <label>再输入一次
+      <input class="input" type="password" name="password2" autocomplete="new-password" required>
+    </label>
+    <label><input type="checkbox" name="is_admin" value="1"> 设为系统管理员</label>
+    <button class="btn btn-primary" type="submit">创建</button>
+  </form>
+
+  <div class="panel" id="orphaned-boards">
+    <div class="panel-title">所有者已停用的单板</div>
+    <p class="muted">只列出名称和登录名，不能从这里打开单板，也看不到 BOM。转让后对方成为所有者，原来的所有者降为可编辑。你不会因此变成成员。</p>
+    {% if not orphan_boards %}
+    <p class="empty">没有所有者已停用的单板。</p>
+    {% else %}
+    <div class="table-scroll">
+    <table class="bom">
+      <thead>
+        <tr>
+          <th>单板名称</th><th>PCB 版本</th><th>BOM 版本</th><th>单板 ID</th><th>所有者</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for b in orphan_boards %}
+      <tr>
+        <td>{{ b.board_name }}</td>
+        <td>{{ b.pcb_version }}</td>
+        <td>{{ b.bom_version }}</td>
+        <td>{{ b.board_uid }}</td>
+        <td>{{ b.owner_username }}</td>
+        <td class="row-actions">
+          <form class="inline-form" hx-post="/admin/boards/{{ b.id }}/transfer"
+                hx-target="#admin-body" hx-swap="outerHTML"
+                hx-confirm="确认把单板「{{ b.board_uid }}」转让给输入的登录名？对方成为所有者，原所有者降为可编辑。你仍然打不开这块板。">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input class="input" name="username" placeholder="登录名" autocomplete="off" required>
+            <button class="btn" type="submit">转让</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel" id="orphaned-versions">
+    <div class="panel-title">负责人已停用的 BOM 版本</div>
+    <p class="muted">只列出三个名称和登录名，不展示初始清单。转让只更换负责人，各块单板的成员不变。</p>
+    {% if not orphan_versions %}
+    <p class="empty">没有负责人已停用的 BOM 版本。</p>
+    {% else %}
+    <div class="table-scroll">
+    <table class="bom">
+      <thead>
+        <tr><th>单板名称</th><th>PCB 版本</th><th>BOM 版本</th><th>负责人</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for v in orphan_versions %}
+      <tr>
+        <td>{{ v.board_name }}</td>
+        <td>{{ v.pcb_version }}</td>
+        <td>{{ v.bom_version }}</td>
+        <td>{{ v.owner_username }}</td>
+        <td class="row-actions">
+          <form class="inline-form" hx-post="/admin/bom-versions/{{ v.id }}/transfer"
+                hx-target="#admin-body" hx-swap="outerHTML"
+                hx-confirm="确认把这个 BOM 版本的负责人换成输入的登录名？各块单板的成员不会变。">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input class="input" name="username" placeholder="登录名" autocomplete="off" required>
+            <button class="btn" type="submit">转让</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+  </div>
+</div>

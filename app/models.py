@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import logging
 import secrets
 import sqlite3
 
@@ -1121,3 +1122,170 @@ def transfer_ownership(conn, board_id: int, from_user_id: int, to_user_id: int) 
     except Exception:
         conn.rollback()
         raise
+
+
+# ---------- 网页用户管理（阶段 3）----------
+
+_admin_log = logging.getLogger("reflow.admin")
+
+
+def list_users(conn) -> list[sqlite3.Row]:
+    """全部账号。不选出密码哈希，避免管理页把它渲染出去。"""
+    return conn.execute(
+        "SELECT id, username, is_admin, disabled_at, created_at FROM users ORDER BY username"
+    ).fetchall()
+
+
+def count_enabled_admins(conn) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM users WHERE disabled_at IS NULL AND is_admin=1"
+    ).fetchone()["n"]
+
+
+def list_boards_with_disabled_owner(conn) -> list[sqlite3.Row]:
+    """所有者已停用的单板。只有名称和登录名，不读 changeset，也不读初始 BOM。"""
+    return conn.execute(
+        """SELECT b.id, b.board_name, b.pcb_version, b.bom_version, b.board_uid,
+                  u.username AS owner_username
+           FROM boards_hierarchy b
+           JOIN board_members m ON m.board_id=b.id AND m.role='owner'
+           JOIN users u ON u.id=m.user_id
+           WHERE u.disabled_at IS NOT NULL
+           ORDER BY b.board_name, b.pcb_version, b.bom_version, b.board_uid"""
+    ).fetchall()
+
+
+def list_bom_versions_with_disabled_owner(conn) -> list[sqlite3.Row]:
+    """负责人已停用的 BOM 版本。不读 initial_bom。"""
+    return conn.execute(
+        """SELECT v.id, v.board_name, v.pcb_version, v.bom_version,
+                  u.username AS owner_username
+           FROM bom_versions v
+           JOIN users u ON u.id=v.owner_user_id
+           WHERE u.disabled_at IS NOT NULL
+           ORDER BY v.board_name, v.pcb_version, v.bom_version"""
+    ).fetchall()
+
+
+def _enabled_admin(conn, actor_id: int):
+    actor = conn.execute(
+        "SELECT is_admin, disabled_at FROM users WHERE id=?", (actor_id,)
+    ).fetchone()
+    if actor is None or not actor["is_admin"] or actor["disabled_at"]:
+        raise ValueError("只有系统管理员能执行这个操作")
+    return actor
+
+
+def disable_user(conn, actor_id: int, target_id: int) -> None:
+    """停用账号并吊销其全部会话。
+
+    拒绝：操作者不是未停用的系统管理员；目标是最后一位仍可登录的系统管理员；
+    停用自己。
+    """
+    _enabled_admin(conn, actor_id)
+    target = conn.execute(
+        "SELECT is_admin, disabled_at, username FROM users WHERE id=?", (target_id,)
+    ).fetchone()
+    if target is None:
+        raise ValueError("没有这个用户")
+    if target["disabled_at"]:
+        raise ValueError("该账号已经停用")
+    if target["is_admin"] and count_enabled_admins(conn) <= 1:
+        raise ValueError("不能停用最后一位系统管理员")
+    if actor_id == target_id:
+        raise ValueError("不能停用自己")
+    conn.execute("UPDATE users SET disabled_at=? WHERE id=?", (_now(), target_id))
+    delete_sessions_for_user(conn, target_id)
+
+
+def enable_user(conn, target_id: int) -> None:
+    """重新启用。不恢复旧会话，对方要用密码再登录一次。"""
+    row = conn.execute("SELECT id FROM users WHERE id=?", (target_id,)).fetchone()
+    if row is None:
+        raise ValueError("没有这个用户")
+    conn.execute("UPDATE users SET disabled_at=NULL WHERE id=?", (target_id,))
+    conn.commit()
+
+
+def set_password(conn, target_id: int, password: str) -> None:
+    """重置密码并吊销该用户的全部会话。自己改密仍走保留当前会话的那条路径。"""
+    row = conn.execute("SELECT id FROM users WHERE id=?", (target_id,)).fetchone()
+    if row is None:
+        raise ValueError("没有这个用户")
+    update_password(conn, target_id, password)
+
+
+def _active_user_for_transfer(conn, username: str):
+    user = get_user_by_username(conn, username)
+    if user is None:
+        raise ValueError("没有这个用户")
+    if user["disabled_at"]:
+        raise ValueError("不能转给已停用的账号")
+    return user
+
+
+def _log_force_transfer(actor_id: int, kind: str, object_id: int, new_user_id: int) -> None:
+    """不写 edit_log，也不记录 BOM 内容。"""
+    _admin_log.info(
+        "强制转让 actor=%s kind=%s object=%s new_user=%s",
+        actor_id, kind, object_id, new_user_id,
+    )
+
+
+def force_transfer_board(conn, actor_id: int, board_id: int, new_username: str) -> None:
+    """管理员把单板转给另一名未停用用户。新用户成为 owner，原 owner 降为 editor。
+
+    不读取 changeset，不返回 BOM。新用户原先不是成员时补一行 owner。
+    """
+    _enabled_admin(conn, actor_id)
+    if get_board(conn, board_id) is None:
+        raise ValueError("单板不存在")
+    new_user = _active_user_for_transfer(conn, new_username)
+    owner = conn.execute(
+        "SELECT user_id FROM board_members WHERE board_id=? AND role='owner'",
+        (board_id,),
+    ).fetchone()
+    if owner is None:
+        raise ValueError("这块单板没有所有者")
+    if owner["user_id"] == new_user["id"]:
+        raise ValueError("对方已经是所有者")
+    try:
+        # 先降级再升级，部分唯一索引才不会在中间态看到两名 owner。
+        conn.execute(
+            "UPDATE board_members SET role='editor' WHERE board_id=? AND user_id=? AND role='owner'",
+            (board_id, owner["user_id"]),
+        )
+        if load_membership(conn, new_user["id"], board_id):
+            conn.execute(
+                "UPDATE board_members SET role='owner' WHERE board_id=? AND user_id=?",
+                (board_id, new_user["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO board_members(board_id,user_id,role,created_at) VALUES(?,?,?,?)",
+                (board_id, new_user["id"], "owner", _now()),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    _log_force_transfer(actor_id, "单板", board_id, new_user["id"])
+
+
+def force_transfer_bom_version(conn, actor_id: int, version_id: int, new_username: str) -> None:
+    """只改 bom_versions.owner_user_id，不动各板成员。"""
+    _enabled_admin(conn, actor_id)
+    version = conn.execute(
+        "SELECT id, owner_user_id FROM bom_versions WHERE id=?", (version_id,)
+    ).fetchone()
+    if version is None:
+        raise ValueError("BOM 版本不存在")
+    new_user = _active_user_for_transfer(conn, new_username)
+    if version["owner_user_id"] == new_user["id"]:
+        raise ValueError("对方已经是负责人")
+    conn.execute(
+        "UPDATE bom_versions SET owner_user_id=? WHERE id=?",
+        (new_user["id"], version_id),
+    )
+    conn.commit()
+    _log_force_transfer(actor_id, "BOM 版本", version_id, new_user["id"])

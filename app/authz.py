@@ -89,6 +89,13 @@ GUARD: dict[tuple[str, str], str] = {
     ("POST", "/logout"): _LOGIN,
     ("GET", "/account/password"): _LOGIN,
     ("POST", "/account/password"): _LOGIN,
+    ("GET", "/admin/users"): "admin",
+    ("POST", "/admin/users"): "admin",
+    ("POST", "/admin/users/{user_id}/disable"): "admin",
+    ("POST", "/admin/users/{user_id}/enable"): "admin",
+    ("POST", "/admin/users/{user_id}/password"): "admin",
+    ("POST", "/admin/boards/{board_id}/transfer"): "admin",
+    ("POST", "/admin/bom-versions/{version_id}/transfer"): "admin",
 }
 
 # 角色不够时，局部写操作的 toast。跨范围重命名/删除用另一句，不走这里。
