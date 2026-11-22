@@ -99,6 +99,7 @@ ${SSH} bash -s -- "${CONTAINER_NAME}" "${FULL_IMAGE}" "${HOST_PORT}" "${DATA_VOL
   # 平时在容器里执行：
   #   docker exec -it reflow python -m app.cli create-admin --username admin
   #   docker exec -it reflow python -m app.cli create-user --username huaqing
+  # 管理员登录后，也可以在网页「用户管理」里新建、停用账号和重置密码。
   #   docker exec -it reflow python -m app.cli assign-orphans --username admin
   docker run -d \
     --name "${CONTAINER_NAME}" \
