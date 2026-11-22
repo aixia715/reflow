@@ -46,6 +46,10 @@ python -m app.cli create-user --username huaqing
 
 这条命令不把人加进任何单板。加成员在网页上做：打开单板，⋯ 菜单里的「成员」。
 
+系统管理员也可以在网页上建账号：登录后打开右上角 ⋯ 菜单里的「用户管理」。可以新建账号（勾选「设为系统管理员」就是管理员）、停用、重新启用、重置别人的密码。没有自助注册，也没有删除账号。停用或重置密码会立刻让对方已有的登录失效。不能停用自己，也不能停用最后一位仍可登录的系统管理员。管理员改自己的密码仍走「修改密码」，当前这次登录保持有效。
+
+同一页列出「所有者已停用的单板」和「负责人已停用的 BOM 版本」，只有名称和登录名，不能从这里打开单板或看到 BOM。把单板转让给另一名未停用用户后，对方成为所有者，原来的所有者降为可编辑；管理员自己不会因此变成成员，转让完仍然打不开这些板。BOM 版本只更换负责人，各板成员不变。
+
 升级已有库时，启动会建 `bom_versions`，并把还没有负责人的 BOM 版本交给最早的未停用管理员。已经有负责人的不会改。若希望空缺归指定的管理员，在新版本第一次被访问之前执行：
 
 ```bash
@@ -166,7 +170,7 @@ docker run -d --name reflow --restart unless-stopped \
 访问 `http://<部署机IP>:8000/`。
 
 - **数据位置**：SQLite 数据库在容器内 `/data/reflow.sqlite`（由环境变量 `REFLOW_DB` 指定），硬更改上传图片在 `/data/uploads/`（由 `REFLOW_UPLOAD_DIR` 指定）——两者同在 `/data` 卷，重部署都不丢。想直接用主机目录存放，把 `-v reflow-data:/data` 换成 `-v /srv/reflow:/data`。数据库已开 WAL，正在写入时不要只拷 `reflow.sqlite` 一个文件，用下面的备份方式。
-- **第一次打开**：容器起来后还不能登录。执行 `docker exec -it reflow python -m app.cli create-admin --username admin`，密码在终端里输入两遍。升级老库时，这条命令会把当时还没有所有者的单板、以及还没有负责人的 BOM 版本认领给这个管理员。已经有管理员的库，重启新版本就会把尚无负责人的版本交给最早的未停用管理员；还想补无主单板时再跑 `python -m app.cli assign-orphans --username admin`。普通用户用 `python -m app.cli create-user --username <登录名>`，再由所有者在网页上加入单板。
+- **第一次打开**：容器起来后还不能登录。执行 `docker exec -it reflow python -m app.cli create-admin --username admin`，密码在终端里输入两遍。升级老库时，这条命令会把当时还没有所有者的单板、以及还没有负责人的 BOM 版本认领给这个管理员。已经有管理员的库，重启新版本就会把尚无负责人的版本交给最早的未停用管理员；还想补无主单板时再跑 `python -m app.cli assign-orphans --username admin`。普通用户用 `python -m app.cli create-user --username <登录名>`，或由管理员在网页「用户管理」里创建，再由所有者在网页上加入单板。
 - **升级版本**：导入新镜像后重建容器，数据卷不受影响：
 
   ```bash

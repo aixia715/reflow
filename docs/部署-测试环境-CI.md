@@ -50,6 +50,8 @@ docker exec -it reflow python -m app.cli create-user --username huaqing
 
 再由所有者在网页「成员」页把人加进单板。这条命令不会让人看见全部单板。
 
+管理员登录之后，也可以在网页 ⋯ 菜单的「用户管理」里新建账号、停用或启用、重置密码。所有者被停用的单板、负责人被停用的 BOM 版本，只在这一页按名称列出，管理员可以强制转让，但不会因此看到板的内容，也不会自动成为成员。升级这一版不需要迁移命令：没有新表，启动时沿用现有账号和单板。
+
 ## 需要在仓库设置的 Secrets / Variables
 
 Secrets（Settings → Secrets and variables → Actions → Secrets）：
