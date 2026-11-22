@@ -81,6 +81,7 @@ jobs:
             DATA_VOLUME=$4
 
             # 只替换容器。DATA_VOLUME 原样挂回 /data，不 volume rm，不清库。
+            # 启动时若 edit_log 还没有 actor_user_id 会补列，旧行留空。
             # 不在这里创建管理员；需要登录时由人在服务器上执行 create-admin。
             OLD_IMAGE=$(docker inspect --format='{{.Config.Image}}' "${CONTAINER_NAME}" 2>/dev/null || true)
 

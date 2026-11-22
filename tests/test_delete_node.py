@@ -119,6 +119,18 @@ def test_delete_records_delete_event_on_parent(chain):
     assert deletes[0]["source"] == "direct"
 
 
+def test_delete_node_stamps_actor_on_every_new_log(chain):
+    """删除事件和因此产生的 propagated 行都记同一个人。"""
+    c, bid, n = chain
+    user_id = models.create_user(c, "editor", "test-password", is_admin=True)
+    before = {r["id"] for r in audit.list_log(c)}
+    propagation.delete_node(c, n["s2"], {"R1": "take"}, actor_user_id=user_id)
+    new = [r for r in audit.list_log(c) if r["id"] not in before]
+    assert any(r["op"] == "delete_node" for r in new)
+    assert any(r["source"] == "propagated" for r in new)
+    assert {r["actor_user_id"] for r in new} == {user_id}
+
+
 def test_take_records_propagated_log(chain):
     c, bid, n = chain
     propagation.delete_node(c, n["s2"], {"R1": "take"})

@@ -22,7 +22,7 @@
 </form>
 <div class="table-scroll">
 <table class="bom">
-  <thead><tr><th>时间</th><th>节点</th><th>位号</th><th>变更</th><th>来源</th><th>备注</th></tr></thead>
+  <thead><tr><th>时间</th><th>节点</th><th>位号</th><th>变更</th><th>操作人</th><th>来源</th><th>备注</th></tr></thead>
   <tbody>
   {% for r in rows %}
   <tr>
@@ -37,6 +37,7 @@
         {% if r.new_part %}<b>{{ r.new_part }}</b>{% else %}<b>不贴</b>{% endif %}
       {% endif %}
     </td>
+    <td>{% if r.actor_username %}{{ r.actor_username }}{% else %}<span class="muted">（升级前）</span>{% endif %}</td>
     <td>
       {% if r.source == 'direct' %}<span class="badge badge-blue">直接修改</span>
       {% else %}<span class="badge badge-purple">上游传播</span>{% endif %}
@@ -44,7 +45,7 @@
     <td class="muted">{{ r.note or '' }}</td>
   </tr>
   {% endfor %}
-  {% if not rows %}<tr><td colspan="6" class="muted">没有匹配的记录</td></tr>{% endif %}
+  {% if not rows %}<tr><td colspan="7" class="muted">没有匹配的记录</td></tr>{% endif %}
   </tbody>
 </table>
 </div>

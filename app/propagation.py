@@ -51,7 +51,7 @@ def _detect_downstream_conflicts(conn, node, reference, corrected_part) -> list[
 
 
 def apply_node_edit(conn, node_id, reference, op, part,
-                    drop_noop: bool = False) -> list[Conflict]:
+                    drop_noop: bool = False, *, actor_user_id: int | None = None) -> list[Conflict]:
     """编辑某节点某位号（修正记录），落库 + 记 direct 日志，返回冲突列表（最多一个）。
 
     op: 'add'|'modify'|'remove'；remove 时 part 传 None。
@@ -76,7 +76,10 @@ def apply_node_edit(conn, node_id, reference, op, part,
         models.set_change(conn, node_id, reference, op, part)
     # 日志无论如何都记：append-only 记的是发生过什么，不是最后长什么样，
     # 「改成 47k 又改回 10k」是确实发生过的两次编辑。
-    audit.record_edit(conn, node_id, reference, old_value, new_value, op, "direct")
+    audit.record_edit(
+        conn, node_id, reference, old_value, new_value, op, "direct",
+        actor_user_id=actor_user_id,
+    )
 
     # changeset 已是链末显式值（或已删除回落到继承），解析值即 new_value
     node = models.get_node(conn, node_id)
@@ -125,7 +128,8 @@ def detect_delete_conflicts(conn, node_id) -> list[Conflict]:
     return conflicts
 
 
-def delete_node(conn, node_id, choices: dict | None = None) -> None:
+def delete_node(conn, node_id, choices: dict | None = None,
+                *, actor_user_id: int | None = None) -> None:
     """删除节点：记删除事件 → 物理删除+下游重接 → 按 choices 处理受影响位号（1-A/3-B）。
 
     choices: {reference: 'keep'|'take'}，缺省 'take'（采用删后的新继承值）。
@@ -142,6 +146,7 @@ def delete_node(conn, node_id, choices: dict | None = None) -> None:
     audit.record_edit(
         conn, parent_id, "", None, None, "delete_node", "direct",
         note=f"删除节点 #{node_id}「{node['message'] or '无说明'}」",
+        actor_user_id=actor_user_id,
     )
     paths = models.delete_node(conn, node_id)
 
@@ -155,12 +160,14 @@ def delete_node(conn, node_id, choices: dict | None = None) -> None:
             audit.record_edit(
                 conn, cf.downstream_node_id, cf.reference, old, old, op, "direct",
                 note=f"因删除节点 #{node_id} 固化保留原继承值",
+                actor_user_id=actor_user_id,
             )
         else:  # take：解析值变化，记 propagated。op 按下游视角判定（None→值=add）
             op = "remove" if new is None else ("add" if old is None else "modify")
             audit.record_edit(
                 conn, cf.downstream_node_id, cf.reference, old, new, op, "propagated",
                 note=f"因删除节点 #{node_id} 重新继承",
+                actor_user_id=actor_user_id,
             )
 
     # 文件清理放最后：DB 侧的冲突固化/传播已全部落定，磁盘文件删除失败
@@ -169,8 +176,12 @@ def delete_node(conn, node_id, choices: dict | None = None) -> None:
         storage.delete_files(paths)
 
 
-def resolve_conflict(conn, conflict: Conflict, choice: str) -> None:
-    """choice='keep' 保留下游值（什么都不做）；'take' 采用修正值并向后传播。"""
+def resolve_conflict(conn, conflict: Conflict, choice: str,
+                     *, actor_user_id: int | None = None) -> None:
+    """choice='keep' 保留下游值（什么都不做）；'take' 采用修正值并向后传播。
+
+    传播行的操作人是按下确认的那个人。不传时留空，给不经过路由的旧调用用。
+    """
     if choice == "take":
         old_value = conflict.downstream_value
         models.delete_change(conn, conflict.downstream_node_id, conflict.reference)
@@ -179,5 +190,6 @@ def resolve_conflict(conn, conflict: Conflict, choice: str) -> None:
         audit.record_edit(
             conn, conflict.downstream_node_id, conflict.reference,
             old_value, new_value, op, "propagated",
+            actor_user_id=actor_user_id,
         )
     # 'keep'：不动

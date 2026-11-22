@@ -24,6 +24,11 @@ from app.models import _now
 router = APIRouter()
 
 
+def _actor_id(request: Request) -> int:
+    """当前登录用户。审计操作人由路由传入，propagation 不读请求。"""
+    return request.state.user["id"]
+
+
 def _known_refs(initial, chain):
     """链上出现过的全部位号（初始 + 任意 add/modify 引入的）。"""
     known = set(initial)
@@ -287,7 +292,8 @@ def edit_node(request: Request, board_id: int, node_id: int,
             request, "_form_error.html", {"message": err},
             headers={"HX-Retarget": "#form-error", "HX-Reswap": "innerHTML"})
     conflicts = propagation.apply_node_edit(
-        conn, node_id, reference, op, part_val, drop_noop=True)
+        conn, node_id, reference, op, part_val, drop_noop=True,
+        actor_user_id=_actor_id(request))
 
     node = models.get_node(conn, node_id)
     ctx = _node_context(conn, board_id, node)
@@ -396,12 +402,12 @@ def delete_node(request: Request, board_id: int, node_id: int):
             {"board_id": board_id, "node_id": node_id, "node": node,
              "conflicts": conflicts},
             headers={"HX-Retarget": "#modal", "HX-Reswap": "innerHTML"})
-    propagation.delete_node(conn, node_id)
+    propagation.delete_node(conn, node_id, actor_user_id=_actor_id(request))
     return _deleted_redirect(board_id, node_id)
 
 
 @router.post("/board/{board_id}/node/{node_id}/delete-confirm")
-def delete_node_confirm(board_id: int, node_id: int,
+def delete_node_confirm(request: Request, board_id: int, node_id: int,
                         reference: list[str] = Form(default=[]),
                         choice: list[str] = Form(default=[])):
     """确认删除：按每个受影响位号的 keep/take 选择执行删除（1-A）。"""
@@ -409,7 +415,8 @@ def delete_node_confirm(board_id: int, node_id: int,
     _node, err = _check_deletable(conn, board_id, node_id)
     if err is not None:
         return err
-    propagation.delete_node(conn, node_id, dict(zip(reference, choice)))
+    propagation.delete_node(
+        conn, node_id, dict(zip(reference, choice)), actor_user_id=_actor_id(request))
     return _deleted_redirect(board_id, node_id)
 
 
@@ -426,12 +433,13 @@ def resolve(request: Request, board_id: int, node_id: int,
         ds_val = propagation._resolved_value(conn, ds, ref)
         corrected = propagation._resolved_value(conn, node_id, ref)
         propagation.resolve_conflict(
-            conn, propagation.Conflict(ds, ref, ds_val, corrected), ch)
+            conn, propagation.Conflict(ds, ref, ds_val, corrected), ch,
+            actor_user_id=_actor_id(request))
     return RedirectResponse(f"/board/{board_id}/node/{node_id}?flash=✓ 冲突已确认", status_code=303)
 
 
 @router.post("/board/{board_id}/workspace/edit")
-def workspace_edit(board_id: int, reference: str = Form(...),
+def workspace_edit(request: Request, board_id: int, reference: str = Form(...),
                    op: str = Form(...), part: str = Form(None)):
     conn = get_conn()
     ws = models.workspace_node(conn, board_id)
@@ -443,7 +451,7 @@ def workspace_edit(board_id: int, reference: str = Form(...),
     if err:
         return PlainTextResponse(err, status_code=400)
     propagation.apply_node_edit(conn, ws["id"], reference, op, part_val,
-                                drop_noop=True)
+                                drop_noop=True, actor_user_id=_actor_id(request))
     return RedirectResponse(f"/board/{board_id}/node/{ws['id']}", status_code=303)
 
 
@@ -580,7 +588,8 @@ def import_apply(request: Request, board_id: int, node_id: int,
         return _err(f"导入被拒绝：{problems[0].reference} {problems[0].detail}")
 
     for c in planned:
-        propagation.apply_node_edit(conn, node_id, c.reference, c.op, c.part)
+        propagation.apply_node_edit(
+            conn, node_id, c.reference, c.op, c.part, actor_user_id=_actor_id(request))
 
     flash = quote(f"✓ 已导入 {len(planned)} 条修改", safe="")
     return Response(status_code=204, headers={
@@ -826,7 +835,8 @@ def insert_save(request: Request, board_id: int, parent_id: int,
         ref = (ch.get("reference") or "").strip()
         op = ch.get("op")
         part_val = ch.get("part")
-        conflicts += propagation.apply_node_edit(conn, new_id, ref, op, part_val)
+        conflicts += propagation.apply_node_edit(
+            conn, new_id, ref, op, part_val, actor_user_id=_actor_id(request))
 
     if conflicts:
         return templates.TemplateResponse(
@@ -845,7 +855,7 @@ def insert_save(request: Request, board_id: int, parent_id: int,
 
 
 @router.post("/board/{board_id}/node/{node_id}/copy-to-draft")
-def copy_to_draft(board_id: int, node_id: int):
+def copy_to_draft(request: Request, board_id: int, node_id: int):
     """一键复制某节点全部 changeset 到工作区草稿（覆盖合并），标题/说明仅当草稿为空时填入。
 
     策略（issue #57 实现要点）：
@@ -869,7 +879,8 @@ def copy_to_draft(board_id: int, node_id: int):
     for ch in changes:
         part_val = None if ch["op"] == "remove" else ch["part"]
         propagation.apply_node_edit(
-            conn, ws["id"], ch["reference"], ch["op"], part_val)
+            conn, ws["id"], ch["reference"], ch["op"], part_val,
+            actor_user_id=_actor_id(request))
 
     # 标题/说明：仅当草稿对应字段为空时才填入（各自独立判断）
     cur_msg = (ws["message"] or "").strip()

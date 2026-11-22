@@ -58,6 +58,8 @@ python -m app.cli assign-orphans --username admin
 
 它只补还没有所有者的单板，以及还没有负责人的 BOM 版本。服务已经用新版本启动过的话，版本空缺通常已经被最早的管理员领走，这条命令不会再改。
 
+审计日志从这一版起记下操作人。启动时如果 `edit_log` 还没有 `actor_user_id` 列就补上，已有行留空，不删数据，再启动一次也不会改这些行。不需要单独的迁移命令。日志页上这些空行显示「（升级前）」。账号停用后，历史里仍显示当时的登录名。
+
 单板页上的根节点只读。共用的初始 BOM 要等 BOM 版本页才能改；在那之前，网页上暂时不能改初始 BOM。这块板自己的差异用本板上的新节点记录。
 
 无人值守的第一次启动可以同时设置 `REFLOW_BOOTSTRAP_USERNAME` 和 `REFLOW_BOOTSTRAP_PASSWORD`（至少 8 位）。只在用户表为空时创建一次，不会改已有账号的密码。不要把这两个变量写进镜像。用过就从运行环境里删掉：`docker inspect` 看得到环境变量。缺一个、或密码太短，进程照常起来，`/healthz` 仍然返回 200，登录页继续提示用命令行创建。
@@ -77,7 +79,7 @@ python -m app.cli assign-orphans --username admin
 2. **状态图**：进入单板查看线性的节点演进（最新在上，工作区置顶，每节点带改动摘要）；点节点看完整 BOM 与 diff 高亮，「下载 CSV」可二选一导出：**完整 BOM**（两列 `Reference,Part`，不贴位号不导出）或**本节点修改项**（三列 `Reference,Part,OP`，即本节点相对上一个节点的改动，可再作为修改清单导入到别处重放）。
 3. **工作区改动 → commit**：在工作区草稿增/改/删位号（支持表格行内快捷操作、位号自动补全、修改项撤销），填说明文字提交成新节点。
 4. **修正历史节点**：编辑某历史节点（根节点除外）的位号触发传播；若下游显式改过同一位号则弹冲突确认（保留下游值 / 采用修正值并向后传播）。根节点是初始 BOM，单板页不能改。
-5. **审计日志**：每次编辑追加一行，记录来源（直接 / 上游传播），可按位号/节点筛选。
+5. **审计日志**：每次编辑追加一行，记下操作人和来源（直接 / 上游传播），可按位号/节点筛选。升级前没有操作人的记录显示「（升级前）」。账号停用后，历史里仍是当时的登录名。
 
 每个节点都有稳定 URL `/board/{boardId}/node/{nodeId}`，可粘贴到外部笔记。
 
@@ -171,7 +173,7 @@ docker run -d --name reflow --restart unless-stopped \
 
 - **数据位置**：SQLite 数据库在容器内 `/data/reflow.sqlite`（由环境变量 `REFLOW_DB` 指定），硬更改上传图片在 `/data/uploads/`（由 `REFLOW_UPLOAD_DIR` 指定）——两者同在 `/data` 卷，重部署都不丢。想直接用主机目录存放，把 `-v reflow-data:/data` 换成 `-v /srv/reflow:/data`。数据库已开 WAL，正在写入时不要只拷 `reflow.sqlite` 一个文件，用下面的备份方式。
 - **第一次打开**：容器起来后还不能登录。执行 `docker exec -it reflow python -m app.cli create-admin --username admin`，密码在终端里输入两遍。升级老库时，这条命令会把当时还没有所有者的单板、以及还没有负责人的 BOM 版本认领给这个管理员。已经有管理员的库，重启新版本就会把尚无负责人的版本交给最早的未停用管理员；还想补无主单板时再跑 `python -m app.cli assign-orphans --username admin`。普通用户用 `python -m app.cli create-user --username <登录名>`，或由管理员在网页「用户管理」里创建，再由所有者在网页上加入单板。
-- **升级版本**：导入新镜像后重建容器，数据卷不受影响：
+- **升级版本**：导入新镜像后重建容器，数据卷不受影响。新进程启动时会给已有库补 `edit_log.actor_user_id`（旧行留空），不删库、不另跑迁移脚本：
 
   ```bash
   gunzip -c reflow-0.2.0.tar.gz | docker load

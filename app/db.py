@@ -191,3 +191,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    # 操作人。旧行留空，不重建表、不回填。用户只停用不删，这列不会悬空。
+    log_cols = {r["name"] for r in conn.execute("PRAGMA table_info(edit_log)")}
+    if "actor_user_id" not in log_cols:
+        conn.execute(
+            "ALTER TABLE edit_log ADD COLUMN actor_user_id INTEGER REFERENCES users(id)"
+        )
