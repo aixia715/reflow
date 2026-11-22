@@ -1,13 +1,10 @@
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    monkeypatch.setenv("REFLOW_UPLOAD_DIR", str(tmp_path / "uploads"))
-    from app.main import create_app
-    return TestClient(create_app())
+    from tests.helpers import auth_client
+    return auth_client(tmp_path, monkeypatch, upload_dir=tmp_path / "uploads")
 
 
 def _new_board(client):

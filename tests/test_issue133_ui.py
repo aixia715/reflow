@@ -15,10 +15,11 @@ import re
 
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _api_create_board(base, uid, csv="Reference,Part\nR1,10k\nC1,100nF\n"):
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "AttachBoard", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},
@@ -48,7 +49,7 @@ def _submit_commit(page: Page, message: str):
 
 
 def _state_graph_html(base: str, bid: str) -> str:
-    with httpx.Client(base_url=base) as c:
+    with auth_httpx(base) as c:
         return c.get(f"/board/{bid}").text
 
 
@@ -93,7 +94,7 @@ def test_pending_attachment_confirm_commits_and_drops_upload(live_server, page: 
     assert "c-go" in html
     # 附件被放弃：新提交的节点上没有附件
     node_id = sorted(int(m) for m in re.findall(r"/node/(\d+)", html))[-1]
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         node_html = c.get(f"/board/{bid}/node/{node_id}").text
     assert "附件（0）" in node_html
     assert "spec.txt" not in node_html
@@ -136,7 +137,7 @@ def _api_commit_chain(base, uid, msgs_parts):
 
     msgs_parts 是 [(commit 说明, R1 的新值), …]。
     """
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "AttachBoard", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},
@@ -150,7 +151,7 @@ def _api_commit_chain(base, uid, msgs_parts):
         html = c.get(f"/board/{bid}", follow_redirects=True).text
     # 只要普通的已提交节点：根节点（初始状态）与工作区草稿都没有 edit-info 表单
     ids = sorted({int(m) for m in re.findall(r"/node/(\d+)", html)})
-    with httpx.Client(base_url=base) as c:
+    with auth_httpx(base) as c:
         committed = [i for i in ids
                      if "/edit-info" in c.get(f"/board/{bid}/node/{i}").text]
     return bid, committed
@@ -182,7 +183,7 @@ def test_edit_info_prompts_when_attachment_pending(live_server, page: Page):
     assert seen, "已提交节点上选了附件却没上传时保存信息，应弹出确认框"
     assert "附件" in seen[0]
     expect(page.locator("#attachments input[type=file]")).to_be_focused()
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         assert "改过的标题" not in c.get(f"/board/{bid}/node/{node_id}").text
 
 
@@ -199,7 +200,7 @@ def test_edit_info_confirm_saves_and_drops_upload(live_server, page: Page):
     page.locator("form[action$='/edit-info'] button").click()
     page.wait_for_url(re.compile(rf"/node/{node_id}\?flash="))
 
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         html = c.get(f"/board/{bid}/node/{node_id}").text
     assert "改过的标题" in html
     assert "附件（0）" in html
@@ -266,7 +267,7 @@ def test_conflict_resolve_confirm_proceeds(live_server, page: Page):
     page.locator("#modal button.btn-primary").click()
     page.wait_for_url(re.compile(rf"/node/{node_id}\?flash="))
 
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         assert "附件（0）" in c.get(f"/board/{bid}/node/{node_id}").text
 
 

@@ -8,15 +8,6 @@ append-only 记的是发生过什么，不是最后长什么样。
 只对未提交草稿生效：已提交节点的显式 op 还承担屏蔽上游修正的作用（下游显式
 操作过同一位号才算冲突），值和父节点相同也不能删。
 """
-import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _board(client, csv="Reference,Part\nR1,10k\nC1,100nF\n"):

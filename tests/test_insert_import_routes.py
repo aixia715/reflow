@@ -9,17 +9,8 @@
 """
 import json
 
-import pytest
-from fastapi.testclient import TestClient
 
 from app import models
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _setup_chain(client, csv="Reference,Part\nR1,10k\nC1,100nF\n"):

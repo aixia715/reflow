@@ -31,7 +31,14 @@ def live_server(tmp_path_factory):
     db = tmp_path_factory.mktemp("livedb") / "test.sqlite"
     _LIVE_DB[0] = str(db)
     up = tmp_path_factory.mktemp("uploads")
-    env = {**os.environ, "REFLOW_DB": str(db), "REFLOW_UPLOAD_DIR": str(up)}
+    env = {
+        **os.environ,
+        "REFLOW_DB": str(db),
+        "REFLOW_UPLOAD_DIR": str(up),
+        # 引导出管理员，Playwright 与 httpx 夹具用这个账号登录
+        "REFLOW_BOOTSTRAP_USERNAME": "admin",
+        "REFLOW_BOOTSTRAP_PASSWORD": "test-password",
+    }
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app",
          "--port", str(PORT), "--log-level", "warning"],
@@ -71,11 +78,11 @@ def insert_chain(live_server, live_db):
     import re
     import sqlite3
 
-    import httpx
+    from tests.helpers import auth_httpx
 
     def _make(csv="Reference,Part\nR1,10k\nR2,22k\nC1,100nF\n"):
         _chain_uid[0] += 1
-        with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+        with auth_httpx(live_server, follow_redirects=False) as c:
             r = c.post("/board/new",
                        data={"board_name": "CHAIN", "pcb_version": "v1",
                              "bom_version": "bomA", "board_uid": f"CH{_chain_uid[0]}"},
@@ -99,7 +106,7 @@ def insert_chain(live_server, live_db):
         conn.commit()
         conn.close()
 
-        with httpx.Client(base_url=live_server) as c:
+        with auth_httpx(live_server) as c:
             html = c.get(f"/board/{bid}").text
         insertable = sorted({int(m) for m in re.findall(r"/node/(\d+)/insert", html)})
         return bid, insertable[-1]
@@ -110,9 +117,9 @@ def insert_chain(live_server, live_db):
 @pytest.fixture(scope="session")
 def seeded_server(live_server, tmp_path_factory):
     """在 live_server 中预建一块单板，返回 base_url。"""
-    import httpx
+    from tests.helpers import auth_httpx
 
-    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+    with auth_httpx(live_server, follow_redirects=False) as c:
         c.post("/board/new", data={
             "board_name": "TestBoard",
             "pcb_version": "v1",
@@ -122,3 +129,20 @@ def seeded_server(live_server, tmp_path_factory):
             "file": ("bom.csv", b"Reference,Part\nR1,10k\nC1,100nF\n", "text/csv"),
         })
     return live_server
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    """默认客户端是已登录的管理员。只访问 /version 的测试自己建匿名客户端。"""
+    from tests.helpers import auth_client
+    return auth_client(tmp_path, monkeypatch)
+
+
+@pytest.fixture
+def context(browser, live_server):
+    """Playwright 上下文带上管理员会话，旧 UI 测试不用逐步登录。"""
+    from tests.helpers import login_cookies, playwright_cookies
+    ctx = browser.new_context()
+    ctx.add_cookies(playwright_cookies(live_server, login_cookies(live_server)))
+    yield ctx
+    ctx.close()

@@ -22,12 +22,16 @@ jobs:
       - uses: actions/checkout@v6
       - name: 构建镜像
         run: docker build -t reflow:ci .
-      - name: 起容器并健康检查首页
+      - name: 起容器并检查健康检查与登录闸门
         run: |
           docker run -d --name reflow-ci -p 8000:8000 reflow:ci
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8000/ >/dev/null; then
-              echo "首页 200，构建冒烟通过"; docker rm -f reflow-ci; exit 0
+            health=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/healthz || true)
+            home=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/ || true)
+            if [ "$health" = "200" ] && [ "$home" = "303" ]; then
+              echo "healthz 200，未登录首页 303 到登录，构建冒烟通过"
+              docker rm -f reflow-ci
+              exit 0
             fi
             sleep 1
           done

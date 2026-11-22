@@ -2,6 +2,7 @@
 import re
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _open_menu(page):
@@ -10,7 +11,7 @@ def _open_menu(page):
 
 
 def _make_board(base: str, uid: str = "CMP1") -> str:
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "CmpBoard", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},
@@ -195,7 +196,7 @@ def test_compare_go_href_and_aria_disabled_before_two_selected(live_server, page
 def test_hard_change_disabled_in_compare_mode(live_server, page: Page):
     """进入对比状态后硬更改卡片置灰不可选、⋯菜单不可用，退出后恢复。"""
     bid = _make_board(live_server, uid="CMP5")
-    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+    with auth_httpx(live_server, follow_redirects=False) as c:
         c.post(f"/board/{bid}/hard-change",
                data={"title": "返修 U1", "occurred_at": "2026-06-17T10:00",
                      "description": "演示返修"})

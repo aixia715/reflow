@@ -1,6 +1,9 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 import sqlite3
 
+from app.auth import hash_password, normalize_username, session_days
 from app.csv_import import CsvEntry
 
 
@@ -48,8 +51,15 @@ def list_bom_versions(conn) -> list[sqlite3.Row]:
 
 # ---------- 单板 & 节点 ----------
 
-def create_board(conn, board_name, pcb_version, bom_version, board_uid) -> int:
-    """新建单板ID：建层级行 + 根节点（已提交）+ 空工作区草稿。返回 board_id。"""
+def create_board(
+    conn, board_name, pcb_version, bom_version, board_uid, *,
+    owner_user_id: int | None = None,
+) -> int:
+    """新建单板ID：建层级行 + 根节点（已提交）+ 空工作区草稿。返回 board_id。
+
+    owner_user_id 非空时，在同一事务里写下 owner 行。不传则不写成员
+    （直接插表的旧测试保持可用；网页创建单板的路由会传）。
+    """
     cur = conn.execute(
         "INSERT INTO boards_hierarchy(board_name,pcb_version,bom_version,board_uid)"
         " VALUES(?,?,?,?)",
@@ -67,6 +77,11 @@ def create_board(conn, board_name, pcb_version, bom_version, board_uid) -> int:
         " VALUES(?,?,?,?,0,NULL)",
         (board_id, root, "", now),
     )
+    if owner_user_id is not None:
+        conn.execute(
+            "INSERT INTO board_members(board_id,user_id,role,created_at) VALUES(?,?,?,?)",
+            (board_id, owner_user_id, "owner", now),
+        )
     conn.commit()
     return board_id
 
@@ -622,3 +637,160 @@ def board_attachment_paths_by_name(conn, board_name) -> list[str]:
         " WHERE b.board_name=? ORDER BY a.id",
         (board_name,)
     ).fetchall()]
+
+
+# ---------- 账号、会话、无主单板 ----------
+
+# sqlite3.Connection 不能挂属性，也不能做弱引用。用 id 记「这次查找有没有顺延」，
+# 中间件马上读走。查找一开始会覆盖，避免连接对象被回收后 id 复用到旧标记。
+_session_slid: dict[int, bool] = {}
+
+
+def session_was_slid(conn) -> bool:
+    return _session_slid.pop(id(conn), False)
+
+def create_user(conn, username: str, password: str, is_admin: bool) -> int:
+    """创建用户。库为空时只允许系统管理员，避免出现没人能进管理、旧板也没人领。
+
+    第一个用户创建成功后立刻认领当时还没有 owner 的单板。
+    """
+    name = normalize_username(username)
+    if len(password) < 8:
+        raise ValueError("密码至少 8 位")
+    count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    if count == 0 and not is_admin:
+        raise ValueError("第一个账号必须是系统管理员")
+    cur = conn.execute(
+        "INSERT INTO users(username,password_hash,is_admin,created_at) VALUES(?,?,?,?)",
+        (name, hash_password(password), 1 if is_admin else 0, _now()),
+    )
+    user_id = cur.lastrowid
+    if count == 0:
+        assign_boards_without_owner(conn, user_id)
+    conn.commit()
+    return user_id
+
+
+def get_user_by_username(conn, username: str) -> sqlite3.Row | None:
+    """按规范化后的登录名查找。格式不合法时返回 None，而不是抛给登录页。"""
+    try:
+        name = normalize_username(username)
+    except ValueError:
+        return None
+    return conn.execute(
+        "SELECT * FROM users WHERE username=?", (name,)
+    ).fetchone()
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def create_session(conn, user_id: int, days: int = 14) -> str:
+    """签发会话。返回 cookie 原文，库里只存 sha256。"""
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    expires = (now + timedelta(days=days)).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO sessions(user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?)",
+        (user_id, _token_hash(token), _now(), expires),
+    )
+    conn.commit()
+    return token
+
+
+def user_by_session_token(conn, token: str) -> sqlite3.Row | None:
+    """用 cookie 原文换用户。过期、已停用、找不到都返回 None。
+
+    距 expires_at 不足一半窗口时顺延。比较用与 `_now()` 相同的 UTC 字符串，
+    秒精度、固定偏移，字符串序即时间序。    顺延与否用 session_was_slid(conn) 读，中间件据此决定要不要重写 cookie。
+    """
+    _session_slid[id(conn)] = False
+    if not token:
+        return None
+    row = conn.execute(
+        "SELECT u.id, u.username, u.password_hash, u.is_admin, u.disabled_at, u.created_at,"
+        " s.id AS session_id, s.expires_at"
+        " FROM sessions s JOIN users u ON u.id = s.user_id"
+        " WHERE s.token_hash=?",
+        (_token_hash(token),),
+    ).fetchone()
+    if row is None or row["expires_at"] <= _now() or row["disabled_at"]:
+        return None
+    now = datetime.now(timezone.utc)
+    expires = datetime.fromisoformat(row["expires_at"])
+    window = timedelta(days=session_days())
+    if expires - now < window / 2:
+        new_exp = (now + window).isoformat(timespec="seconds")
+        conn.execute(
+            "UPDATE sessions SET expires_at=? WHERE id=?",
+            (new_exp, row["session_id"]),
+        )
+        conn.commit()
+        _session_slid[id(conn)] = True
+    return row
+
+
+def delete_session(conn, token: str) -> None:
+    conn.execute("DELETE FROM sessions WHERE token_hash=?", (_token_hash(token),))
+    conn.commit()
+
+
+def delete_sessions_for_user(conn, user_id: int) -> None:
+    conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    conn.commit()
+
+
+def update_password(conn, user_id: int, password: str, *, keep_token: str | None = None) -> None:
+    """更新密码哈希。keep_token 保留这一次请求的会话，其余删掉；不传则全部作废。"""
+    if len(password) < 8:
+        raise ValueError("密码至少 8 位")
+    conn.execute(
+        "UPDATE users SET password_hash=? WHERE id=?",
+        (hash_password(password), user_id),
+    )
+    if keep_token is None:
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    else:
+        conn.execute(
+            "DELETE FROM sessions WHERE user_id=? AND token_hash!=?",
+            (user_id, _token_hash(keep_token)),
+        )
+    conn.commit()
+
+
+def assign_boards_without_owner(conn, user_id: int) -> int:
+    """给还没有 owner 行的单板插一行 owner。已有 owner 的不动。返回认领块数。"""
+    before = conn.execute(
+        "SELECT COUNT(*) AS n FROM board_members WHERE role='owner'"
+    ).fetchone()["n"]
+    conn.execute(
+        "INSERT INTO board_members(board_id,user_id,role,created_at)"
+        " SELECT id, ?, 'owner', ? FROM boards_hierarchy b"
+        " WHERE NOT EXISTS ("
+        "   SELECT 1 FROM board_members m WHERE m.board_id=b.id AND m.role='owner'"
+        " )",
+        (user_id, _now()),
+    )
+    conn.commit()
+    after = conn.execute(
+        "SELECT COUNT(*) AS n FROM board_members WHERE role='owner'"
+    ).fetchone()["n"]
+    return after - before
+
+
+def backfill_owners_if_unassigned(conn) -> int:
+    """任何单板都还没有 owner 时，把全部无主单板认领给最早的未停用管理员。
+
+    只要已经有一块板有了 owner，就什么都不做，避免启动过程把别人的板领走。
+    """
+    if conn.execute(
+        "SELECT 1 FROM board_members WHERE role='owner' LIMIT 1"
+    ).fetchone():
+        return 0
+    admin = conn.execute(
+        "SELECT id FROM users WHERE is_admin=1 AND disabled_at IS NULL ORDER BY id LIMIT 1"
+    ).fetchone()
+    if admin is None:
+        return 0
+    return assign_boards_without_owner(conn, admin["id"])

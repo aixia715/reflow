@@ -1,6 +1,7 @@
 """issue #79 优化状态演进界面（状态图卡片视觉统一 + ⋯ 菜单）的 UI 检验。"""
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 _seq = [0]
@@ -10,7 +11,7 @@ def _make_chain(base: str):
     """建链：root → c1 → c2 → 草稿，并记一条硬更改。返回 (board_id)。"""
     _seq[0] += 1
     uid = f"SS{_seq[0]}"
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "SG", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},

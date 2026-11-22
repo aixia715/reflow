@@ -1,5 +1,4 @@
 """issue #84：状态演进界面三点菜单在点击卡片等元素时不会消失的 UI 检验。"""
-import httpx
 from playwright.sync_api import Page, expect
 
 from tests.test_issue79_ui import _make_chain, _c1

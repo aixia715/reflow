@@ -1,11 +1,7 @@
-from fastapi.testclient import TestClient
-
-
 def test_smoke_core_flow(tmp_path, monkeypatch):
     """冒烟：应用装配 + 建板 + 状态图 + 审计日志全程 200。"""
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "smoke.sqlite"))
-    from app.main import create_app
-    client = TestClient(create_app())
+    from tests.helpers import auth_client
+    client = auth_client(tmp_path, monkeypatch)
 
     assert client.get("/").status_code == 200                       # 首页 / 建表
     r = client.post(

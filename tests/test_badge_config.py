@@ -96,13 +96,6 @@ def test_dark_theme_contrast_wcag_aa(name: str, colors: tuple[str, str]):
 # ── 路由集成测试：首页渲染正确的 badge 类名 ─────────────────────────────
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
-
-
 def _create_board(client: TestClient, pcb_version: str) -> None:
     client.post(
         "/board/new",

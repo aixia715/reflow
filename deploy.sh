@@ -91,6 +91,13 @@ ${SSH} bash -s -- "${CONTAINER_NAME}" "${FULL_IMAGE}" "${HOST_PORT}" "${DATA_VOL
   docker stop "${CONTAINER_NAME}" 2>/dev/null || true
   docker rm   "${CONTAINER_NAME}" 2>/dev/null || true
 
+  # 可选：仅第一次启动、且库里还没有用户时，用环境变量创建管理员。
+  # 口令会出现在 docker inspect 里，用过就从下面的 docker run 删掉。不要写进镜像。
+  #   -e REFLOW_BOOTSTRAP_USERNAME=admin \
+  #   -e REFLOW_BOOTSTRAP_PASSWORD='至少8位' \
+  # 反代上终结了 HTTPS 之后再加：-e REFLOW_COOKIE_SECURE=1
+  # 平时在容器里执行：
+  #   docker exec -it reflow python -m app.cli create-admin --username admin
   docker run -d \
     --name "${CONTAINER_NAME}" \
     --restart unless-stopped \

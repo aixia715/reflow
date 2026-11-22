@@ -46,6 +46,7 @@
            title="输入提交节点/硬更改的哈希值（至少 4 位），回车跳转到详情页"
            aria-label="哈希跳转">
   </form>
+  {% if user %}<span class="whoami">{{ user.username }}</span>{% endif %}
   {# menu-open 类是「本页有菜单展开」的统一标记，供页面级 ESC 逻辑分层判断（见 state_graph.html） #}
   <span class="menu" x-data="{nav:false}" :class="{ 'menu-open': nav }"
         @close-menus.window="if (!$el.contains($event.detail)) nav=false"
@@ -54,6 +55,13 @@
             @click="nav=!nav">⋯</button>
     <nav class="menu-pop topnav-actions" x-show="nav" x-cloak @click="nav=false">
       {% block ctxlinks %}{% endblock %}
+      {% if user %}
+      <a href="/account/password">修改密码</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button>退出</button>
+      </form>
+      {% endif %}
       <button type="button" class="theme-toggle" title="切换白天/夜间模式"
         x-data="{t: document.documentElement.getAttribute('data-theme')}"
         @click="t = t === 'dark' ? 'light' : 'dark';
@@ -77,6 +85,10 @@
     t.className = 'toast'; t.textContent = msg;
     z.appendChild(t); setTimeout(() => t.remove(), 3500);
   }
+  document.body.addEventListener('htmx:configRequest', function (e) {
+    var m = document.cookie.match(/(?:^|; )reflow_csrf=([^;]*)/);
+    if (m) e.detail.headers['X-CSRF-Token'] = decodeURIComponent(m[1]);
+  });
   document.body.addEventListener('showToast', e => showToast(e.detail.value));
   document.querySelectorAll('#toast-zone .toast')
     .forEach(t => setTimeout(() => t.remove(), 3500));

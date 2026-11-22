@@ -1,15 +1,6 @@
 """issue #57：一键将已有节点的修改添加到工作区草稿 + 草稿修改行补齐「修改」「不贴」按钮。"""
-import pytest
-from fastapi.testclient import TestClient
 from app import models
 from app.main import get_conn
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _setup_board(client, uid="3"):

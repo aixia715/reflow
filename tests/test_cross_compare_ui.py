@@ -2,6 +2,7 @@
 import re
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _open_menu(page):
@@ -10,7 +11,7 @@ def _open_menu(page):
 
 
 def _new_board(base, name, bom_version, uid, csv):
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": name, "pcb_version": "v1",
                          "bom_version": bom_version, "board_uid": uid},
@@ -27,7 +28,7 @@ def _make_pair(base, prefix):
     name = f"XBoard{prefix}"
     ba = _new_board(base, name, "bomA", f"{prefix}A", b"Reference,Part\nR1,10k\n")
     bb = _new_board(base, name, "bomB", f"{prefix}B", b"Reference,Part\nR1,10k\n")
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         c.post(f"/board/{ba}/workspace/edit",
                data={"reference": "R9", "op": "add", "part": "1k"})
         c.post(f"/board/{ba}/commit", data={"message": "A板加R9"})
@@ -59,7 +60,7 @@ def test_cross_button_enabled_only_with_exactly_one_selected(live_server, page: 
 
 
 def test_cross_button_absent_without_sibling(live_server, page: Page):
-    with httpx.Client(base_url=live_server, follow_redirects=False) as c:
+    with auth_httpx(live_server, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "LoneBoard", "pcb_version": "v9",
                          "bom_version": "bomA", "board_uid": "L1"},
@@ -87,7 +88,7 @@ def test_cross_flow_lands_on_compare_with_sibling_default(live_server, page: Pag
 
 def test_compare_page_node_dropdown_navigates(live_server, page: Page):
     ba, bb = _make_pair(live_server, "X3")
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         r = c.get(f"{live_server}/board/{ba}")
         left = sorted({int(x) for x in
                        re.findall(rf"/board/{ba}/node/(\d+)", r.text)})[0]
@@ -100,7 +101,7 @@ def test_compare_page_node_dropdown_navigates(live_server, page: Page):
 
 def test_compare_page_board_dropdown_navigates_with_default_node(live_server, page: Page):
     ba, bb = _make_pair(live_server, "X4")
-    with httpx.Client(base_url=live_server) as c:
+    with auth_httpx(live_server) as c:
         r = c.get(f"{live_server}/board/{ba}")
         left = sorted({int(x) for x in
                        re.findall(rf"/board/{ba}/node/(\d+)", r.text)})[0]

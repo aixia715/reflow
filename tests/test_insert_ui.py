@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import httpx
 import pytest
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORT = 18799
@@ -24,7 +25,13 @@ BASE = f"http://localhost:{PORT}"
 def insert_server(tmp_path_factory):
     db = tmp_path_factory.mktemp("insdb") / "t.sqlite"
     up = tmp_path_factory.mktemp("insup")
-    env = {**os.environ, "REFLOW_DB": str(db), "REFLOW_UPLOAD_DIR": str(up)}
+    env = {
+        **os.environ,
+        "REFLOW_DB": str(db),
+        "REFLOW_UPLOAD_DIR": str(up),
+        "REFLOW_BOOTSTRAP_USERNAME": "admin",
+        "REFLOW_BOOTSTRAP_PASSWORD": "test-password",
+    }
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app",
          "--port", str(PORT), "--log-level", "warning"],
@@ -46,11 +53,24 @@ def insert_server(tmp_path_factory):
 _uid = [0]
 
 
+@pytest.fixture
+def page(insert_server, browser):
+    """这个服务有自己的库，不能用 conftest 里登录 live_server 的那个上下文。"""
+    from tests.helpers import login_cookies, playwright_cookies
+    ctx = browser.new_context()
+    ctx.add_cookies(playwright_cookies(
+        insert_server["base"], login_cookies(insert_server["base"]),
+    ))
+    pg = ctx.new_page()
+    yield pg
+    ctx.close()
+
+
 def _make_chain(server):
     """建一条 root -> c1 -> c2 -> 草稿，c1/c2 的 committed_at 相隔多天。返回 (bid, c1, c2)。"""
     _uid[0] += 1
     uid = f"S{_uid[0]}"
-    with httpx.Client(base_url=server["base"], follow_redirects=False) as c:
+    with auth_httpx(server["base"], follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "INS", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},

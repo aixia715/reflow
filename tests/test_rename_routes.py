@@ -1,13 +1,4 @@
 import json
-import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def _setup(client, name="B", pcb="v1", bom="bomA", uid="SN1"):

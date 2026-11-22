@@ -9,6 +9,7 @@
 """
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 CSV = "Reference,Part\nR1,10k\nR2,22k\nC1,100nF\n"
 _uid = [0]
@@ -16,7 +17,7 @@ _uid = [0]
 
 def _board(base):
     _uid[0] += 1
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "RE", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": f"RE{_uid[0]}"},

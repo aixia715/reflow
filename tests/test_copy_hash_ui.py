@@ -6,10 +6,11 @@ issue #53：在状态演进和提交点详情页的哈希值旁添加复制按�
 """
 import httpx
 from playwright.sync_api import Page, expect
+from tests.helpers import auth_httpx
 
 
 def _make_board_with_committed_node(base: str, uid: str = "CP1") -> str:
-    with httpx.Client(base_url=base, follow_redirects=False) as c:
+    with auth_httpx(base, follow_redirects=False) as c:
         r = c.post("/board/new",
                    data={"board_name": "CopyBoard", "pcb_version": "v1",
                          "bom_version": "bomA", "board_uid": uid},

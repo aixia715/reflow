@@ -1,13 +1,4 @@
 """header 三点菜单收纳（2026-07-18 设计）的模板级检验。"""
-import pytest
-from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("REFLOW_DB", str(tmp_path / "t.sqlite"))
-    from app.main import create_app
-    return TestClient(create_app())
 
 
 def test_topnav_has_kebab_menu(client):
