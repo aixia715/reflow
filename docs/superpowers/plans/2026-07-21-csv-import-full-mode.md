@@ -1,7 +1,5 @@
 # CSV 导入全量/差异模式 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 让「从 CSV 导入修改」支持二选一——差异模式（现状）或全量模式（CSV = 完整目标 BOM，系统自动求差、自动算不贴）。
 
 **Architecture:** 三层照旧。纯逻辑新增 `plan_full_changes`（求差）、给 `parse_bom_csv` 加 `forbid_op` 参数、新增全量模板函数；路由 `import_preview` 按 `mode` 分支，`import_apply` 不改（planned change 已带显式 op）；前端加 `.seg` 模式单选 + Alpine 联动模板下载链接。

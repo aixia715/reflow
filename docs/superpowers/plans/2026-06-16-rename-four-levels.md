@@ -1,7 +1,5 @@
 # 四级定位名称重命名功能 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 让用户能在首页重命名四级定位（单板名称 / PCB版本 / BOM版本 / 单板ID），名称改动级联更新去规范化的两张表，冲突时拒绝。
 
 **Architecture:** 三层照现有模式扩展——纯逻辑 `validate_new_name`（空校验）+ 数据层 4 个 `rename_*`（级联 UPDATE + 冲突检测）+ 路由层 4 个 POST（成功 `HX-Redirect` 回首页、失败弹 toast）+ 前端把每个层级的删除图标换成悬停浮现的 ⋯ 菜单（含「重命名 / 删除」），点重命名后名字就地变输入框。

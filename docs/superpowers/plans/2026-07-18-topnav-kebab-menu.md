@@ -1,7 +1,5 @@
 # Header 三点菜单收纳 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把 header 的所有功能入口（各页面 `ctxlinks` 块 + 主题切换）收进一个 ⋯ 弹出菜单，桌面单行、窄屏三行。
 
 **Architecture:** 只改 `base.html`（header DOM）、`style.css`（桌面 + 窄屏覆盖）和两个 UI 测试文件；各页面模板的 `ctxlinks` 块零改动。弹出菜单复用现有 `.menu` / `.menu-btn` / `.menu-pop` 组件与 Alpine 模式（`@click.outside` 关闭）。

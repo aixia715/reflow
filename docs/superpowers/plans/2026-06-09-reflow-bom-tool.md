@@ -1,7 +1,5 @@
 # Reflow BOM 工具 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 实现 Reflow——一个单人使用、SQLite 存储、FastAPI + HTMX 的单板 BOM 线性版本管理 Web 工具，支持差量存储、历史编辑的自动传播与冲突确认、append-only 审计日志和稳定分享链接。
 
 **Architecture:** 纯逻辑模块（CSV 解析、折叠引擎、传播/冲突、审计）零 Web 依赖、独立可测，是测试投入重点；数据访问层封装 SQLite CRUD；FastAPI 路由薄，只做「收请求 → 调逻辑 → 渲染 Jinja2/HTMX 片段」。完整 BOM 在读取时由初始 BOM 沿父链实时折叠得出，无物化缓存。

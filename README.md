@@ -134,4 +134,4 @@ docker run -d --name reflow --restart unless-stopped \
 - `app/routes/` — FastAPI 路由（hierarchy / board / log）
 - `app/templates/`、`app/static/` — Jinja2 + HTMX 页面与样式
 
-设计文档见 `docs/superpowers/specs/`，实现计划见 `docs/superpowers/plans/`。
+历史设计文档在 `docs/superpowers/`，仅供参考。

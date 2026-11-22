@@ -1,7 +1,5 @@
 # Reflow 桌面单机版（Windows）实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 让同事在 Windows 上解压 zip、双击 exe 即可使用 Reflow，不装 Python、不装 Docker、断网可用。
 
 **Architecture:** 新增两个模块 —— `app/paths.py` 解析资源目录与用户数据目录（兼容 PyInstaller 的 `sys._MEIPASS`），`app/desktop.py` 作为打包入口负责设环境变量、绑本地 socket、开浏览器、起 uvicorn。`app/main.py` 改为基于 `resource_dir()` 解析模板与静态目录。PyInstaller onedir 打包，GitHub Actions 的 windows-latest runner 在打 tag 时构建并挂到 Release。
